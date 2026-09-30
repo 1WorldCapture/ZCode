@@ -14,7 +14,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomBytes } from "node:crypto";
 
-import type { RaftWakeRequest, WakeDelivery, WakeEndpointPort, WakeHandlerPort } from "../app/ports.js";
+import type { WakeEndpointPort } from "../app/bridgePorts.js";
+import type { RaftWakeRequest, WakeDelivery, WakeHandlerPort } from "../app/ports.js";
 
 /** 仅监听回环地址：唤醒面不对外网暴露。 */
 const LOOPBACK_HOST = "127.0.0.1";
@@ -108,7 +109,9 @@ export interface WakeServerOptions {
   port?: number;
 }
 
-export function createWakeServer(options: WakeServerOptions): WakeEndpointPort & { start(): Promise<void>; stop(): Promise<void> } {
+export function createWakeServer(
+  options: WakeServerOptions,
+): WakeEndpointPort & { listeningAddress: string | undefined; start(): Promise<void>; stop(): Promise<void> } {
   const routes = new Map<string, BindingRoute>();
   let server: Server | undefined;
   let address: string | undefined;
@@ -143,7 +146,7 @@ export function createWakeServer(options: WakeServerOptions): WakeEndpointPort &
       return;
     }
     const bindingId = parts[0];
-    const route = routes.get(bindingId);
+    const route = bindingId === undefined ? undefined : routes.get(bindingId);
     if (route === undefined) {
       send404(res);
       return;

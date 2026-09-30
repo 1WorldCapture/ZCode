@@ -82,21 +82,10 @@ export interface WakeHandlerPort {
   handleWake(input: { bindingId: string; wake: RaftWakeRequest }): Promise<WakeDelivery>;
 }
 
-/**
- * 唤醒端点端口（与 T2 bridge supervisor 的握手契约，已在线程 6bf89974 锁定）。
- * 实现见 adapters/wakeServer.ts：单 loopback server，每绑定一路路由，token 内存保管。
+/*
+ * WakeEndpointPort 已统一到 app/bridgePorts.ts（单一事实源，锁定签名含 expectedAgentId
+ * 与重入换 token）；实现见 adapters/wakeServer.ts（另扩展 listeningAddress 供诊断）。
  */
-export interface WakeEndpointPort {
-  /**
-   * 注册绑定并取端点。幂等重入：同 bindingId 再次 open 换新 token（旧 token 立即失效），
-   * 返回同一 url。必须在拉起 bridge 进程之前调用。
-   */
-  open(bindingId: string, opts: { expectedAgentId: string }): Promise<{ url: string; token: string }>;
-  /** bridge 进程确认停止之后调用；幂等；之后该绑定路由拒绝（404/401 兜底）。 */
-  close(bindingId: string): Promise<void>;
-  /** 当前监听地址（测试/诊断用）；未启动时 undefined。 */
-  readonly listeningAddress: string | undefined;
-}
 
 /** 绑定记录存储端口（实现见 adapters/bindingStore.ts）。 */
 export interface RaftBindingStorePort {

@@ -51,13 +51,24 @@ else setInterval(() => {}, 1000);
   await chmod(script, 0o755);
   return {
     script,
-    record: async () =>
-      JSON.parse(await readFile(join(dir, "record.json"), "utf8")) as {
-        argv: string[];
-        token: string;
-        profileDir: string;
-        envKeys: string[];
-      },
+    // 轮询而非立即读：负载高时 node 子进程启动可能超过 settle 窗口，record.json 尚未落盘。
+    // record.json 同时是"假 bridge 已就绪（SIGTERM handler 已装）"的信号。
+    record: async () => {
+      for (let i = 0; i < 80; i += 1) {
+        try {
+          return JSON.parse(await readFile(join(dir, "record.json"), "utf8")) as {
+            argv: string[];
+            token: string;
+            profileDir: string;
+            envKeys: string[];
+          };
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          await new Promise((r) => setTimeout(r, 25));
+        }
+      }
+      throw new Error("fake bridge 未在 2 秒内写出 record.json");
+    },
   };
 }
 
@@ -68,8 +79,8 @@ function makeSupervisor(
   const opened: string[] = [];
   const closed: string[] = [];
   const wakeEndpoint: WakeEndpointPort = {
-    open: async (id) => {
-      opened.push(id);
+    open: async (id, opts) => {
+      opened.push(`${id}:${opts.expectedAgentId}`);
       return { url: `http://127.0.0.1:1/${id}/wake`, token: TOKEN };
     },
     close: async (id) => {
@@ -199,7 +210,7 @@ test("pid 锁：被另一个存活进程持有时返回 LockHeld；陈旧锁会�
     const stale = createBridgeSupervisor({
       dataRootDir: dir,
       wakeEndpoint: {
-        open: async () => ({ url: "http://127.0.0.1:1/x", token: TOKEN }),
+        open: async (_id, _opts) => ({ url: "http://127.0.0.1:1/x", token: TOKEN }),
         close: async () => {},
       },
       ownerGuard: { isOwner: () => true },
@@ -236,6 +247,9 @@ test("stopAll：忽略 SIGTERM 的进程在宽限期后被强杀", async () => {
     const fake = await makeFakeBridge(dir, { ignoreSigterm: true });
     const { supervisor } = makeSupervisor(dir, { stopGraceMs: 300 });
     assert.equal((await supervisor.start(BINDING, fake.script)).ok, true);
+    // 等 SIGTERM handler 就绪再停：否则 SIGTERM 落在 node 启动期（handler 未装）会立即退出，
+    // "等满宽限期再强杀"的时序断言在慢机上必然偶发失败。
+    await fake.record();
     const startedAt = Date.now();
     await supervisor.stopAll();
     assert.equal(supervisor.isRunning(BINDING.bindingId), false);

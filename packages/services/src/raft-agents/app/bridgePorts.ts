@@ -2,10 +2,20 @@
  * T2 Bridge 管理的 app 层端口。与 ports.ts（T1）分开，避免两个任务改同一个文件。
  */
 
-/** 唤醒端点（T3 提供）：bridge 唤醒时 POST 到这里；token 由端点所有者按绑定生成与保管。 */
+/**
+ * 唤醒端点（T3 提供，实现见 adapters/wakeServer.ts）：bridge 唤醒时 POST 到这里；
+ * token 由端点所有者按绑定生成与保管（只存内存，不落盘）。
+ * 语义与线程 6bf89974 锁定版一致：open 须在拉起 bridge 之前调用；close 须在
+ * bridge 进程确认退出之后调用（supervisor 的退出清理顺序已遵守）。
+ */
 export interface WakeEndpointPort {
-  /** 确保该绑定的端点已监听并返回地址与 token；幂等。 */
-  open(bindingId: string): Promise<{ url: string; token: string }>;
+  /**
+   * 注册绑定并取端点。重入换代：同 bindingId 再次 open 生成新 token（旧 token 立即
+   * 失效，持有旧 token 的僵尸 bridge 无法再注入），返回同一 url。
+   * expectedAgentId 用于 HTTP 层身份核对（spec §8.5：wake.agentId 不符 → 401）。
+   */
+  open(bindingId: string, opts: { expectedAgentId: string }): Promise<{ url: string; token: string }>;
+  /** 注销该绑定路由；幂等；之后该绑定的 wake/drain 一律 404 兜底。 */
   close(bindingId: string): Promise<void>;
 }
 

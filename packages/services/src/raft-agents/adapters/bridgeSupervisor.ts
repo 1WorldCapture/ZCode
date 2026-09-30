@@ -124,7 +124,8 @@ export function createBridgeSupervisor(options: BridgeSupervisorOptions): Bridge
 
         let endpoint: { url: string; token: string };
         try {
-          endpoint = await options.wakeEndpoint.open(id);
+          // 锁定契约（线程 6bf89974）：open 传 expectedAgentId，端点在 HTTP 层核对身份（spec §8.5）。
+          endpoint = await options.wakeEndpoint.open(id, { expectedAgentId: binding.raftAgentId });
         } catch (error) {
           await lock.release();
           return { ok: false, code: "EndpointUnavailable", detail: String(error) };
