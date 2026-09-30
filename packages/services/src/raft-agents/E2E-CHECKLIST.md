@@ -35,6 +35,8 @@
 
 ## 2. 评审 / 任务遗留验证项（task #8）
 
+- [ ] **绑定删除无外部入口**（15:49 发现，二期）：removeBinding 服务接口只在 Electron renderer↔main 的 MessagePort 上，UI 无删除按钮 → 无任何外部触达路径；静态改 bindings.json 会被内存态回写。二期补 UI 删除入口。另：removeBinding 不删 Agent Home、不关预建主会话（第一期范围，已与 PM 对齐为预期行为）。
+
 - [ ] **主窗口判定**（ownerGuard）：双窗口/多 ServiceCollection 场景，bridge 只由一处启动（当前缺省恒真 + 进程锁，验证锁行为并决定是否接真实判定）。
 - [ ] **打包态路径**：production build 里 CLI（raft ≥0.0.24 / `ZCODE_RAFT_CLI`）与官方插件（raft-agent-tools）解析路径正确；MCP 引用 fail-closed 语义在打包态成立。
 - [ ] **真实 resume 失败形态**：会话记录丢失时的实际错误 → SessionResumeFailed + ErrorPaused(session_unavailable) 投影；是否自动重建留二期决策。
@@ -85,6 +87,8 @@
   - commandId 幂等：PM 两条 wake 对两个 bridge 均有投递（含 duplicate:true 重放，host 日志 fast_reconcile reinjected=2），频道无重复回复。
   - 附带首测：`confineFileToolsToWorkspace` 生产首次实测——15:21:14 Glob 越出 Home 被拒（`permission_denied: File tool access is restricted to the workspace root`），6 秒后 in-root 重试成功（设计内可恢复拒绝，无逃逸）。
   - 附带：TestAgent-2 bridge 同步收到同频道 wake，check 后不动作（非@自己）——频道投递语义正确。
+- **S3 保存不开始 — 通过（强证据版，15:45 保存 TestAgent-3 后核验）**：①ps 中 bridge 恰 2 个（TestAgent-1/2），无 TestAgent-3（fd56b3b3）；②收件日志目录 `~/.zcode/raft/inbox-logs/` 无 fd56b3b3（无读取）；③nginx（grokbot）：15:45:19 仅一次 `GET /internal/agent-api/`（保存时身份核验），此后零轮询。bindings.json 中 TestAgent-3 desiredState=ReadyStopped。附注：保存时主会话已预建（sess_843dafce，gen 1）——provisioning 设计内行为，无运行、无外部效应，不违反判据。
+- **S2 错 token 拒绝 — 通过（16:09–16:11，TestAgent-4 变体）**：表单填 TestAgent-4 ID + TestAgent-1 真实 token → 服务器侧 16:09:46 身份核验 200（token 本身有效）→ CLI 判明归属 agent 与填写 ID 不符 → 表单报"这个 Token 属于另一个 Agent 或另一个服务，请核对 Agent ID 和服务地址"（IdentityMismatch 中文文案，lyonliang 截图 f413b196）。**无残留**（对比提交前基线）：bindings.json 仍 3 条、profile 目录无新增（失败路径清理）、Home 无新增、收件日志无新增；TestAgent-1/2 已有绑定数据不变（Running/session/gen 未动）。附带：首次误填格式非法 token 验证了本地格式校验路径（未联网即拒，服务器零请求）。
 - 备注（更正）：TestAgent-1 回复中提到 commit 号 fd8c6b2 **不是幻觉**——出自 Dev-developer 15:13:36 发在 99a13660 线程的消息（ab00f41c），其补复正是在该线程内，属读线程上下文的合法引用。
 - 记忆无串核验（S7 附加项）：直读 TestAgent-1 的 Home 记忆文件（`~/.zcode/agents/f2b0a9f0…/workspace/notes/work-log.md`）——内容全为自身经历（自身 10 次工具失败、自身 held 草稿、自身补复）+ 频道公开消息可得的事实（"第六层"/fd8c6b2 引用来源见上）；"send 结果不确定时的处理经验"为其亲历（TestAgent-2 的同类经验在各自 Home，互不渗透）；其记忆还记有"未代答发给 TestAgent-2 的消息（验收要求身份不串）"。**结论：无串记忆。**
 
