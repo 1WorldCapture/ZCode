@@ -6,7 +6,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { CommandAck, RaftAgentBinding } from "@zcode/shared";
+import type { CommandAck } from "@zcode/shared/zcode-protocol-v4";
+import type { RaftAgentBinding } from "@zcode/shared";
 
 import { buildWakePrompt, createRaftWakeDelivery, wakeCycleId } from "../src/raft-agents/app/wakeDelivery.js";
 import type { RaftBindingStorePort, RaftSessionPort, RaftSessionSendOutcome } from "../src/raft-agents/app/ports.js";

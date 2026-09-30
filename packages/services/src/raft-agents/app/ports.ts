@@ -111,6 +111,15 @@ export interface RaftSessionPort {
     commandId: string;
     text: string;
   }): Promise<RaftSessionSendOutcome>;
+  /**
+   * 创建空主会话（绑定 provisioning 用；不发送任何输入，spec §4）。
+   * mcpServers 为一次性启动期注入（协议约束：首发后不可补写）；
+   * wire 形状 = ZCodeAgentMcpServer（env 为 {name,value}[]，stdio 分支无 type/cwd 字段）。
+   */
+  createAgentSession(params: {
+    workspacePath: string;
+    mcpServers: import("@zcode/shared").ZCodeAgentMcpServer[];
+  }): Promise<{ ok: true; sessionId: string } | { ok: false; code: "failed"; detail?: string }>;
 }
 
 /** 绑定记录存储端口（实现见 adapters/bindingStore.ts）。 */
