@@ -3,12 +3,32 @@
  * 连接状态与运行状态是两个维度（spec §10），不允许压成一个状态点。
  */
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import type { StatusDotTone } from "@/settings/StatusDot.js";
 import type {
   RaftAgentConnectionState,
   RaftAgentErrorPauseReason,
   RaftAgentRunState,
 } from "@/agents/types.js";
 import { isErrorPaused } from "@/agents/types.js";
+
+/**
+ * 运行状态对应的状态圆点（复用设置页 StatusDot 惯例）：
+ * 运行=绿、异常暂停=琥珀（凭据类原因=红）、过渡态=旋转、已停止=灰。
+ */
+export function runStateDot(state: RaftAgentRunState): { tone: StatusDotTone; spinning?: boolean } {
+  if (isErrorPaused(state)) {
+    return { tone: state.reason === "credential_invalid" ? "red" : "amber" };
+  }
+  switch (state) {
+    case "Running":
+      return { tone: "green" };
+    case "Starting":
+    case "Stopping":
+      return { tone: "muted", spinning: true };
+    case "ReadyStopped":
+      return { tone: "muted" };
+  }
+}
 
 export function formatConnectionState(
   formatMessage: ReturnType<typeof useZCodeIntl>["intl"]["formatMessage"],
