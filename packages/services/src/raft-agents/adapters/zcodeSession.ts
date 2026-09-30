@@ -8,12 +8,12 @@
  * failed/异常 = 传递层失败，可退避重试（commandId 确定性派生，重复提交被判 duplicate）。
  */
 import type { CommandAck } from "@zcode/shared/zcode-protocol-v4";
-import type { ZCodeAgentMcpServer } from "@zcode/shared";
 
 import { createHostCommandEnvelope } from "#src/zcode-agent/zcodeV4HostCommand.js";
 import type {
   ZCodeAgentConversationCommandParams,
   ZCodeAgentCreateSessionParams,
+  ZCodeAgentResumeSessionParams,
 } from "#src/zcode-agent/zcodeAgent.js";
 
 import type { RaftSessionPort, RaftSessionSendOutcome } from "../app/ports.js";
@@ -22,10 +22,12 @@ import type { RaftSessionPort, RaftSessionSendOutcome } from "../app/ports.js";
 export interface ZcodeSessionAgent {
   sendConversationCommandV4(params: ZCodeAgentConversationCommandParams): Promise<CommandAck>;
   /**
-   * session/create RPC（非 V4 命令通道）：支持空会话创建与 mcpServers 一次性注入。
-   * 返回快照只需 session.sessionId（结构面收窄）。
+   * session/create RPC（非 V4 命令通道）：支持空会话创建与启动期注入
+   * （agentMemory + officialMcpServers）。返回快照只需 session.sessionId（结构面收窄）。
    */
   createSession(params: ZCodeAgentCreateSessionParams): Promise<{ session: { sessionId: string } }>;
+  /** session/resume RPC：冷恢复重建 runtime，agentMemory/officialMcpServers 随请求重发。 */
+  resumeSession(params: ZCodeAgentResumeSessionParams): Promise<unknown>;
 }
 
 function ackToOutcome(ack: CommandAck): RaftSessionSendOutcome {
@@ -63,9 +65,24 @@ export function createZcodeSessionPort(agent: ZcodeSessionAgent): RaftSessionPor
       try {
         const snapshot = await agent.createSession({
           workspacePath: params.workspacePath,
-          mcpServers: params.mcpServers satisfies ZCodeAgentMcpServer[],
+          agentMemory: params.agentMemory,
+          officialMcpServers: params.officialMcpServers,
         });
         return { ok: true, sessionId: snapshot.session.sessionId };
+      } catch (error) {
+        return { ok: false, code: "failed", detail: String(error) };
+      }
+    },
+
+    async resumeAgentSession(params) {
+      try {
+        await agent.resumeSession({
+          workspacePath: params.workspacePath,
+          sessionId: params.sessionId,
+          agentMemory: params.agentMemory,
+          officialMcpServers: params.officialMcpServers,
+        });
+        return { ok: true };
       } catch (error) {
         return { ok: false, code: "failed", detail: String(error) };
       }

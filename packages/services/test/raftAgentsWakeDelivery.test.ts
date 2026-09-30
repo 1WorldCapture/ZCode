@@ -70,7 +70,7 @@ interface SentCall {
   text: string;
 }
 
-/** 可编程 sessions 端口：记录调用并按脚本返回。 */
+/** 可编程 sessions 端口：记录调用并按脚本返回（create/resume 非本文件路径，抛错守卫）。 */
 function fakeSessions(scripts: RaftSessionSendOutcome[] = [{ ok: true, duplicate: false }]) {
   const sent: SentCall[] = [];
   let i = 0;
@@ -80,6 +80,12 @@ function fakeSessions(scripts: RaftSessionSendOutcome[] = [{ ok: true, duplicate
       const script = scripts[Math.min(i, scripts.length - 1)];
       i += 1;
       return script;
+    },
+    async createAgentSession() {
+      throw new Error("唤醒投递不建会话");
+    },
+    async resumeAgentSession() {
+      throw new Error("唤醒投递不恢复会话");
     },
   };
   return { port, sent };
@@ -166,6 +172,9 @@ function fakeAgent(acks: CommandAck[] | ((envelope: CommandEnvelope) => CommandA
       const next = typeof acks === "function" ? acks(params.envelope) : acks[Math.min(i, acks.length - 1)];
       i += 1;
       return next;
+    },
+    async resumeSession(): Promise<unknown> {
+      throw new Error("本测试不触恢复路径");
     },
   };
 }

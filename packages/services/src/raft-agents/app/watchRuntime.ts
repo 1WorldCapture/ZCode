@@ -3,8 +3,10 @@
  *
  * 链路（spec §3 崩溃恢复顺序 + §8.5 D8）：
  *   CLI 就绪 → MEMORY 门（T5 AgentHomePort.verifyMemoryAvailable；失败即
- *   ErrorPaused(memory_unavailable)，不碰 bridge）→ 锁内换代 sessionGeneration+1 并
- *   持久化 → supervisor.start → 成功后 D8 积压 drain（commandId 无 messageId，
+ *   ErrorPaused(memory_unavailable)，不碰 bridge）→ 官方 MCP 引用解析（fail-closed）→
+ *   锁内换代 sessionGeneration+1 并持久化 → 会话恢复（resume 重发 agentMemory +
+ *   officialMcpServers——冷恢复重建 runtime 缺了会退回项目记忆且无 Raft 工具）→
+ *   supervisor.start → 成功后 D8 积压 drain（commandId 无 messageId，
  *   按 bindingId+启动代次派生，重启后的 drain 不被误判重复）。
  *
  * 设计要点：
@@ -15,31 +17,20 @@
  *   防"用户停止 vs 编排器换代"的读-改-写竞态。
  * - 每绑定线性化：start/stop 经同一 in-flight 链排队，stop 不会插进 start 的换代与
  *   spawn 之间留下孤儿 bridge；并发的重复 start 合并为同一次执行。
- * - 顺序红线（spec §3）：MEMORY 门通过之前绝不启动 bridge——bridge 一旦启动就会
- *   开始收到积压唤醒，顺序不能反。
+ * - 顺序红线（spec §3）：MEMORY 门与会话恢复都完成之前绝不启动 bridge——bridge
+ *   一旦启动就会开始收到积压唤醒，顺序不能反。
  */
-import type { RaftAgentBinding, RaftAgentRunState } from "@zcode/shared";
+import type { RaftAgentBinding, RaftAgentRunState, ZCodeOfficialMcpServerRef } from "@zcode/shared";
 
 import type { ServiceLogger } from "#src/logger/serviceLogger.js";
 
+import type { AgentHomePort } from "./agentHomePorts.js";
 import type { BridgeSupervisorPort } from "./bridgePorts.js";
 import type { ClockPort, RaftBindingStorePort, RaftCliPort, RaftSessionPort } from "./ports.js";
 import type { RaftStoreWriteLock } from "./storeLock.js";
 
-/**
- * 记忆门端口：T5 AgentHomePort 的子集（线程 350a734e 锁定签名）。
- * grokbot 的 app/agentHomePorts.ts 落地后改为从其模块 import 正式类型，此处
- * 结构保持一致以零改动切换。四个失败码在编排层统一收敛为
- * ErrorPaused(memory_unavailable)，细节进日志。
- */
-export interface RaftMemoryGatePort {
-  verifyMemoryAvailable(input: {
-    homeWorkspacePath: string;
-  }): Promise<
-    | { ok: true }
-    | { ok: false; code: "HomeMissing" | "MemoryMissing" | "MemoryUnreadable" | "MemoryEmpty"; detail?: string }
-  >;
-}
+/** 记忆门：T5 AgentHomePort 的 verifyMemoryAvailable 面（四个失败码统一收敛为 ErrorPaused(memory_unavailable)，细节进日志）。 */
+export type RaftMemoryGatePort = Pick<AgentHomePort, "verifyMemoryAvailable">;
 
 /** 锁内换代的结果：会话字段在锁内提取（闭包外的可空收窄不可靠）。 */
 type StartLockResult =
@@ -56,6 +47,8 @@ export type RaftWatchStartOutcome =
         | "NoMainSession"
         | "MemoryUnavailable"
         | "CliUnavailable"
+        | "McpUnavailable"
+        | "SessionResumeFailed"
         | "BridgeStartFailed";
       detail?: string;
     };
@@ -67,8 +60,13 @@ export interface RaftWatchRuntimeOptions {
   sessions: RaftSessionPort;
   supervisor: BridgeSupervisorPort;
   cli: Pick<RaftCliPort, "resolve">;
-  /** 记忆门（T5）；未注入时跳过该步——宿主接线在 T5 落地后必须补上（顺序红线）。 */
+  /** 记忆门（T5）；未注入时跳过该步——宿主接线必须补上（顺序红线）。 */
   memory?: RaftMemoryGatePort;
+  /**
+   * 官方宿主 MCP 具名引用（与 provisioning 同一来源）：resume 冷恢复必须重发，缺了
+   * 重建的 runtime 没有 Raft 工具。返回 undefined/空 = 插件不可用（fail-closed 不启动）。
+   */
+  resolveOfficialMcpServers: () => Promise<ZCodeOfficialMcpServerRef[] | undefined>;
   clock?: ClockPort;
   logger?: ServiceLogger;
 }
@@ -179,6 +177,14 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
       }
     }
 
+    // 官方 MCP 引用（fail-closed）：resume 冷恢复必须重发；插件不可用就不启动值守
+    //（没有 Raft 工具的会话收了唤醒也无法处理，fail-fast 比带病值守好）。
+    const officialMcpServers = await options.resolveOfficialMcpServers();
+    if (officialMcpServers === undefined || officialMcpServers.length === 0) {
+      logger?.warn(undefined, "raft watch start blocked: official mcp unavailable", { bindingId });
+      return { ok: false, code: "McpUnavailable" };
+    }
+
     // 锁内：重读（防 start 期间 setDesiredState）→ 校验 → 换代 → 持久化。
     const locked = await options.lock.withLock(async (): Promise<StartLockResult> => {
       const bindings = await options.store.readAll();
@@ -203,6 +209,24 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
     const binding = locked.binding;
     // 清历史 ErrorPaused：本次结果以 supervisor 启动成败为准。
     overlay.delete(bindingId);
+
+    // 会话恢复（spec §3：先于 bridge 启动）：resume 重发记忆作用域与 MCP 引用——
+    // 冷恢复会重建 runtime，缺了会退回项目记忆且无 Raft 工具。失败不置 ErrorPaused
+    //（RPC/会话层问题非本机故障语义），由用户或下次 Host 启动重试。
+    const resumed = await options.sessions.resumeAgentSession({
+      workspacePath: binding.homeWorkspacePath,
+      sessionId: locked.sessionId,
+      agentMemory: { homeRoot: binding.homeWorkspacePath, agentName: binding.displayName },
+      officialMcpServers,
+    });
+    if (!resumed.ok) {
+      logger?.warn(undefined, "raft watch start blocked: session resume failed", {
+        bindingId,
+        sessionId: locked.sessionId,
+        detail: resumed.detail,
+      });
+      return { ok: false, code: "SessionResumeFailed", detail: resumed.detail };
+    }
 
     const started = await options.supervisor.start(
       { bindingId, profileSlug: binding.profileSlug, raftAgentId: binding.raftAgentId },

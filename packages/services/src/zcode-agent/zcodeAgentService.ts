@@ -637,6 +637,10 @@ function buildSessionCreateParams(
     ...(params.mcpServers !== undefined && !omittedFields.has("mcpServers")
       ? { mcpServers: params.mcpServers }
       : {}),
+    // Raft Agent 字段不进兼容降级集：旧 app-server 不认时宁可硬失败，也不能静默
+    // 建出一个退回项目记忆、没有 Raft 工具的 agent 会话（错误作用域比失败更糟）。
+    ...(params.agentMemory !== undefined ? { agentMemory: params.agentMemory } : {}),
+    ...(params.officialMcpServers !== undefined ? { officialMcpServers: params.officialMcpServers } : {}),
     // CUA 工具隔离字段是可降级的：旧 app-server 的 .strict() schema 若不认，兼容重试会把它们放进
     // omittedFields 省略后重试（而不是硬失败）。故这里必须同样受 omittedFields 门控。
     ...(params.toolAllowlist !== undefined && !omittedFields.has("toolAllowlist")
@@ -677,6 +681,9 @@ function buildSessionResumeParams(
     ...(params.mcpServers !== undefined && !omittedFields.has("mcpServers")
       ? { mcpServers: params.mcpServers }
       : {}),
+    // Raft Agent 字段与 create 同语义：不进兼容降级集（缺了会退回项目记忆且无 Raft 工具）。
+    ...(params.agentMemory !== undefined ? { agentMemory: params.agentMemory } : {}),
+    ...(params.officialMcpServers !== undefined ? { officialMcpServers: params.officialMcpServers } : {}),
     // 工具面约束必须和 create 路径一致随 resume 下发，否则冷恢复重建 runtime 后会丢失 allow/deny
     // 隔离（CUA 会话会重新可见 Bash 等被禁工具）。旧 app-server 不认时经 omittedFields 降级。
     ...(params.toolAllowlist !== undefined && !omittedFields.has("toolAllowlist")

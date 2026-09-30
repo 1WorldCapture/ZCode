@@ -64,6 +64,7 @@ export function createDefaultRaftWatchRuntime(
     supervisor: options.supervisor,
     cli: options.cli ?? createRaftCliAdapter(),
     memory: options.memory,
+    resolveOfficialMcpServers: options.resolveOfficialMcpServers,
     clock: options.clock,
     logger: options.logger,
   });

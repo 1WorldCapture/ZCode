@@ -113,13 +113,27 @@ export interface RaftSessionPort {
   }): Promise<RaftSessionSendOutcome>;
   /**
    * 创建空主会话（绑定 provisioning 用；不发送任何输入，spec §4）。
-   * mcpServers 为一次性启动期注入（协议约束：首发后不可补写）；
-   * wire 形状 = ZCodeAgentMcpServer（env 为 {name,value}[]，stdio 分支无 type/cwd 字段）。
+   * officialMcpServers 是官方宿主 MCP 的具名引用（command/args 由 app-server 用自己的
+   * 插件 rootPath 拼装，方案 1，线程 f3239b45）；agentMemory 指定记忆作用域 = Agent Home。
+   * 两者均为启动期一次性注入，首发后不可补写（协议约束）。
    */
   createAgentSession(params: {
     workspacePath: string;
-    mcpServers: import("@zcode/shared").ZCodeAgentMcpServer[];
+    agentMemory: import("@zcode/shared").ZCodeAgentMemory;
+    officialMcpServers: import("@zcode/shared").ZCodeOfficialMcpServerRef[];
   }): Promise<{ ok: true; sessionId: string } | { ok: false; code: "failed"; detail?: string }>;
+  /**
+   * 恢复主会话（值守开始用，spec §3：先完成会话恢复与 MEMORY 校验再启动 bridge）。
+   * 冷恢复会重建 runtime，agentMemory 与 officialMcpServers 必须随 resume 再次下发
+   * （缺失会退回项目记忆且无 Raft 工具）。失败不置 ErrorPaused（非本机故障语义），
+   * 由调用方决定重试时机。
+   */
+  resumeAgentSession(params: {
+    workspacePath: string;
+    sessionId: string;
+    agentMemory: import("@zcode/shared").ZCodeAgentMemory;
+    officialMcpServers: import("@zcode/shared").ZCodeOfficialMcpServerRef[];
+  }): Promise<{ ok: true } | { ok: false; code: "failed"; detail?: string }>;
 }
 
 /** 绑定记录存储端口（实现见 adapters/bindingStore.ts）。 */

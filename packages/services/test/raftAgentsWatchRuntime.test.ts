@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { RaftAgentBinding } from "@zcode/shared";
+import type { RaftAgentBinding, ZCodeOfficialMcpServerRef } from "@zcode/shared";
 
 import {
   backlogDrainCommandId,
@@ -114,9 +114,19 @@ function fakeSupervisor(startScript: BridgeStartResult[] = [{ ok: true, pid: 432
   };
 }
 
-function fakeSessions(scripts: RaftSessionSendOutcome[] = [{ ok: true, duplicate: false }]) {
+function fakeSessions(
+  scripts: RaftSessionSendOutcome[] = [{ ok: true, duplicate: false }],
+  resumeScript: Array<{ ok: true } | { ok: false; code: "failed"; detail?: string }> = [{ ok: true }],
+) {
   const sent: Array<{ workspacePath: string; sessionId: string; commandId: string; text: string }> = [];
+  const resumes: Array<{
+    workspacePath: string;
+    sessionId: string;
+    agentMemory: { homeRoot: string; agentName?: string };
+    officialMcpServers: ZCodeOfficialMcpServerRef[];
+  }> = [];
   let i = 0;
+  let j = 0;
   const port: RaftSessionPort = {
     async sendQueuedText(params) {
       sent.push(params);
@@ -124,9 +134,19 @@ function fakeSessions(scripts: RaftSessionSendOutcome[] = [{ ok: true, duplicate
       i += 1;
       return script;
     },
+    async resumeAgentSession(params) {
+      resumes.push(params);
+      const script = resumeScript[Math.min(j, resumeScript.length - 1)];
+      j += 1;
+      return script;
+    },
   };
-  return { port, sent };
+  return { port, sent, resumes };
 }
+
+const MCP_REFS: ZCodeOfficialMcpServerRef[] = [
+  { name: "raft-agent-tools", env: [{ name: "ZCODE_RAFT_BINDING_ID", value: BINDING_ID }] },
+];
 
 const okCli = { resolve: async () => ({ ok: true as const, cliPath: CLI_PATH, version: "0.0.24" }) };
 
@@ -136,6 +156,7 @@ function makeRuntime(overrides: {
   sessions?: ReturnType<typeof fakeSessions>;
   cli?: typeof okCli;
   memory?: RaftMemoryGatePort;
+  resolveOfficialMcpServers?: () => Promise<ZCodeOfficialMcpServerRef[] | undefined>;
 } = {}) {
   const store = overrides.store ?? fakeStore([makeBinding()]);
   const supervisor = overrides.supervisor ?? fakeSupervisor();
@@ -147,6 +168,7 @@ function makeRuntime(overrides: {
     supervisor: supervisor.supervisor,
     cli: overrides.cli ?? okCli,
     memory: overrides.memory,
+    resolveOfficialMcpServers: overrides.resolveOfficialMcpServers ?? (async () => MCP_REFS),
     clock: { nowIso: () => "2026-09-30T12:00:00.000Z" },
   });
   return { runtime, store, supervisor, sessions };
@@ -168,6 +190,13 @@ test("startWatch 成功链：换代+1 持久化 → spawn(带 cliPath) → D8 dr
     raftAgentId: AGENT_ID,
   });
   assert.equal(supervisor.startCalls[0].cliPath, CLI_PATH);
+  // 会话恢复先于 bridge 启动（spec §3 顺序），重发记忆作用域与官方 MCP 引用。
+  assert.equal(sessions.resumes.length, 1);
+  assert.equal(sessions.resumes[0].sessionId, "sess-7");
+  assert.equal(sessions.resumes[0].workspacePath, "/tmp/raft-homes/agent-a");
+  assert.equal(sessions.resumes[0].agentMemory.homeRoot, "/tmp/raft-homes/agent-a");
+  assert.equal(sessions.resumes[0].agentMemory.agentName, "t0-test-agent");
+  assert.equal(sessions.resumes[0].officialMcpServers, MCP_REFS);
   // D8 drain：commandId = bindingId+代次，文本含工具引导与代次，无凭据形态。
   assert.equal(sessions.sent.length, 1);
   assert.equal(sessions.sent[0].commandId, `raft-drain:${BINDING_ID}:2`);
@@ -204,6 +233,7 @@ test("MEMORY 门失败：ErrorPaused(memory_unavailable)，不换代不 spawn（
   assert.equal(store.writes.length, 0, "未换代");
   assert.equal(supervisor.startCalls.length, 0, "MEMORY 门未过不碰 bridge");
   assert.equal(sessions.sent.length, 0);
+  assert.equal(sessions.resumes.length, 0, "MEMORY 门未过不恢复会话");
   assert.deepEqual(runtime.resolveRunState(store.current()[0]), {
     kind: "ErrorPaused",
     reason: "memory_unavailable",
@@ -358,4 +388,28 @@ test("幂等键与文本：代次参与 commandId；prompt 含绑定/代次与�
   assert.ok(text.includes("raft_message_send"));
   assert.ok(text.includes("backlog drain"));
   assert.ok(!text.includes("sk_agent_"));
+});
+
+test("官方 MCP 引用不可用：fail-closed 不换代不恢复不 spawn", async () => {
+  const { runtime, store, supervisor, sessions } = makeRuntime({
+    resolveOfficialMcpServers: async () => undefined,
+  });
+  const outcome = await runtime.startWatch(BINDING_ID);
+  assert.ok(!outcome.ok && outcome.code === "McpUnavailable");
+  assert.equal(store.writes.length, 0);
+  assert.equal(sessions.resumes.length, 0);
+  assert.equal(supervisor.startCalls.length, 0);
+});
+
+test("resume 失败：中止且不置 ErrorPaused（非本机故障语义），换代已保留", async () => {
+  const sessions = fakeSessions([{ ok: true, duplicate: false }], [
+    { ok: false, code: "failed", detail: "rpc down" },
+  ]);
+  const { runtime, store, supervisor } = makeRuntime({ sessions });
+  const outcome = await runtime.startWatch(BINDING_ID);
+  assert.ok(!outcome.ok && outcome.code === "SessionResumeFailed");
+  assert.ok(!outcome.ok && outcome.detail === "rpc down");
+  assert.equal(supervisor.startCalls.length, 0, "resume 未过不启动 bridge");
+  assert.equal(store.writes.length, 1, "换代已持久化（幂等键唯一性保留）");
+  assert.equal(runtime.resolveRunState(store.current()[0]), undefined, "无覆盖层，投影回落推导");
 });

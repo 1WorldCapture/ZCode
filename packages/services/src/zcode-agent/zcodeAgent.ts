@@ -8,6 +8,8 @@ import type {
   ZCodeStorageStartupState,
   ZCodeDeliveryKind,
   ZCodeAgentMcpServer,
+  ZCodeAgentMemory,
+  ZCodeOfficialMcpServerRef,
   ZCodeBackgroundTurnAttribution,
   TraceId,
   ZCodeSessionCompactResult,
@@ -149,6 +151,10 @@ export interface ZCodeAgentResumeSessionParams extends ZCodeAgentSessionTarget {
   model?: ModelSelection;
   thoughtLevel?: string;
   mcpServers?: ZCodeAgentMcpServer[];
+  // Raft Agent 会话：冷恢复重建 runtime 时记忆作用域与官方宿主 MCP 必须随 resume 再次下发
+  //（缺失会退回项目记忆且无 Raft 工具），与 create 同语义（shared schema 注释）。
+  agentMemory?: ZCodeAgentMemory;
+  officialMcpServers?: ZCodeOfficialMcpServerRef[];
   // 冷恢复会重建 runtime，工具面隔离必须和 create 保持同一安全边界（CUA 只放行 zcode-cua 工具、
   // 禁 Bash 等）。否则 resume 后模型可见工具面/执行权限会比创建时更宽。
   toolAllowlist?: string[];
@@ -200,6 +206,9 @@ export interface ZCodeAgentCreateSessionParams extends ZCodeAgentWorkspaceTarget
   /** automation 执行会话关闭模型二次命名，保持首条用户 query 作为稳定标题。 */
   titleGenerationEnabled?: boolean;
   mcpServers?: ZCodeAgentMcpServer[];
+  // Raft Agent 记忆作用域与官方宿主 MCP（具名引用，app-server 拼装 command/args）。
+  agentMemory?: ZCodeAgentMemory;
+  officialMcpServers?: ZCodeOfficialMcpServerRef[];
   toolAllowlist?: string[];
   toolDenylist?: string[];
   importedHistory?: ZCodeSessionImportHistory;
