@@ -87,7 +87,18 @@ export function sanitizedEnv(
 export function runCli(
   cliPath: string,
   args: string[],
-  opts: { timeoutMs: number; env: Record<string, string>; stdin?: string },
+  opts: {
+    timeoutMs: number;
+    env: Record<string, string>;
+    stdin?: string;
+    /**
+     * stdout 出现该权威成功行即视为命令已完成：结束子进程并按成功（status 0）返回。
+     * 原因：官方 CLI 以 process.exitCode 结束而不是 process.exit，事件循环里残留的
+     * 句柄（keep-alive 连接、定时器等）会让已成功的命令迟迟不退出，拖到超时被杀，
+     * 调用方就会把"已成功"误判为"结果不确定"。
+     */
+    settleWhenStdoutMatches?: RegExp;
+  },
 ): Promise<CliRun> {
   return new Promise((resolve) => {
     const child = spawn(cliPath, args, {
@@ -97,11 +108,17 @@ export function runCli(
     });
     let stdout = "";
     let stderr = "";
+    let settledBySuccessLine = false;
     const timer = setTimeout(() => {
       child.kill();
     }, opts.timeoutMs);
     child.stdout.on("data", (chunk: Buffer) => {
       stdout = capKeepingTail(stdout + chunk.toString("utf8"), MAX_STDOUT_BYTES);
+      if (!settledBySuccessLine && opts.settleWhenStdoutMatches?.test(stdout)) {
+        settledBySuccessLine = true;
+        // 给同一批输出的其余部分一点时间写完，再结束残留的子进程。
+        setTimeout(() => child.kill(), 300);
+      }
     });
     child.stderr.on("data", (chunk: Buffer) => {
       stderr = capKeepingTail(stderr + chunk.toString("utf8"), MAX_STDERR_BYTES);
@@ -116,7 +133,7 @@ export function runCli(
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      resolve({ status: code, stdout, stderr });
+      resolve({ status: settledBySuccessLine ? 0 : code, stdout, stderr });
     });
     // 子进程不读 stdin 就退出时写入会触发 EPIPE，忽略即可（结果由退出码判断）。
     child.stdin.on("error", () => undefined);
