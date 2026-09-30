@@ -70,3 +70,21 @@
   4. **权限模式缺失（第五层，commit 432553a）**：run4 里 turn 启动后工具调用不执行——V4 缺省权限模式对 MCP 工具调用要求人工批准，值守会话无人批准 → 两 agent 各挂 pendingPermissions=2，`raft_message_check` 卡 running（grokbot 从服务端 nginx 日志独立对上：hint 已到 bridge、但无任何读收件箱的 `/events` 请求）。修复 = 无人值守权限模型三层（SPEC「主会话权限模型」节）：`mode:"yolo"`（create 锁定 + 每次投递显式带，堵空草稿冷恢复角落）+ 注册级 `toolAllowlist`（Raft 六工具 + Read/Write/Edit/Glob/Grep/TodoWrite；无 Bash、无 ApplyPatch）+ 新 wire 参数 `confineFileToolsToWorkspace`（文件工具读写锁定 Agent Home 内，执行边界拒绝、压过 yolo；读也限——防全盘读+发消息外带）。采纳 grokbot 评审意见：白名单必须含文件工具（Agent 自维护记忆），但写入须限 Home、不放 Bash。
   5. **插件宿主入口不兼容（第六层，commit fd8c6b2，15:00 重测暴露）**：第五层修好后工具调用真正打到 MCP 连接上，`raft_message_check` 18/22 次 `CONNECTION_CLOSED`——app-server 经官方插件宿主拉起 raft_agent_tools（import 构建产物后调用导出的 `main()`，plugin-host-command.ts），而插件入口只顶层自启、未导出 main → 宿主报 `Plugin server does not export main().` 退出子进程；顶层自启又让服务存活一瞬，形成"连上→片刻断"竞态（run4 前调用卡在权限层从未触碰连接，竞态被掩盖）。修复：照 node-repl-host 惯例 `export async function main()` + `isDirectMcpEntrypoint` realpath 直跑守卫；补两条宿主路径回归测试（import+main 驱动构建产物、仅 import 不自启）。grokbot 认领（T4 端到端只直跑 `node server.js`，走不到宿主 import 路径）。15:00 重测同时确认第五层生效：`pendingPermissions=0`、积压 15:00:02 全量读走（14KB/8KB）、唤醒到读取 9 秒（grokbot nginx 时间线）。
 
+### 2026-09-30 15:14–15:24（执行：lyonliang+PM / 盯日志：Dev-developer + grokbot）
+
+- **S4 开始→@→回复 — 通过**（15:14:26 重启修复版后）：
+  - TestAgent-1：15:00:58 被 @（旧实例连接抖动未能回复）→ 重启后积压处理补复，15:16:03 频道回复"我是 TestAgent-1，正在通过 ZCode 运行"，并主动补复 PM 13:11 请求与 Dev-developer 14:12 自测（回到原线程 99a13660，15:17:57）。
+  - TestAgent-2：15:14:58 被 @ → 15:16:27 在 lyonliang 消息的**线程内**回复"我是 TestAgent-2"。
+  - host 侧（db tool_usage）：重启后 check/read/send 全 completed、零 CONNECTION_CLOSED；收件日志双绑定落盘（`~/.zcode/raft/inbox-logs/<bindingId>/` 各 2 条，T4 不变量生效）。
+  - nginx 侧（grokbot）：15:15:49 首次 `v2/send` 被"新鲜度门"扣为草稿（期间 PM 15:15:08 新消息）→ agent 读取新消息后 15:16:03 二次发送成功——**扣草稿→交还模型→改后重发的设计行为首次实测验证，无自动重试**。
+- **S7 双 agent 身份不串 — 通过（PM 15:16:35 发起）**：两 agent 各自会话独立回复（sess_2225c3db=TestAgent-1 / sess_0be20bef=TestAgent-2，db 中 send 各来自对应会话）；TestAgent-2 15:18:25 频道回复"我是 TestAgent-2"，TestAgent-1 以补复形式多次自报身份。会话、profile、Home 互不串。
+- **S5 忙时排队 — 通过**（PM 15:20:52/54 发 A、B，15:23:31 收口）：
+  - 两条均落地：15:23:26 "收到 A"+记忆文件总结（seq 3572）、15:23:31 "收到 B"（seq 3573）——频道恰 2 条，**无重复、无丢失**。
+  - 不打断：A 的 turn 内工具链连续执行（check→Glob→send→read→send→…→Edit 15:23:42 自更新记忆），B 到达后未中断该 turn；B 的处理在 A 之后同一流程完成。
+  - held 设计行为再次生效：db 中 TestAgent-1 共 4 次 send completed（15:21:25/15:22:42/15:23:17/15:23:29），前两次频道零落地 ⇒ 被新鲜度门扣为草稿（目标有未读），模型 read 清未读后重发成功——扣草稿≠失败，无重复投递。
+  - commandId 幂等：PM 两条 wake 对两个 bridge 均有投递（含 duplicate:true 重放，host 日志 fast_reconcile reinjected=2），频道无重复回复。
+  - 附带首测：`confineFileToolsToWorkspace` 生产首次实测——15:21:14 Glob 越出 Home 被拒（`permission_denied: File tool access is restricted to the workspace root`），6 秒后 in-root 重试成功（设计内可恢复拒绝，无逃逸）。
+  - 附带：TestAgent-2 bridge 同步收到同频道 wake，check 后不动作（非@自己）——频道投递语义正确。
+- 备注（更正）：TestAgent-1 回复中提到 commit 号 fd8c6b2 **不是幻觉**——出自 Dev-developer 15:13:36 发在 99a13660 线程的消息（ab00f41c），其补复正是在该线程内，属读线程上下文的合法引用。
+- 记忆无串核验（S7 附加项）：直读 TestAgent-1 的 Home 记忆文件（`~/.zcode/agents/f2b0a9f0…/workspace/notes/work-log.md`）——内容全为自身经历（自身 10 次工具失败、自身 held 草稿、自身补复）+ 频道公开消息可得的事实（"第六层"/fd8c6b2 引用来源见上）；"send 结果不确定时的处理经验"为其亲历（TestAgent-2 的同类经验在各自 Home，互不渗透）；其记忆还记有"未代答发给 TestAgent-2 的消息（验收要求身份不串）"。**结论：无串记忆。**
+
