@@ -120,7 +120,10 @@ export const useAgentCenterStore = create<AgentCenterState>()((set) => ({
       serverId: "",
       raftAgentId: input.raftAgentId.trim(),
       profileSlug: `raft-${bindingId.slice(0, 8)}`,
-      homeWorkspacePath: input.homeWorkspacePath?.trim() ?? "",
+      homeWorkspacePath:
+        input.homeWorkspacePath?.trim() ||
+        // mock 阶段占位；正式接入时由 RaftIntegrationService 生成默认 Home 目录。
+        `<ZCodeDataRoot>/agents/${bindingId}/workspace`,
       mainSessionRef: null,
       desiredState: "ReadyStopped",
       autostartConsent: false,
