@@ -87,6 +87,32 @@ export interface WakeHandlerPort {
  * 与重入换 token）；实现见 adapters/wakeServer.ts（另扩展 listeningAddress 供诊断）。
  */
 
+/** V4 sendText(queue) 的提交结果；映射规则见 adapters/zcodeSession.ts。 */
+export type RaftSessionSendOutcome =
+  | { ok: true; /** true = CommandInbox 判 duplicate（幂等重放），仍视为成功。 */ duplicate: boolean }
+  | {
+      ok: false;
+      /**
+       * noSession = 会话目标已失效（stale / 未建会话）；rejected = 命令被拒（不可重试）；
+       * transport = 传递层失败或执行失败（可退避重试，commandId 幂等保护重复提交）。
+       */
+      code: "noSession" | "rejected" | "transport";
+      detail?: string;
+    };
+
+/**
+ * 主会话操作端口（T3）：唤醒投递经 V4 sendText（requestedDelivery "queue"）提交，
+ * 幂等键 commandId 由调用方确定性派生（wakeCycleId）。实现见 adapters/zcodeSession.ts。
+ */
+export interface RaftSessionPort {
+  sendQueuedText(params: {
+    workspacePath: string;
+    sessionId: string;
+    commandId: string;
+    text: string;
+  }): Promise<RaftSessionSendOutcome>;
+}
+
 /** 绑定记录存储端口（实现见 adapters/bindingStore.ts）。 */
 export interface RaftBindingStorePort {
   readAll(): Promise<import("@zcode/shared").RaftAgentBinding[]>;
