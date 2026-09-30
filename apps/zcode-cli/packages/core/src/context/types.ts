@@ -109,6 +109,8 @@ export interface ContextBuilderConfig {
   userInstructions?: ResolvedUserInstructions;
   projectContext?: ProjectContext;
   memoryRoot?: string;
+  /** Raft Agent 记忆作用域：memoryRoot 是 Agent Home，注入 raft-agent 记忆 section（不用项目记忆模板）。 */
+  agentMemory?: { agentName?: string };
   memoryIndexContent?: string;
   skills?: SkillLoadOutcome;
   agentProfiles?: readonly AgentProfile[];

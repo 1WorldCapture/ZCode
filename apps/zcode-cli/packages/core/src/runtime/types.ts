@@ -304,6 +304,11 @@ export interface MemoryRuntimeConfig {
   storageRoot?: string;
   use?: boolean;
   workspaceIdentity?: string;
+  /**
+   * Raft Agent 记忆作用域：记忆根 = homeRoot（其下 MEMORY.md 与 notes/），严格加载、
+   * 注入 raft-agent 记忆 section、关闭项目记忆自动抽取、不自动创建目录。缺省 = 项目记忆。
+   */
+  agent?: { agentName?: string; homeRoot: string };
 }
 
 export interface AgentRuntimeDeps {

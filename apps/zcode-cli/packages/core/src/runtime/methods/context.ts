@@ -21,6 +21,7 @@ import {
   createReadFileStateKey,
   normalizeReadFileStateMtimeMs,
 } from "../../tool/read-file-state.js";
+import { loadAgentMemoryIndexContent } from "../helpers/agent-memory-index.js";
 import { resolveEnabledProjectMemoryRoot } from "../helpers/project-memory.js";
 import { buildContextHistoryEntries } from "./context-history-entries.js";
 import { resolveRuntimeEmbeddedSearchEnabled } from "./embedded-search-branch.js";
@@ -129,6 +130,9 @@ export function createContextBuilderFromSnapshot(
     projectContext: snapshot.projectContext,
     memoryIndexContent: options.memoryIndexContent,
     memoryRoot,
+    ...(this.config.memory?.agent
+      ? { agentMemory: { agentName: this.config.memory.agent.agentName } }
+      : {}),
     skills: this.skillLoadOutcome,
     agentProfiles: this.config.subagents?.profiles,
     embeddedSearchEnabled: resolveRuntimeEmbeddedSearchEnabled(this),
@@ -155,6 +159,10 @@ export async function loadProjectMemoryRoot(
     });
     return undefined;
   }
+  if (this.config.memory?.agent) {
+    // Agent Home 由宿主 provisioning 创建；这里绝不自动创建目录（缺失 = 记忆不可用，而不是静默新建空 Home）。
+    return memoryRoot;
+  }
   if (!this.fileSystemPort) {
     this.logMemorySkipped(traceContext, "missing_file_system_port", {
       memoryRoot,
@@ -169,6 +177,9 @@ async function loadProjectMemoryIndexContent(
   runtime: AgentRuntimeInternal,
   memoryRoot: string | undefined,
 ): Promise<string | undefined> {
+  if (memoryRoot && runtime.config.memory?.agent) {
+    return loadAgentMemoryIndexContent(runtime, memoryRoot);
+  }
   const fileSystemPort = runtime.fileSystemPort;
   if (!fileSystemPort || !memoryRoot) return undefined;
   const indexPath = join(memoryRoot, "MEMORY.md");

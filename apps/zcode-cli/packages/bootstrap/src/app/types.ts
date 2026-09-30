@@ -1,4 +1,4 @@
-import type { ZCodeToolExecResource, BackgroundBashOutputResult } from "@zcode/shared";
+import type { ZCodeToolExecResource, BackgroundBashOutputResult, ZCodeOfficialMcpServerRef } from "@zcode/shared";
 import type { AiSdkModelAdapter } from "@zcode/adapters/model";
 import type {
   AgentRuntime,
@@ -126,6 +126,8 @@ export interface ZCodeAppOptions {
   version?: string;
   traceContext?: TraceContext;
   runtimeConfig?: ZCodeAppRuntimeConfigInput;
+  /** 官方宿主型 MCP 服务的具名引用（create/resume 边界下发，由 app 解析为 stdio 配置）。 */
+  officialMcpServers?: { name: ZCodeOfficialMcpServerRef["name"]; env: Record<string, string> }[];
   /**
    * stdio 协议模式的 agent 进程由 Electron host 拉起，模型服务需要看到 electron 来源。
    * 普通 CLI 不传，继续使用 cli 默认值。

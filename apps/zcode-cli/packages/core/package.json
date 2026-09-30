@@ -27,6 +27,7 @@
     "build": "tsc",
     "clean": "node ../../scripts/clean-dist.mjs",
     "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
     "lint": "oxlint src --no-ignore",
     "lint:fix": "oxlint --fix src --no-ignore"
   },
@@ -45,6 +46,7 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0"
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0"
   }
 }
