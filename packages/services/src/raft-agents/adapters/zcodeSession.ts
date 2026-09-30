@@ -35,7 +35,10 @@ function ackToOutcome(ack: CommandAck): RaftSessionSendOutcome {
   if (ack.status === "duplicate") return { ok: true, duplicate: true };
   if (ack.status === "stale") return { ok: false, code: "noSession", detail: ack.reasonCode };
   if (ack.status === "failed") {
-    return { ok: false, code: "transport", detail: ack.reasonCode ?? ack.message };
+    // Keep both reasonCode and message: the gateway normalizes internal errors
+    // to fault.command.executionFailed and the message carries the real cause.
+    const detail = [ack.reasonCode, ack.message].filter(Boolean).join(": ");
+    return { ok: false, code: "transport", detail: detail || "failed" };
   }
   return { ok: false, code: "rejected", detail: ack.reasonCode ?? ack.message };
 }
