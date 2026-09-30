@@ -19,6 +19,7 @@ import { buildEnvInfoSection, buildGitSystemContextSection } from "./sections/en
 import { buildSkillsSection } from "./sections/skills.js";
 import { buildRequestUserContextSection } from "./sections/request-user-context.js";
 import { buildCurrentDateSection } from "./sections/current-date.js";
+import { buildAgentMemorySection } from "./sections/agent-memory.js";
 import { buildMemorySection } from "./sections/memory.js";
 import { buildDesktopContextSection } from "./sections/desktop.js";
 import {
@@ -150,7 +151,9 @@ export class ContextBuilder {
 
       // Memory
       if (this.config.memoryRoot) {
-        const memorySection = buildMemorySection(this.config.memoryRoot);
+        const memorySection = this.config.agentMemory
+          ? buildAgentMemorySection(this.config.memoryRoot, this.config.agentMemory.agentName)
+          : buildMemorySection(this.config.memoryRoot);
         if (memorySection) {
           sections.push(memorySection);
         }
@@ -191,6 +194,7 @@ export class ContextBuilder {
       userInstructions: this.config.userInstructions,
       memoryIndexContent: this.config.memoryIndexContent,
       memoryRoot: this.config.memoryRoot,
+      agentMemory: this.config.agentMemory !== undefined,
     });
     if (requestUserContextSection) {
       sections.push(requestUserContextSection);

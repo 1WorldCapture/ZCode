@@ -16,6 +16,7 @@ export function buildRequestUserContextSection(input: {
   userInstructions?: ResolvedUserInstructions;
   memoryIndexContent?: string;
   memoryRoot?: string;
+  agentMemory?: boolean;
 }): ContextSection | null {
   const content = buildRequestUserContextContent(input);
   if (!content) {
@@ -38,6 +39,7 @@ function buildRequestUserContextContent(input: {
   userInstructions?: ResolvedUserInstructions;
   memoryIndexContent?: string;
   memoryRoot?: string;
+  agentMemory?: boolean;
 }): string | null {
   const sections: string[] = [];
 
@@ -51,6 +53,7 @@ function buildRequestUserContextContent(input: {
   const memoryIndexContent = buildProjectMemoryIndexContent(
     input.memoryRoot,
     input.memoryIndexContent,
+    input.agentMemory === true,
   );
   if (memoryIndexContent) {
     sections.push(memoryIndexContent);
@@ -73,13 +76,16 @@ function buildRequestUserContextContent(input: {
 function buildProjectMemoryIndexContent(
   memoryRoot: string | undefined,
   indexContent: string | undefined,
+  agentMemory = false,
 ): string | null {
   if (!memoryRoot || indexContent === undefined) return null;
   const formatted = formatProjectMemoryIndexContent(indexContent);
   if (!formatted) return null;
 
   return [
-    `Contents of ${join(memoryRoot, "MEMORY.md")} (user's auto-memory, persists across conversations):`,
+    agentMemory
+      ? `Contents of ${join(memoryRoot, "MEMORY.md")} (your Agent Home memory index; persists across conversations):`
+      : `Contents of ${join(memoryRoot, "MEMORY.md")} (user's auto-memory, persists across conversations):`,
     "",
     formatted,
   ].join("\n");

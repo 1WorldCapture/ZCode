@@ -3314,6 +3314,15 @@ async function createRecord(
       : undefined;
   const taskType = params.taskType ?? "interactive";
   const runtimeMcp = protocolMcpServersToRuntimeMcpConfig(params.mcpServers);
+  // Raft Agent 记忆作用域：create 与 resume 都由宿主显式下发（CLI 不持久化）。
+  const agentMemory = "agentMemory" in params ? params.agentMemory : undefined;
+  const officialMcpServers =
+    "officialMcpServers" in params && params.officialMcpServers
+      ? params.officialMcpServers.map((ref) => ({
+          name: ref.name,
+          env: Object.fromEntries(ref.env.map(({ name, value }) => [name, value])),
+        }))
+      : undefined;
   context.logger?.info("ZCode Protocol createRecord MCP config", {
     event: "zcode_protocol.create_record.mcp_config",
     rootTraceId: traceContext.traceId,
@@ -3332,6 +3341,7 @@ async function createRecord(
     env: context.deps.env,
     eventStore,
     resume,
+    ...(officialMcpServers ? { officialMcpServers } : {}),
     runtimeConfig: {
       mode: "mode" in params ? params.mode : undefined,
       modelSelection: "model" in params ? toRuntimeModelSelection(initialModel) : undefined,
@@ -3353,7 +3363,18 @@ async function createRecord(
       modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
       // Memory Settings 是现有 CLI features.memory/use 之外的总开关。只在关闭时
       // 写入 override，避免开启值反向覆盖用户已有的 CLI 禁用配置。
-      ...(startupPreferences.memoryEnabled ? {} : { memory: { enabled: false } }),
+      ...(agentMemory
+        ? {
+            // Raft Agent 记忆作用域：记忆根 = Agent Home，不受 Settings 项目记忆开关影响；
+            // 关闭项目记忆的自动抽取（Agent 按 raft-agent 规则显式维护 MEMORY/notes）。
+            memory: {
+              agent: { homeRoot: agentMemory.homeRoot, agentName: agentMemory.agentName },
+              extractionEnabled: false,
+            },
+          }
+        : startupPreferences.memoryEnabled
+          ? {}
+          : { memory: { enabled: false } }),
       // desktop-continuous session/create 由 UI 先解析 ~/.zcode/.agents 的 enabled MCP，
       // 但 protocol app-server 自己不会读取 UI/main 侧的 MCP store；之前 createRecord 没把
       // params.mcpServers 注入 runtimeConfig，导致日志里 runtimeHasMcpConfig=false，工具永远不启动。

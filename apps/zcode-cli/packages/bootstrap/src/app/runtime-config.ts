@@ -180,6 +180,8 @@ export function resolveAppRuntimeConfig(input: {
         ? {}
         : { extractionEnabled: options.runtimeConfig.memory.extractionEnabled }),
       ...(input.storageRoot ? { storageRoot: input.storageRoot } : {}),
+      // Raft Agent 记忆作用域由宿主在 create/resume 边界下发，原样透传给 core。
+      ...(options.runtimeConfig?.memory?.agent ? { agent: options.runtimeConfig.memory.agent } : {}),
       use: options.runtimeConfig?.memory?.use ?? configResult.config.memory.use,
       workspaceIdentity: workspaceIdentity?.trim() || undefined,
     },

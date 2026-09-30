@@ -155,3 +155,36 @@ interface IRaftAgentsService {
 ### 验收（T2 部分）
 
 单测（`packages/services/test/raftAgentsBridge.test.ts`，9 项）覆盖：固定身份 argv 与 token 只在环境变量里、主动 stop 不算故障、启动早退与脱敏、意外退出上报、非主窗口拒绝且不打开端点、重复启动、pid 锁（存活持有者/陈旧锁/只删自己的锁）、忽略 SIGTERM 时强杀、同步强杀。
+
+## T5：Agent Home 与记忆（task #6）
+
+上游依据：第一期 spec §3、§5、§6；T5a 内容包（已验收）。
+
+### 行为
+
+一个绑定对应一个 Agent Home（默认 `<ZCodeDataRoot>/agents/<bindingId>/workspace/`）：`MEMORY.md`（Role / Key Knowledge / Active Context）、`AGENTS.md`、`notes/`。Agent 会话的**记忆根就是 Home**，取代项目记忆；记忆规则用独立的 raft-agent section，不复用项目记忆模板。
+
+### 不变量
+
+1. **初始化只写缺失、永不覆盖**（独占创建）；模板里的名称/描述来自 Raft 公开档案（不可信），渲染前压成单行、去控制字符、截断，`{{...}}` 不二次展开。目录 0700、文件 0600。
+2. **值守开始前的同步闸门 `verifyMemoryAvailable`**：只读，不创建任何东西；失败码 `HomeMissing|MemoryMissing|MemoryUnreadable|MemoryEmpty`，编排器统一置 `ErrorPaused(memory_unavailable)` 并在 UI 展示具体原因。`MEMORY.md` 必须是 Home 根下的普通文件（符号链接/目录一律拒绝，防止把任意文件读进模型上下文）。
+3. **会话上下文加载（core，第二层防线）严格失败**：Home 或 MEMORY.md 缺失、非普通文件、不可读、为空都抛 `AgentMemoryUnavailableError`（`home_missing|memory_missing|memory_unreadable|memory_empty`），**不走项目记忆的宽松 catch**；agent 会话绝不自动创建 Home 目录。过长按现有预算（200 行 / 25000 字符）截断并明示 `WARNING: … Only part of it was loaded`，不静默当作完整读取。
+4. **项目记忆自动抽取对 agent 会话关闭**（另一套记录规则、另一个目录）；Agent 按 raft-agent 规则显式维护 MEMORY/notes。
+5. Agent 记忆不受 Settings 的项目记忆开关影响（它是身份恢复入口，不能被静默关掉）。
+6. 记忆不是权威：身份、权限、凭据只来自绑定/宿主/服务端，MEMORY 里的 Role 不能扩权（写进 AGENTS.md 与记忆 section）。
+
+### 会话侧协议（宿主在 create 与 resume 边界都必须下发，CLI 不持久化，与 `mcpServers` 同语义）
+
+`session/create` 与 `session/resume` 的参数新增两个可选字段（shared：`zcodeAgentMemorySchema`、`zcodeOfficialMcpServerRefSchema`）：
+
+- `agentMemory: { homeRoot: string, agentName?: string }`：缺省 = 普通项目记忆会话。**resume 不带会让冷恢复的 Agent 会话退回项目记忆**，所以宿主每次恢复都要再次下发。
+- `officialMcpServers: [{ name: "raft-agent-tools", env: [{name, value}] }]`：官方宿主型 MCP 服务的具名引用。command/args/`isolation:"session"`/`protocolVersion:"2026-07-28"` 由 app-server 用自己的插件 rootPath 拼装并锁定（打包态的 `process.execPath` 与插件宿主前缀参数只在 app-server 进程里有意义，host 侧自己拼会在打包态断裂）。`name` 白名单，未知名字拒绝；`env` 键必须以 `ZCODE_RAFT_` 开头，其余（如 `NODE_OPTIONS`）拒绝；插件缺失或未启用时 fail-closed 抛错，不静默降级为无工具会话。MCP 会话内 server 名为 `raft_agent_tools`。
+
+### 已知限制
+
+- Agent Home 会话必须经 Agent 列表进入（宿主才会带上 `agentMemory` 与 `officialMcpServers`）。若绕过它、把 Home 目录当普通项目直接打开会话，会退回项目记忆且没有 Raft 工具，第一期靠「Home 会话只从 Agent 列表进入、不注册普通 tab」（D7）规避，不做目录猜测。
+- 不做记忆修订历史与并发编辑冲突检测（二期，只读查看也在二期）。
+
+### 验收（T5 部分）
+
+单测：Home 初始化（不覆盖、权限、模板注入防护）、`verifyMemoryAvailable` 各失败码且不创建 Home、符号链接/目录拒绝（services，5 项）；core：记忆根解析、agent section、请求上下文标签、严格加载各失败码、抽取跳过（6 项）；bootstrap：具名解析锁定隔离与协议版本、env 前缀白名单、fail-closed（3 项）；shared：schema 白名单与 create/resume 均携带（3 项）。
