@@ -9,7 +9,8 @@
 | --- | --- |
 | 验收机器 | lyondeMacBook-Pro（macOS arm64）——Dev-developer 运行所在机，即 lyonliang 的本机 |
 | Electron | v41.0.3 arm64 已验证可执行（`node_modules/electron/dist`） |
-| ZCode 版本 | 集成分支 production build（Dev-developer 准备） |
+| ZCode 版本 | 集成分支 production build（`packages/desktop` 下 `pnpm build` 产物 `out/`，已构建并通过冒烟） |
+| 启动命令 | `cd ~/workspace/ZCode-raft/packages/desktop && ZCODE_RAFT_CLI="$HOME/workspace/raft-source/packages/cli/dist/raft.js" ../../node_modules/electron/dist/Electron.app/Contents/MacOS/Electron .`（干净 CLI 0.0.24 = raft-source f7682db 构建，净化 env 下已验证；**勿用 PATH 里的 raft**，那是 agent transport 包装器） |
 | Raft 服务 | 本地 dev 栈（raft-source f7682db，daemon v1.0.25，CLI carrier 0.0.24；T0 已跑通唤醒链路）——Dev-developer 起栈 |
 | 测试 agent ×2 | lyonliang 在 Raft 界面创建（**token 只填表单，不进频道/日志**）；名字告知 PM 建测试频道 |
 | 点界面 | lyonliang（或其指定人）；后台日志与问题定位 Dev-developer |
