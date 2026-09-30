@@ -80,7 +80,7 @@ interface IRaftAgentsService {
 3. **task update 只放行 `in_progress` / `in_review`**，拒绝 `done`/`closed`/`todo`（完成由人验收后置 done）。
 4. **`message check` 先落盘再返回**：服务端在返回前已标记送达，消息丢失无法重放。写日志失败有限重试（默认 3 次）；仍失败则**仍把结果返回模型**，同时上报（服务置 ErrorPaused(inbox_log_write_failed)）。空收件箱不写空日志。
 5. **发帖被「新鲜度门」扣成草稿（`SEND_HELD_AS_DRAFT`）**：把 CLI 返回（含回放的新消息）原样交还模型，由模型决定发原稿（`sendDraft:true`）、改稿重发或放弃；适配器不自动重试、不自动 `--send-draft`。
-6. **发帖结果不确定**（超时被杀、`UNKNOWN`/`CANNOT_CONFIRM`）：返回 unknown，不自动重发。
+6. **发帖结果不确定**（超时被杀、`UNKNOWN`/`CANNOT_CONFIRM`）：返回 unknown，不自动重发。2026-09-30 实测注记：官方 CLI 以 `process.exitCode` 结束、残留句柄会把已成功的发送拖到超时，误报 unknown——已由「权威成功行即收口」（`settleWhenStdoutMatches`）消除该误报形态；unknown 语义保留给真正的网络失败，实测中被测 agent 正确执行「读频道核对、确认送达即不重发」。
 7. **日志与隐私**：应用日志只记 messageId 与条数，不记正文；正文只在收件日志文件里。
 
 ### 收件日志存储
