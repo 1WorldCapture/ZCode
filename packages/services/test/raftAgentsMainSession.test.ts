@@ -135,6 +135,7 @@ test("zcodeSession 适配器 create/resume：session 通道透传 agentMemory + 
     workspacePath: string;
     agentMemory?: { homeRoot: string; agentName?: string };
     officialMcpServers?: ZCodeOfficialMcpServerRef[];
+    persistence?: string;
   }[] = [];
   const resumed: {
     workspacePath: string;
@@ -151,6 +152,7 @@ test("zcodeSession 适配器 create/resume：session 通道透传 agentMemory + 
         workspacePath: params.workspacePath,
         agentMemory: params.agentMemory,
         officialMcpServers: params.officialMcpServers,
+        persistence: params.persistence,
       });
       return { session: { sessionId: "sess-42" } };
     },
@@ -175,6 +177,9 @@ test("zcodeSession 适配器 create/resume：session 通道透传 agentMemory + 
   assert.equal(created[0].workspacePath, "/tmp/wh");
   assert.deepEqual(created[0].agentMemory, agentMemory);
   assert.deepEqual(created[0].officialMcpServers, MCP_REFS);
+  // deferred 草稿创建：首个输入（V4 drain/wake）的统一持久化边界才写 session 行；
+  // 缺省 immediate 会让 V4 durable admission 跳过该边界 → session_input 外键失败（e2e S4）。
+  assert.equal(created[0].persistence, "deferred");
 
   const resumeOutcome = await port.resumeAgentSession({
     workspacePath: "/tmp/wh",

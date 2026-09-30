@@ -52,3 +52,14 @@
 ## 4. 记录
 
 验收结果逐条记在本文件底部追加的"验收记录"节（日期 / 执行人 / 结果 / 证据）。
+
+## 5. 验收记录
+
+### 2026-09-30（执行：lyonliang 点界面 / Dev-developer 盯日志）
+
+- **S1 填表接入 — 通过**（TestAgent-1 / TestAgent-2 双绑定均成功）。
+  - 证据：lyonliang 截图（attachment 9946a839）；`~/.zcode/raft/bindings.json` 两条记录（f2b0a9f0=TestAgent-1 agentId de7056f5…、80152adf=TestAgent-2 agentId be4a0188…），origin `http://grokbot.tailf3efbe.ts.net:3001`，serverId 与本机 daemon b0cdf001 一致。
+  - 安全面：bindings.json 无 token 字段；ZCode 与 bridge 进程 argv 无 `sk_agent`（bridge 用 `--profile raft-<slug>` 传身份，非 token）；Agent Home（`~/.zcode/agents/<bindingId>/workspace`）仅 MEMORY.md/AGENTS.md，无凭据文件。
+  - 说明：`~/.zcode/raft/profiles/<slug>/credential.json` 含 `sk_agent_*` 明文——这是官方 CLI 的标准凭据存储（`raft agent login` 写入、`RAFT_PROFILE_DIR` 指向），spec §95 设计内（"Raft 凭据留在 profile 目录，由 CLI 自己读取"）；profile 目录 ≠ Agent Home。非违规。
+- **S3 保存不开始 — 通过（弱证据）**：接入完成（21:09）到点"开始"（21:10:58）期间 ps 确认无任何 bridge 进程；点开始后两条 bridge 进程拉起（94006/94046）。收件未读的负向证据（当时无 inbox 日志）未单独留存——因 Lyon 直接点了开始，观察窗口短。补验可选：暂停后再观察一轮。
+- **S4 开始→@→回复 — 进行中**：lyonliang 21:10:58 点开始；bridge argv 核验通过（干净 CLI `~/workspace/raft-source/.../raft.js`、`--expected-agent` 与绑定 agentId 一致、`--adapter-instance`=bindingId、`--activity-channel-endpoint` 显式传递 = e04a5ee 修复生效）。PM 21:11:12 已 @TestAgent-1 发测试消息，等待回复。

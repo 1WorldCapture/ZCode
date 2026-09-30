@@ -116,6 +116,9 @@ export interface RaftSessionPort {
    * officialMcpServers 是官方宿主 MCP 的具名引用（command/args 由 app-server 用自己的
    * 插件 rootPath 拼装，方案 1，线程 f3239b45）；agentMemory 指定记忆作用域 = Agent Home。
    * 两者均为启动期一次性注入，首发后不可补写（协议约束）。
+   * 持久化语义：以 deferred 草稿创建（适配器固定传入），session 行由首个输入（V4
+   * drain/wake）的统一持久化边界写入；immediate 缺省会让 V4 durable admission 跳过
+   * 该边界，session_input 外键失败（e2e S4 根因）。
    */
   createAgentSession(params: {
     workspacePath: string;

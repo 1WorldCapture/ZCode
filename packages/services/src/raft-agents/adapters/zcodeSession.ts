@@ -70,6 +70,12 @@ export function createZcodeSessionPort(agent: ZcodeSessionAgent): RaftSessionPor
           workspacePath: params.workspacePath,
           agentMemory: params.agentMemory,
           officialMcpServers: params.officialMcpServers,
+          // 主会话的首个输入来自 V4 外部通道（drain/wake），必须以 deferred 草稿创建：
+          // legacy session/create 缺省 persistence 时协议侧记 "immediate"，但 session 行
+          // 只在首个输入的统一持久化边界写入；V4 durable admission 对非 deferred 记录
+          // 跳过该边界直接写 session_input，外键（session_input→session）随之失败（e2e S4）。
+          // deferred 下首个 V4 输入会先走 ensureSessionPersistedForExternalActivity 落行。
+          persistence: "deferred",
         });
         return { ok: true, sessionId: snapshot.session.sessionId };
       } catch (error) {
