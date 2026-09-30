@@ -34,7 +34,9 @@ export async function loadAgentMemoryIndexContent(
     indexKind = "missing";
   }
   if (indexKind === "missing") throw new AgentMemoryUnavailableError("memory_missing");
-  // 只接受普通文件：符号链接/目录/其他会把任意内容读进模型上下文或读不出来。
+  // 只接受普通文件。注意：FileSystemPort.stat 会跟随符号链接，所以「MEMORY.md 是指向普通文件的
+  // 符号链接」在这里会以 kind:"file" 通过——符号链接的真正防线是 services 侧值守闸门
+  // verifyMemoryAvailable（用 lstat，bridge 启动前必跑）；core 这层只兜住缺失/目录/不可读。
   if (indexKind !== "file") {
     throw new AgentMemoryUnavailableError("memory_unreadable", `kind=${indexKind}`);
   }
