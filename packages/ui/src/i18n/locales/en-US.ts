@@ -24,6 +24,8 @@ const enUS: Record<string, string> = {
   "agentCenter.reason.bridge_exit": "Bridge exited unexpectedly",
   "agentCenter.reason.inbox_log_write_failed": "Inbox log write failed",
   "agentCenter.reason.cli_unavailable": "Raft CLI unavailable",
+  "agentCenter.reason.mcp_unavailable": "Raft tools component unavailable",
+  "agentCenter.reason.session_unavailable": "Main session failed to resume",
   "agentCenter.unavailable": "Connecting Raft Agents isn't supported in this environment",
   "agentCenter.loading": "Loading…",
   "agentCenter.loadFailed": "Couldn't load the Agent list",

@@ -39,6 +39,10 @@ export function formatErrorPauseReason(
       return formatMessage({ id: "agentCenter.reason.inbox_log_write_failed" });
     case "cli_unavailable":
       return formatMessage({ id: "agentCenter.reason.cli_unavailable" });
+    case "mcp_unavailable":
+      return formatMessage({ id: "agentCenter.reason.mcp_unavailable" });
+    case "session_unavailable":
+      return formatMessage({ id: "agentCenter.reason.session_unavailable" });
   }
 }
 

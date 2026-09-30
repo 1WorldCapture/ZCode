@@ -24,6 +24,8 @@ const zhCN: Record<string, string> = {
   "agentCenter.reason.bridge_exit": "桥接异常退出",
   "agentCenter.reason.inbox_log_write_failed": "收件日志写入失败",
   "agentCenter.reason.cli_unavailable": "Raft CLI 不可用",
+  "agentCenter.reason.mcp_unavailable": "Raft 工具组件不可用",
+  "agentCenter.reason.session_unavailable": "主会话恢复失败",
   "agentCenter.unavailable": "当前环境不支持接入 Raft Agent",
   "agentCenter.loading": "正在加载…",
   "agentCenter.loadFailed": "无法加载 Agent 列表",
