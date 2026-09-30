@@ -27,7 +27,6 @@ import {
 } from "@/components/ui/dropdown-menu.js";
 import {
   PencilRuler,
-  Bot,
   Globe,
   Loader2,
   LogInIcon,
@@ -91,7 +90,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
   onLocaleChange,
   onThemeChange,
   onSettingsButtonClick,
-  onAgentsButtonClick,
   onUsageClick,
   onUpgradeClick,
   onLogin,
@@ -111,7 +109,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
   onThemeChange: (value: string) => void;
   onSettingsButtonClick?: () => void;
   /** Agent 中心入口；未提供时不渲染（Settings 复用 footer 的场景没有 Agent 上下文）。 */
-  onAgentsButtonClick?: () => void;
   onUsageClick?: () => void;
   onUpgradeClick?: Parameters<
     typeof WorkspaceSidebarFooterUsageSummaryContent
@@ -178,7 +175,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
     settingsButtonMode === "back"
       ? intl.formatMessage({ id: "workspace.backToWorkspace" })
       : intl.formatMessage({ id: "settings.title" });
-  const agentsButtonLabel = intl.formatMessage({ id: "agentCenter.title" });
   const usageButtonClick = onUsageClick ?? onSettingsButtonClick;
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [desktopZoomLevel, setDesktopZoomLevel] = useState(0);
@@ -381,20 +377,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
               workspaceIdentity={workspaceIdentity}
               compact
             />
-          ) : null}
-          {onAgentsButtonClick ? (
-            <ControlHintTooltip title={agentsButtonLabel}>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-lg"
-                data-testid="sidebar-agents-button"
-                aria-label={agentsButtonLabel}
-                onClick={onAgentsButtonClick}
-              >
-                <Bot className="size-4" />
-              </Button>
-            </ControlHintTooltip>
           ) : null}
           <ControlHintTooltip title={settingsButtonLabel}>
             <Button
