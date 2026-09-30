@@ -90,3 +90,9 @@ test("项目记忆自动抽取：agent 会话直接跳过（不触碰后续依�
   const runtime = { shuttingDown: false, workspaceRoot: "/w", config: { memory: { enabled: true, cliStorageRoot: "/s", agent: { homeRoot: HOME } } } } as never;
   assert.doesNotThrow(() => scheduleProjectMemoryExtraction(runtime, { model: {} as never, traceContext: {} as never }));
 });
+
+test("名称截断按码点：不在代理对中间劈开", () => {
+  const clipped = sanitizeAgentName("😀".repeat(300));
+  assert.equal(Array.from(clipped.replace("…", "")).length, 120);
+  assert.ok(!/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(clipped));
+});
