@@ -39,7 +39,7 @@
 - [x] **真实 resume 失败形态**：已在 S10 实测——预建空壳会话 resume 报 `Session not found` → 自动重建（dfcd362 设计，old/new sessionId 记录，服务正常）。是否改为不重建留二期决策。
 - [x] **工具名前缀**：唤醒/drain 文本用短名（raft_message_check），模型全程正确匹配完全名——db 统计 117 次调用全为 `mcp__raft_agent_tools__` 前缀、0 次裸名失配。无需把前缀写进文本。
 - [x] **activity drain 404 噪音**：验收全程 bridge stdout 无 HTTP 404（e04a5ee 修复实测确认；日志中匹配"404"的行均为 eventId UUID 片段）。
-- [ ] **打包态路径**：production build 里 CLI（raft ≥0.0.24 / `ZCODE_RAFT_CLI`）与官方插件（raft-agent-tools）解析路径正确；MCP 引用 fail-closed 语义在打包态成立。→ dmg/zip 已产出（ZCode-3.14.3-arm64，本机开发证书），打包态冒烟进行中。
+- [x] **打包态路径**（16:40–16:41 冒烟通过）：dmg/zip 产出（ZCode-3.14.3-arm64，本机开发证书；desktop 包补 version 字段后本地可打包，c29bf94）；打包产物启动 → 三绑定 `watch started`+`bridge_process_started` 各 3、零 McpUnavailable/CliUnavailable（asar/bundled-agents 插件与 `ZCODE_RAFT_CLI` 解析正确）；PM 16:41:04 @TestAgent-1 → 16:41:36 频道回复，db send completed 2839ms——打包态全链路（唤醒→注入→turn→send）通。
 - [ ] **绑定删除无外部入口**（15:49 发现，二期）：removeBinding 服务接口只在 Electron renderer↔main 的 MessagePort 上，UI 无删除按钮 → 无任何外部触达路径；静态改 bindings.json 会被内存态回写。二期补 UI 删除入口。另：removeBinding 不删 Agent Home、不关预建主会话（第一期范围，已与 PM 对齐为预期行为）。
 
 - [ ] **主窗口判定**（ownerGuard）：双窗口/多 ServiceCollection 场景，bridge 只由一处启动（当前缺省恒真 + 进程锁，验证锁行为并决定是否接真实判定）。
