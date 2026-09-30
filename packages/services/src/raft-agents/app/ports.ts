@@ -36,6 +36,12 @@ export interface RaftCliPort {
   }): Promise<RaftCliLoginOutcome>;
   /** `raft auth whoami`（恒 JSON，token 不回显）——身份二次核验与 serverId 来源。 */
   whoami(params: { profileSlug: string; profileDir: string }): Promise<RaftCliWhoami | { error: string }>;
+  /**
+   * 删除本地 profile 目录（登录成功后的失败路径防孤儿凭据）。
+   * profilesRoot 用于包含性防护：profileDir 不在其内则拒绝删除。
+   * 容错：目录不存在视为成功；失败向上抛由调用方决定是否吞掉。
+   */
+  destroyProfile(params: { profileDir: string; profilesRoot: string }): Promise<void>;
 }
 
 /** 绑定记录存储端口（实现见 adapters/bindingStore.ts）。 */

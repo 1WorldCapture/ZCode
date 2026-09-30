@@ -84,6 +84,10 @@ export const raftAgentSetupErrorCodeSchema = z.enum([
   "CredentialCheckFailed",
   "PathConflict",
   "SlugConflict",
+  /** 同一 (raftOrigin, serverId, raftAgentId) 身份已有绑定（区别于 slug 碰撞）。 */
+  "AlreadyBound",
+  /** Provisioning 步骤失败（步骤名在 detail）；步骤自身应保持幂等可重试。 */
+  "ProvisioningFailed",
   "StoreWriteFailed",
 ]);
 export type RaftAgentSetupErrorCode = z.infer<typeof raftAgentSetupErrorCodeSchema>;

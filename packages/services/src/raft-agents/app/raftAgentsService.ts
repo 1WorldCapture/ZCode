@@ -42,8 +42,32 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
   const bindingsChanged = new Emitter<RaftAgentBinding[]>();
   const provisioningSteps = options.provisioningSteps ?? [];
 
-  async function emitChanged(): Promise<void> {
-    bindingsChanged.fire(await store.readAll());
+  /**
+   * 服务级写互斥：所有会写绑定记录的入口（create/remove/setDesiredState）经此串行化，
+   * 写前在锁内重读，杜绝登录耗时窗口（最长 45s）内的读-改-写丢更新。
+   * 注意：登录/whoami 等慢操作不持锁，锁内只有读-校验-写。
+   */
+  let storeWriteChain: Promise<unknown> = Promise.resolve();
+  function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = storeWriteChain.then(fn, fn);
+    storeWriteChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  /**
+   * 登录成功后的失败路径清理：删除本次创建的 profile 目录，防止"无绑定记录的有效凭据"
+   * 孤儿累积（slug 每次由新 bindingId 派生，重试不复用）。清理失败只记日志，
+   * 不掩盖原始错误。Home 目录不在 T1 清理范围——provisioning 步骤（T5）自管其产物。
+   */
+  async function cleanupProfileQuietly(profileDir: string): Promise<void> {
+    try {
+      await cli.destroyProfile({ profileDir, profilesRoot: join(options.dataRootDir, "raft", "profiles") });
+    } catch (error) {
+      log.warn(undefined, "profile cleanup after failed setup left residue", { profileSlugPath: profileDir, error: String(error) });
+    }
   }
 
   /** 表单输入的前置校验（本地、无副作用、不打网络）。 */
@@ -115,26 +139,30 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
         return { ok: false, code: "OriginInvalid" };
       }
 
-      // 步骤 2：唯一性 fail-closed（本地校验先于任何网络副作用）。
-      const existing = await store.readAll();
-      const conflict = findBindingConflicts(
+      // 步骤 2：唯一性 fail-closed 快速路径（本地校验先于任何网络副作用；
+      // 权威校验在登录后的锁内重做——那时 serverId 已知，且并发写入不会丢）。
+      const preExisting = await store.readAll();
+      const preConflict = findBindingConflicts(
         {
           homePathForCompare,
           profileSlug,
           raftOrigin: preflight.origin,
-          serverId: "", // 登录前未知；身份重复检测在持久化前用 whoami 结果复核。
+          serverId: "", // 登录前未知，身份级检测走下面的同源同 agent 判断。
           raftAgentId: input.raftAgentId.trim(),
         },
-        existing,
+        preExisting,
         { win32 },
       );
-      if (conflict && conflict.kind === "PathConflict") {
-        return { ok: false, code: "PathConflict", detail: conflict.conflictWith.displayName };
+      if (preConflict) {
+        // 此时尚未登录，无凭据可清理。
+        return { ok: false, code: preConflict.kind, detail: preConflict.conflictWith.displayName };
       }
-      if (conflict && conflict.kind === "SlugConflict" && conflict.conflictWith.raftAgentId === input.raftAgentId.trim()
-        && conflict.conflictWith.raftOrigin === preflight.origin) {
-        // 同源同 agent 已接入：直接指出既有绑定。
-        return { ok: false, code: "SlugConflict", detail: conflict.conflictWith.displayName };
+      // 同源同 agent 已接入（serverId 未知时的强信号）：省一次登录直接指出既有绑定。
+      const preDuplicate = preExisting.find(
+        (b) => b.raftOrigin === preflight.origin && b.raftAgentId === input.raftAgentId.trim(),
+      );
+      if (preDuplicate) {
+        return { ok: false, code: "AlreadyBound", detail: preDuplicate.displayName };
       }
 
       const profileDir = join(options.dataRootDir, "raft", "profiles", profileSlug);
@@ -152,24 +180,16 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
       }
 
       // 步骤 4：whoami 二次核验 + serverId（不读 credential.json，避免 token 进应用内存）。
+      // 自此起登录已成功、本地已有有效凭据：任何失败路径都要清理本次 profile。
       const whoami = await cli.whoami({ profileSlug, profileDir });
       if ("error" in whoami) {
+        await cleanupProfileQuietly(profileDir);
         return { ok: false, code: "CredentialCheckFailed", detail: whoami.error };
       }
       const whoamiOrigin = normalizeRaftOrigin(whoami.serverUrl);
       if (whoami.agentId !== input.raftAgentId.trim() || whoamiOrigin !== preflight.origin) {
+        await cleanupProfileQuietly(profileDir);
         return { ok: false, code: "IdentityMismatch" };
-      }
-
-      // 持久化前完成身份级重复检测（此时 serverId 已知）。
-      const duplicate = existing.find(
-        (b) =>
-          b.raftOrigin === preflight.origin &&
-          b.serverId === whoami.serverId &&
-          b.raftAgentId === input.raftAgentId.trim(),
-      );
-      if (duplicate) {
-        return { ok: false, code: "SlugConflict", detail: duplicate.displayName };
       }
 
       const now = clock.nowIso();
@@ -189,54 +209,86 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
         updatedAt: now,
       };
 
-      // 步骤 5：Provisioning（T1 为空集/注入 no-op；各步幂等，失败可重试）。
-      for (const step of provisioningSteps) {
-        try {
-          await step.execute(binding);
-        } catch (error) {
-          log.error("provisioning step failed", { step: step.name, error: String(error) });
-          return { ok: false, code: "StoreWriteFailed", detail: step.name };
+      // 步骤 5+6：锁内权威校验与持久化。锁内重读 current——登录窗口期（最长 45s）内的
+      // 并发写入不被覆盖；此刻 serverId 已知，身份重复以 AlreadyBound 拒绝。
+      return withStoreLock(async () => {
+        const current = await store.readAll();
+        const conflict = findBindingConflicts(
+          {
+            homePathForCompare,
+            profileSlug,
+            raftOrigin: preflight.origin,
+            serverId: whoami.serverId,
+            raftAgentId: input.raftAgentId.trim(),
+          },
+          current,
+          { win32 },
+        );
+        if (conflict) {
+          const code =
+            conflict.kind === "PathConflict" ? "PathConflict" : conflict.kind === "SlugConflict" ? "SlugConflict" : "AlreadyBound";
+          await cleanupProfileQuietly(profileDir);
+          return { ok: false as const, code, detail: conflict.conflictWith.displayName };
         }
-      }
 
-      // 步骤 6：持久化（保存后即为 ReadyStopped：不启动 bridge、不读收件、不发消息）。
-      try {
-        await store.writeAll([...existing, binding]);
-      } catch (error) {
-        log.error("binding store write failed", { error: String(error) });
-        return { ok: false, code: "StoreWriteFailed" };
-      }
-      await emitChanged();
-      log.info("raft agent binding created", {
-        bindingId,
-        origin: preflight.origin,
-        agentId: input.raftAgentId.trim(),
+        // Provisioning（T1 为空集/注入 no-op；各步幂等，失败可重试）。
+        for (const step of provisioningSteps) {
+          try {
+            await step.execute(binding);
+          } catch (error) {
+            log.error("provisioning step failed", { step: step.name, error: String(error) });
+            await cleanupProfileQuietly(profileDir);
+            return { ok: false as const, code: "ProvisioningFailed" as const, detail: step.name };
+          }
+        }
+
+        // 持久化（保存后即为 ReadyStopped：不启动 bridge、不读收件、不发消息）。
+        try {
+          await store.writeAll([...current, binding]);
+        } catch (error) {
+          log.error("binding store write failed", { error: String(error) });
+          await cleanupProfileQuietly(profileDir);
+          return { ok: false as const, code: "StoreWriteFailed" as const };
+        }
+        bindingsChanged.fire([...current, binding]);
+        log.info("raft agent binding created", {
+          bindingId,
+          origin: preflight.origin,
+          agentId: input.raftAgentId.trim(),
+        });
+        return { ok: true as const, binding };
       });
-      return { ok: true, binding };
     },
 
     async removeBinding(bindingId: string, opts: { deleteHome: boolean }): Promise<void> {
-      const existing = await store.readAll();
-      const next = existing.filter((b) => b.bindingId !== bindingId);
-      if (next.length === existing.length) return;
-      await store.writeAll(next);
-      // Home 目录与本地 profile 的删除留给注入的清理步骤（T5/T2 接管）；
-      // T1 只保证记录移除。不撤销 Raft 侧 token（D4）。
-      log.info("binding removed", { bindingId, deleteHomeRequested: opts.deleteHome });
-      await emitChanged();
+      await withStoreLock(async () => {
+        const existing = await store.readAll();
+        const removed = existing.find((b) => b.bindingId === bindingId);
+        const next = existing.filter((b) => b.bindingId !== bindingId);
+        if (next.length === existing.length) return;
+        await store.writeAll(next);
+        // 本地 profile 随记录移除一并删除（凭据不留孤儿）；Raft 侧 token 不撤销（D4）。
+        if (removed) {
+          await cleanupProfileQuietly(join(options.dataRootDir, "raft", "profiles", removed.profileSlug));
+        }
+        log.info("binding removed", { bindingId, deleteHomeRequested: opts.deleteHome });
+        bindingsChanged.fire(next);
+      });
     },
 
     async setDesiredState(bindingId: string, desired: "ReadyStopped" | "Running"): Promise<void> {
-      const existing = await store.readAll();
-      let updated = false;
-      const next = existing.map((b) => {
-        if (b.bindingId !== bindingId) return b;
-        updated = true;
-        return { ...b, desiredState: desired, updatedAt: clock.nowIso() };
+      await withStoreLock(async () => {
+        const existing = await store.readAll();
+        let updated = false;
+        const next = existing.map((b) => {
+          if (b.bindingId !== bindingId) return b;
+          updated = true;
+          return { ...b, desiredState: desired, updatedAt: clock.nowIso() };
+        });
+        if (!updated) return;
+        await store.writeAll(next);
+        bindingsChanged.fire(next);
       });
-      if (!updated) return;
-      await store.writeAll(next);
-      await emitChanged();
     },
 
     get onBindingsChanged(): Event<RaftAgentBinding[]> {

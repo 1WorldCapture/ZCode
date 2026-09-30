@@ -14,8 +14,8 @@
  * - 失败形态：非零退出 + stderr `Code: <CODE>` 行。
  */
 import { spawn } from "node:child_process";
-import { access, constants } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { access, constants, rm } from "node:fs/promises";
+import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 
 import { MINIMUM_RAFT_CLI_VERSION, type RaftCliLoginOutcome, type RaftCliPort, type RaftCliResolution, type RaftCliWhoami } from "../app/ports.js";
 
@@ -25,6 +25,20 @@ const CLI_PATH_ENV = "ZCODE_RAFT_CLI";
 const LOGIN_TIMEOUT_MS = 45_000;
 const WHOAMI_TIMEOUT_MS = 10_000;
 const VERSION_TIMEOUT_MS = 8_000;
+/** 子进程输出捕获上限（超出保留尾部——错误 Code 行在 stderr 末尾）。 */
+const MAX_STDOUT_BYTES = 1_000_000;
+const MAX_STDERR_BYTES = 256_000;
+
+/** 输出截断：保尾部（错误信息在尾部），UTF-8 边界对齐。 */
+export function capKeepingTail(text: string, maxBytes: number): string {
+  if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
+  let sliced = text.slice(-maxBytes);
+  // 从整字符边界开始（避免半个多字节字符开头）。
+  while (sliced.length > 0 && Buffer.byteLength(sliced, "utf8") > maxBytes) {
+    sliced = sliced.slice(1);
+  }
+  return sliced;
+}
 
 interface CliRun {
   status: number | null;
@@ -32,11 +46,56 @@ interface CliRun {
   stderr: string;
 }
 
-/** 白名单子进程环境：仅宿主的进程定位必需项 + 我们显式设置的项。 */
-function sanitizedEnv(extra: Record<string, string>): Record<string, string> {
+/**
+ * 白名单子进程环境：仅宿主的进程定位必需项 + 我们显式设置的项。
+ * 不含任何凭据形态；代理与 CA 变量是为企业内网可达性（不透传则 CLI 连不上内网 Raft）。
+ * 代理/证书变量同时收大小写两种形态（类 Unix 上 env 键区分大小写，curl 习惯用小写）。
+ */
+const POSIX_ENV_KEYS = [
+  "HOME",
+  "PATH",
+  "TMPDIR",
+  "LANG",
+  "LC_ALL",
+  "HTTPS_PROXY",
+  "https_proxy",
+  "HTTP_PROXY",
+  "http_proxy",
+  "NO_PROXY",
+  "no_proxy",
+  "NODE_EXTRA_CA_CERTS",
+] as const;
+// win32：Node 的网络/crypto 需要 SystemRoot；TEMP/TMP 是默认临时目录；
+// USERPROFILE/HOMEDRIVE/HOMEPATH/APPDATA/LOCALAPPDATA/PROGRAMDATA 是用户级路径解析；
+// COMSPEC/PATHEXT 影响 spawn 与可执行查找。缺 SystemRoot 时 Node 子进程可能直接起不来。
+const WIN32_ENV_KEYS = [
+  ...POSIX_ENV_KEYS,
+  "SystemRoot",
+  "windir",
+  "SYSTEMDRIVE",
+  "TEMP",
+  "TMP",
+  "USERPROFILE",
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "PROGRAMDATA",
+  "PROGRAMFILES",
+  "COMSPEC",
+  "PATHEXT",
+] as const;
+
+export function sanitizedEnv(
+  extra: Record<string, string>,
+  opts: { platform?: NodeJS.Platform; source?: Record<string, string | undefined> } = {},
+): Record<string, string> {
+  const platform = opts.platform ?? process.platform;
+  const source = opts.source ?? process.env;
+  const keys = platform === "win32" ? WIN32_ENV_KEYS : POSIX_ENV_KEYS;
   const env: Record<string, string> = {};
-  for (const key of ["HOME", "PATH", "TMPDIR", "LANG", "LC_ALL"]) {
-    const value = process.env[key];
+  for (const key of keys) {
+    const value = source[key];
     if (value !== undefined) env[key] = value;
   }
   return { ...env, ...extra };
@@ -82,14 +141,14 @@ function runCli(
       child.kill();
     }, opts.timeoutMs);
     child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
+      stdout = capKeepingTail(stdout + chunk.toString("utf8"), MAX_STDOUT_BYTES);
     });
     child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
+      stderr = capKeepingTail(stderr + chunk.toString("utf8"), MAX_STDERR_BYTES);
     });
     child.on("error", (error) => {
       clearTimeout(timer);
-      resolve({ status: null, stdout, stderr: `${stderr}${String(error)}` });
+      resolve({ status: null, stdout, stderr: capKeepingTail(`${stderr}${String(error)}`, MAX_STDERR_BYTES) });
     });
     child.on("close", (code) => {
       clearTimeout(timer);
@@ -219,6 +278,18 @@ export function createRaftCliAdapter(): RaftCliPort {
         // 落到统一错误返回。
       }
       return { error: "whoami_unexpected_output" };
+    },
+
+    async destroyProfile(params): Promise<void> {
+      // 包含性防护：只删 profilesRoot 直系子目录，profileDir 必须是绝对路径且
+      // relative 不越过根（".." 开头）也不等于根本身。防任意目录误删。
+      const root = resolve(params.profilesRoot);
+      const target = resolve(params.profileDir);
+      const rel = relative(root, target);
+      if (!isAbsolute(params.profileDir) || rel === "" || rel.startsWith("..")) {
+        throw new Error(`refusing to destroy profile outside profiles root: ${rel}`);
+      }
+      await rm(target, { recursive: true, force: true });
     },
   };
 }

@@ -15,10 +15,12 @@ function fakeCli(script: {
   resolve?: RaftCliPort["resolve"];
   login?: (params: Parameters<RaftCliPort["login"]>[0]) => Promise<RaftCliLoginOutcome>;
   whoami?: (params: { profileSlug: string; profileDir: string }) => Promise<RaftCliWhoami | { error: string }>;
-}): RaftCliPort & { loginCalls: Array<Parameters<RaftCliPort["login"]>[0]> } {
+}): RaftCliPort & { loginCalls: Array<Parameters<RaftCliPort["login"]>[0]>; destroyCalls: string[] } {
   const loginCalls: Array<Parameters<RaftCliPort["login"]>[0]> = [];
+  const destroyCalls: string[] = [];
   return {
     loginCalls,
+    destroyCalls,
     resolve: script.resolve ?? (async () => ({ ok: true, cliPath: "/fake/raft", version: "0.0.24" })),
     login: script.login
       ? async (params) => {
@@ -36,6 +38,9 @@ function fakeCli(script: {
         serverUrl: "https://raft.example.com",
         serverId: "server-1",
       })),
+    destroyProfile: async (params) => {
+      destroyCalls.push(params.profileDir);
+    },
   };
 }
 
@@ -122,6 +127,8 @@ test("createBinding 身份不一致（whoami 复核失败）被拒", async () =>
     });
     assert.deepEqual(result, { ok: false, code: "IdentityMismatch" });
     assert.equal((await service.list()).length, 0);
+    // 登录已成功、后续失败：本次 profile 必须被清理（防孤儿凭据）。
+    assert.equal(cli.destroyCalls.length, 1);
   } finally {
     await rm(dataRoot, { recursive: true, force: true });
   }
@@ -150,6 +157,124 @@ test("createBinding 路径前缀冲突被拒且不打网络（fail-closed 前置
     if (!second.ok) assert.equal(second.code, "PathConflict");
     // 冲突在登录前发现：第二次调用不应触达 login。
     assert.equal(cli.loginCalls.length, 1);
+  } finally {
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("createBinding 同身份重复接入：AlreadyBound 快速路径，不再打登录", async () => {
+  const dataRoot = await mkdtemp(join(tmpdir(), "raft-agents-"));
+  try {
+    const cli = fakeCli({});
+    const service = await makeService(cli, dataRoot);
+    await service.createBinding({
+      raftOrigin: "https://raft.example.com",
+      raftAgentId: AGENT_ID,
+      token: "sk_agent_testtoken123",
+    });
+    const second = await service.createBinding({
+      raftOrigin: "https://raft.example.com",
+      raftAgentId: AGENT_ID,
+      token: "sk_agent_testtoken123",
+    });
+    assert.equal(second.ok, false);
+    if (!second.ok) {
+      assert.equal(second.code, "AlreadyBound");
+      assert.equal(second.detail, "Fake Agent");
+    }
+    // 快速路径在登录前拒绝：登录只发生过一次。
+    assert.equal(cli.loginCalls.length, 1);
+    assert.equal((await service.list()).length, 1);
+  } finally {
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("并发同身份竞态：都过前置检查时，锁内复核拒绝后者并清理其 profile", async () => {
+  const dataRoot = await mkdtemp(join(tmpdir(), "raft-agents-"));
+  try {
+    const slugToAgent = new Map<string, string>();
+    const cli = fakeCli({
+      login: async (params) => {
+        await new Promise((r) => setTimeout(r, 10));
+        slugToAgent.set(params.profileSlug, params.expectedAgentId);
+        return { ok: true, agentName: "Fake Agent" };
+      },
+      whoami: async (params) => {
+        const agentId = slugToAgent.get(params.profileSlug);
+        if (!agentId) return { error: "no-login" };
+        return { agentId, serverUrl: "https://raft.example.com", serverId: "server-1" };
+      },
+    });
+    const service = await makeService(cli, dataRoot);
+    const [a, b] = await Promise.all([
+      service.createBinding({ raftOrigin: "https://raft.example.com", raftAgentId: AGENT_ID, token: "sk_agent_testtoken123" }),
+      service.createBinding({ raftOrigin: "https://raft.example.com", raftAgentId: AGENT_ID, token: "sk_agent_testtoken123" }),
+    ]);
+    const outcomes = [a, b].sort((x, y) => (x.ok === y.ok ? 0 : x.ok ? -1 : 1));
+    assert.equal(outcomes[0].ok, true);
+    assert.equal(outcomes[1].ok, false);
+    if (!outcomes[1].ok) assert.equal(outcomes[1].code, "AlreadyBound");
+    assert.equal((await service.list()).length, 1);
+    // 输家的 profile 被清理，赢家的保留。
+    assert.equal(cli.destroyCalls.length, 1);
+    assert.equal(cli.loginCalls.length, 2);
+  } finally {
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("并发不同身份：登录窗口期的并发写入不被覆盖（锁内重读）", async () => {
+  const dataRoot = await mkdtemp(join(tmpdir(), "raft-agents-"));
+  try {
+    const slugToAgent = new Map<string, string>();
+    const cli = fakeCli({
+      login: async (params) => {
+        await new Promise((r) => setTimeout(r, 10));
+        slugToAgent.set(params.profileSlug, params.expectedAgentId);
+        return { ok: true, agentName: `Agent ${params.expectedAgentId.slice(0, 4)}` };
+      },
+      whoami: async (params) => {
+        const agentId = slugToAgent.get(params.profileSlug);
+        if (!agentId) return { error: "no-login" };
+        return { agentId, serverUrl: "https://raft.example.com", serverId: "server-1" };
+      },
+    });
+    const service = await makeService(cli, dataRoot);
+    await Promise.all([
+      service.createBinding({ raftOrigin: "https://raft.example.com", raftAgentId: AGENT_ID, token: "sk_agent_testtoken123" }),
+      service.createBinding({
+        raftOrigin: "https://raft.example.com",
+        raftAgentId: "11111111-2222-4333-8444-555555555555",
+        token: "sk_agent_testtoken456",
+      }),
+    ]);
+    // 修复前：后写者用登录前读的快照整体覆盖，丢前一条。
+    const items = await service.list();
+    assert.equal(items.length, 2);
+    assert.equal(cli.destroyCalls.length, 0);
+  } finally {
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("removeBinding 一并清理本地 profile（凭据不留孤儿）", async () => {
+  const dataRoot = await mkdtemp(join(tmpdir(), "raft-agents-"));
+  try {
+    const cli = fakeCli({});
+    const service = await makeService(cli, dataRoot);
+    const created = await service.createBinding({
+      raftOrigin: "https://raft.example.com",
+      raftAgentId: AGENT_ID,
+      token: "sk_agent_testtoken123",
+    });
+    assert.ok(created.ok);
+    const binding = created.ok ? created.binding : undefined;
+    assert.ok(binding);
+    await service.removeBinding(binding!.bindingId, { deleteHome: false });
+    assert.equal((await service.list()).length, 0);
+    assert.equal(cli.destroyCalls.length, 1);
+    assert.match(cli.destroyCalls[0], /raft\/profiles\//);
   } finally {
     await rm(dataRoot, { recursive: true, force: true });
   }

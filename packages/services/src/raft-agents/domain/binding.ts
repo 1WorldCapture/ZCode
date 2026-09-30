@@ -73,7 +73,7 @@ export function findBindingConflicts(
   },
   existing: RaftAgentBinding[],
   opts: { win32: boolean },
-): { kind: "PathConflict" | "SlugConflict"; conflictWith: RaftAgentBinding } | undefined {
+): { kind: "PathConflict" | "SlugConflict" | "AlreadyBound"; conflictWith: RaftAgentBinding } | undefined {
   for (const binding of existing) {
     const bindingPath = normalizeHomePathForCompare(binding.homeWorkspacePath, opts);
     if (bindingPath !== undefined && homePathsConflict(candidate.homePathForCompare, bindingPath)) {
@@ -82,13 +82,14 @@ export function findBindingConflicts(
     if (binding.profileSlug === candidate.profileSlug) {
       return { kind: "SlugConflict", conflictWith: binding };
     }
-    // 同一身份（同源+同 agent）重复接入：第一条记录已存在，拒绝第二条。
+    // 同一身份（同源+同服务器+同 agent）重复接入：指向既有绑定，用用户可理解的
+    // AlreadyBound 而非内部 slug 术语。
     if (
       binding.raftOrigin === candidate.raftOrigin &&
       binding.serverId === candidate.serverId &&
       binding.raftAgentId === candidate.raftAgentId
     ) {
-      return { kind: "SlugConflict", conflictWith: binding };
+      return { kind: "AlreadyBound", conflictWith: binding };
     }
   }
   return undefined;

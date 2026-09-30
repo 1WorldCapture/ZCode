@@ -8,7 +8,14 @@ import {
   normalizeHomePathForCompare,
   normalizeRaftOrigin,
 } from "../src/raft-agents/domain/binding.js";
-import { compareVersions, parseAgentName, parseCliErrorCode, parseCliVersion } from "../src/raft-agents/adapters/raftCli.js";
+import {
+  capKeepingTail,
+  compareVersions,
+  parseAgentName,
+  parseCliErrorCode,
+  parseCliVersion,
+  sanitizedEnv,
+} from "../src/raft-agents/adapters/raftCli.js";
 import type { RaftAgentBinding } from "@zcode/shared";
 
 const DARWIN = { win32: false };
@@ -88,7 +95,7 @@ test("findBindingConflicts 路径前缀冲突", () => {
   assert.equal(conflict?.conflictWith.displayName, "Existing");
 });
 
-test("findBindingConflicts 同身份重复接入被拒", () => {
+test("findBindingConflicts 同身份重复接入被拒（AlreadyBound）", () => {
   const existing = [makeBinding()];
   const conflict = findBindingConflicts(
     {
@@ -101,7 +108,7 @@ test("findBindingConflicts 同身份重复接入被拒", () => {
     existing,
     DARWIN,
   );
-  assert.equal(conflict?.kind, "SlugConflict");
+  assert.equal(conflict?.kind, "AlreadyBound");
 });
 
 test("findBindingConflicts 不同身份不同路径放行", () => {
@@ -135,4 +142,72 @@ test("compareVersions 语义化比较", () => {
   assert.equal(compareVersions("0.0.23", "0.0.24"), -1);
   assert.equal(compareVersions("0.1.0", "0.0.24"), 1);
   assert.equal(compareVersions("1.0.0", "0.9.9"), 1);
+});
+
+test("sanitizedEnv：POSIX 白名单不含托管注入变量，代理/CA 变量透传", () => {
+  const env = sanitizedEnv(
+    { RAFT_PROFILE_DIR: "/data/raft/profiles/p1" },
+    {
+      platform: "darwin",
+      source: {
+        HOME: "/Users/a",
+        PATH: "/usr/bin",
+        TMPDIR: "/tmp",
+        LANG: "zh_CN.UTF-8",
+        HTTPS_PROXY: "http://proxy.corp:8080",
+        no_proxy: "localhost",
+        NODE_EXTRA_CA_CERTS: "/certscorp.pem",
+        // 全部应被剥离。
+        SLOCK_DAEMON: "1",
+        RAFT_CHANNEL_TOKEN: "sk_agent_should_not_pass",
+        SECRET_ENV: "x",
+      },
+    },
+  );
+  assert.equal(env.HOME, "/Users/a");
+  assert.equal(env.HTTPS_PROXY, "http://proxy.corp:8080");
+  assert.equal(env.no_proxy, "localhost");
+  assert.equal(env.NODE_EXTRA_CA_CERTS, "/certscorp.pem");
+  assert.equal(env.RAFT_PROFILE_DIR, "/data/raft/profiles/p1");
+  assert.equal("SLOCK_DAEMON" in env, false);
+  assert.equal("RAFT_CHANNEL_TOKEN" in env, false);
+  assert.equal("SECRET_ENV" in env, false);
+});
+
+test("sanitizedEnv：win32 追加系统必需变量", () => {
+  const env = sanitizedEnv(
+    {},
+    {
+      platform: "win32",
+      source: {
+        PATH: "C:\\Windows",
+        SystemRoot: "C:\\Windows",
+        TEMP: "C:\\Temp",
+        TMP: "C:\\Temp",
+        USERPROFILE: "C:\\Users\\a",
+        APPDATA: "C:\\Users\\a\\AppData\\Roaming",
+        PATHEXT: ".COM;.EXE",
+        HOME: "/should/not/matter/but/harmless",
+      },
+    },
+  );
+  assert.equal(env.SystemRoot, "C:\\Windows");
+  assert.equal(env.USERPROFILE, "C:\\Users\\a");
+  assert.equal(env.PATHEXT, ".COM;.EXE");
+  // darwin 分支不收的 win32 变量在 darwin 下剥离。
+  const darwinEnv = sanitizedEnv({}, { platform: "darwin", source: { SystemRoot: "C:\\Windows" } });
+  assert.equal("SystemRoot" in darwinEnv, false);
+});
+
+test("capKeepingTail 保尾部且守 UTF-8 边界", () => {
+  assert.equal(capKeepingTail("short", 100), "short");
+  const long = `${"x".repeat(5000)}TAIL_CODE_LINE`;
+  const capped = capKeepingTail(long, 20);
+  assert.ok(capped.endsWith("TAIL_CODE_LINE"));
+  assert.ok(Buffer.byteLength(capped, "utf8") <= 20);
+  // 多字节字符不被截半：截断点向后退到整字符边界。
+  const mb = "中".repeat(100);
+  const cappedMb = capKeepingTail(mb, 10);
+  assert.ok(Buffer.byteLength(cappedMb, "utf8") <= 10);
+  assert.ok(cappedMb.endsWith("中"));
 });
