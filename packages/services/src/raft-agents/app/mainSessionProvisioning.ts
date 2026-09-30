@@ -16,7 +16,7 @@
  *   由 raftAgentsService 在步骤全部成功后统一持久化（步骤不自行写 store）。
  * - 顺序要求：须排在 T5 Home 初始化步骤之后（会话的 workspace 与记忆根 = Agent Home）。
  */
-import type { ZCodeOfficialMcpServerRef } from "@zcode/shared";
+import type { RaftAgentBinding, ZCodeOfficialMcpServerRef } from "@zcode/shared";
 
 import type { ServiceLogger } from "#src/logger/serviceLogger.js";
 
@@ -26,10 +26,11 @@ import type { RaftSessionPort } from "./ports.js";
 export interface MainSessionProvisioningOptions {
   sessions: RaftSessionPort;
   /**
-   * 解析官方宿主 MCP 具名引用（宿主注入：name 固定 "raft-agent-tools"，env 为
-   * ZCODE_RAFT_* 常量组，不含 token）。返回 undefined/空 = 插件不可用（fail-closed）。
+   * 解析官方宿主 MCP 具名引用（宿主注入：env 按 binding 派生 ZCODE_RAFT_* 常量组，
+   * 用 app/officialMcp.ts 的构造器；不含 token）。返回 undefined/空 = 插件不可用
+   * （fail-closed）。
    */
-  resolveOfficialMcpServers: () => Promise<ZCodeOfficialMcpServerRef[] | undefined>;
+  resolveOfficialMcpServers: (binding: RaftAgentBinding) => Promise<ZCodeOfficialMcpServerRef[] | undefined>;
   logger?: ServiceLogger;
 }
 
@@ -43,7 +44,7 @@ export function createMainSessionProvisioningStep(
         // 幂等：会话已建立（重试/并发重建由绑定唯一性兜底）。
         return;
       }
-      const officialMcpServers = await options.resolveOfficialMcpServers();
+      const officialMcpServers = await options.resolveOfficialMcpServers(binding);
       if (officialMcpServers === undefined || officialMcpServers.length === 0) {
         throw new Error("raft tools MCP config unavailable (plugin not staged?)");
       }

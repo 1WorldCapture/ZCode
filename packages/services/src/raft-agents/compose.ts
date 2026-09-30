@@ -1,11 +1,12 @@
 /**
  * 模块内组合根：把官方 CLI 适配器与文件存储接到服务上。
- * 宿主（node.ts createLocalServices）从这里拿 createDefaultRaftAgentsService，
- * 类型契约经 contract.ts；依赖方向保持 compose → app/adapters → contract 单向。
+ * 宿主（node.ts createLocalServices）从这里拿 createDefaultRaftAgentsService 与
+ * createDefaultRaftHostStack（T3 宿主接线），类型契约经 contract.ts；
+ * 依赖方向保持 compose → app/adapters → contract 单向。
  */
 import { getZCodeDataRootDir } from "#src/paths.js";
 
-import type { RaftProvisioningStep } from "./contract.js";
+import type { IRaftAgentsService, RaftProvisioningStep } from "./contract.js";
 import { createRaftAgentsService, type RaftAgentsServiceOptions } from "./app/raftAgentsService.js";
 import { createRaftWakeDelivery, type RaftWakeDeliveryOptions } from "./app/wakeDelivery.js";
 import {
@@ -13,10 +14,18 @@ import {
   type RaftWatchRuntime,
   type RaftWatchRuntimeOptions,
 } from "./app/watchRuntime.js";
+import type { OwnerGuardPort } from "./app/bridgePorts.js";
+import type { AgentHomePort } from "./app/agentHomePorts.js";
 import type { RaftSessionPort, WakeHandlerPort } from "./app/ports.js";
-import type { RaftStoreWriteLock } from "./app/storeLock.js";
+import { createRaftStoreWriteLock, type RaftStoreWriteLock } from "./app/storeLock.js";
+import { createAgentHomeProvisioningStep } from "./app/agentHomeProvisioning.js";
+import { createMainSessionProvisioningStep } from "./app/mainSessionProvisioning.js";
+import { buildRaftAgentToolsMcpRef } from "./app/officialMcp.js";
+import { createAgentHomeAdapter } from "./adapters/agentHome.js";
 import { createRaftBindingStore } from "./adapters/bindingStore.js";
+import { createBridgeSupervisor } from "./adapters/bridgeSupervisor.js";
 import { createRaftCliAdapter } from "./adapters/raftCli.js";
+import { createWakeServer } from "./adapters/wakeServer.js";
 
 type WakeDeliveryLogger = NonNullable<RaftWakeDeliveryOptions["logger"]>;
 
@@ -88,4 +97,137 @@ export function createDefaultRaftWakeDelivery(options: {
     busyRetryAfterMs: options.busyRetryAfterMs,
     logger: options.logger,
   });
+}
+
+/** 宿主接线产物：service 进 ServiceCollection，其余面由宿主在关停/启动时调用。 */
+export interface RaftHostStack {
+  service: IRaftAgentsService;
+  runtime: RaftWatchRuntime;
+  /** Host 启动后调用：恢复 desiredState=Running 的绑定（内部先等 wake server 就绪）。 */
+  recoverAllDesiredRunning(): Promise<void>;
+  /**
+   * 有序关停（挂 Host service-dispose 阶段）：等全部 bridge 退出（supervisor.stopAll）
+   * 后停 wake server。宽限期在 supervisor 内（2s < 阶段预算 3.5s）。
+   */
+  disposeAllAndWait(): Promise<void>;
+  /** 同步收口（Host 无法 await 的路径）：强杀 bridge + best-effort 停 server。 */
+  terminateAllNow(): void;
+}
+
+/**
+ * T3 宿主接线组合根：一个调用装配完整值守栈——绑定服务（provisioning 注入 Home 与
+ * 主会话步骤）+ 唤醒 HTTP（loopback）+ bridge supervisor + 值守编排器，共享同一把
+ * 存储写锁与同一份官方 MCP 引用解析（env 按 binding 派生，不含 token）。
+ *
+ * 生命周期：wake server 随栈创建即启动（bridge 的 wake url 依赖它已 listen）；
+ * disposeAllAndWait 由 node.ts 的 disposeServiceResourcesAndWait 调用。
+ * ownerGuard 缺省恒主窗口（多窗口主窗口判定在 task #8 接入，supervisor 的
+ * 进程锁已防同机双 bridge）。
+ */
+export function createDefaultRaftHostStack(options: {
+  dataRootDir?: string;
+  /** zcodeAgentService 的会话面（宿主传入 createZcodeSessionPort(zcodeAgentService)）。 */
+  sessions: RaftSessionPort;
+  /** 完整 AgentHomePort（initialize 供 provisioning、verifyMemoryAvailable 供值守门）。 */
+  memory?: AgentHomePort;
+  ownerGuard?: OwnerGuardPort;
+  /** 唤醒 loopback 端口；省略随机。 */
+  wakePort?: number;
+  /** 收件日志保留天数（spec §7 默认 14 天，这里只透传给 MCP env）。 */
+  inboxRetentionDays?: number;
+  logger?: RaftAgentsServiceOptions["logger"];
+}): RaftHostStack {
+  const dataRootDir = options.dataRootDir ?? getZCodeDataRootDir();
+  const logger = options.logger;
+  const cli = createRaftCliAdapter();
+  const lock = createRaftStoreWriteLock();
+  const store = createRaftBindingStore(dataRootDir);
+  const memory = options.memory ?? createAgentHomeAdapter();
+
+  // 官方 MCP 引用：CLI 不可解析 = 插件/环境不可用 → fail-closed（undefined）。
+  const resolveOfficialMcpServers = async (binding: Parameters<typeof buildRaftAgentToolsMcpRef>[0]) => {
+    const resolution = await cli.resolve();
+    if (!resolution.ok) return undefined;
+    return [
+      buildRaftAgentToolsMcpRef(binding, {
+        dataRootDir,
+        cliPath: resolution.cliPath,
+        ...(options.inboxRetentionDays !== undefined
+          ? { inboxRetentionDays: options.inboxRetentionDays }
+          : {}),
+      }),
+    ];
+  };
+
+  const wakeHandler = createRaftWakeDelivery({ store, sessions: options.sessions, logger });
+  const wakeServer = createWakeServer({ handler: wakeHandler, port: options.wakePort });
+  const supervisor = createBridgeSupervisor({
+    dataRootDir,
+    wakeEndpoint: wakeServer,
+    ownerGuard: options.ownerGuard ?? { isOwner: () => true },
+    logger: {
+      info: (message, fields) => logger?.info(undefined, message, fields),
+      warn: (message, fields) => logger?.warn(undefined, message, fields),
+    },
+  });
+  const runtime = createRaftWatchRuntime({
+    store,
+    lock,
+    sessions: options.sessions,
+    supervisor,
+    cli,
+    memory,
+    resolveOfficialMcpServers,
+    logger,
+  });
+
+  const service = createRaftAgentsService({
+    cli,
+    store,
+    clock: { nowIso: () => new Date().toISOString() },
+    dataRootDir,
+    logger,
+    // 顺序硬约束：Home 先于主会话（会话 workspace 与记忆根 = Agent Home）。
+    provisioningSteps: [
+      createAgentHomeProvisioningStep(memory),
+      createMainSessionProvisioningStep({ sessions: options.sessions, resolveOfficialMcpServers, logger }),
+    ],
+    storeWriteLock: lock,
+    resolveRunState: runtime.resolveRunState,
+    onDesiredStateChanged: ({ bindingId, desired }) => {
+      // 状态落盘成功后触发编排（锁外、异步）：开始/停止值守。
+      void (desired === "Running" ? runtime.startWatch(bindingId) : runtime.stopWatch(bindingId)).catch(
+        (error) => {
+          logger?.warn(undefined, "raft watch trigger failed", {
+            bindingId,
+            desired,
+            error: String(error),
+          });
+        },
+      );
+    },
+  });
+
+  // wake server 随栈启动（bridge 的 open() 依赖已 listen；失败记日志，bridge 启动会
+  // 以 EndpointUnavailable 暴露）。恢复与用户触发的 startWatch 都先等它。
+  const ready = wakeServer.start().catch((error) => {
+    logger?.error(undefined, "raft wake server failed to start", { error: String(error) });
+  });
+
+  return {
+    service,
+    runtime,
+    async recoverAllDesiredRunning() {
+      await ready;
+      await runtime.recoverAllDesiredRunning();
+    },
+    async disposeAllAndWait() {
+      await runtime.disposeAllAndWait();
+      await wakeServer.stop();
+    },
+    terminateAllNow() {
+      supervisor.terminateAllNow();
+      void wakeServer.stop().catch(() => {});
+    },
+  };
 }

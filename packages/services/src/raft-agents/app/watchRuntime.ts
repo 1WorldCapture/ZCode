@@ -63,10 +63,11 @@ export interface RaftWatchRuntimeOptions {
   /** 记忆门（T5）；未注入时跳过该步——宿主接线必须补上（顺序红线）。 */
   memory?: RaftMemoryGatePort;
   /**
-   * 官方宿主 MCP 具名引用（与 provisioning 同一来源）：resume 冷恢复必须重发，缺了
-   * 重建的 runtime 没有 Raft 工具。返回 undefined/空 = 插件不可用（fail-closed 不启动）。
+   * 官方宿主 MCP 具名引用（与 provisioning 同一来源，env 按 binding 派生）：
+   * resume 冷恢复必须重发，缺了重建的 runtime 没有 Raft 工具。
+   * 返回 undefined/空 = 插件不可用（fail-closed 不启动）。
    */
-  resolveOfficialMcpServers: () => Promise<ZCodeOfficialMcpServerRef[] | undefined>;
+  resolveOfficialMcpServers: (binding: RaftAgentBinding) => Promise<ZCodeOfficialMcpServerRef[] | undefined>;
   clock?: ClockPort;
   logger?: ServiceLogger;
 }
@@ -179,7 +180,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
 
     // 官方 MCP 引用（fail-closed）：resume 冷恢复必须重发；插件不可用就不启动值守
     //（没有 Raft 工具的会话收了唤醒也无法处理，fail-fast 比带病值守好）。
-    const officialMcpServers = await options.resolveOfficialMcpServers();
+    const officialMcpServers = await options.resolveOfficialMcpServers(initial);
     if (officialMcpServers === undefined || officialMcpServers.length === 0) {
       logger?.warn(undefined, "raft watch start blocked: official mcp unavailable", { bindingId });
       return { ok: false, code: "McpUnavailable" };
