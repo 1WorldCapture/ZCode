@@ -122,6 +122,8 @@ test("start：固定身份 argv，token 只在环境变量里，stop 视为主�
       `--adapter-instance=${BINDING.bindingId}`,
       "--wake-adapter=wake-channel",
       `--wake-channel-endpoint=http://127.0.0.1:1/${BINDING.bindingId}/wake`,
+      // 显式 activity 端点（保留 /<bindingId>/ 前缀）：bridge 默认派生会丢掉前缀导致 404。
+      `--activity-channel-endpoint=http://127.0.0.1:1/${BINDING.bindingId}/activity/drain`,
       "--json",
     ]);
     assert.ok(!record.argv.join(" ").includes(TOKEN), "token 不得出现在 argv");

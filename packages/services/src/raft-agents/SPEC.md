@@ -167,7 +167,7 @@ interface IRaftAgentsService {
 ### 不变量
 
 1. **初始化只写缺失、永不覆盖**（独占创建）；模板里的名称/描述来自 Raft 公开档案（不可信），渲染前压成单行、去控制字符、截断，`{{...}}` 不二次展开。目录 0700、文件 0600。
-2. **值守开始前的同步闸门 `verifyMemoryAvailable`**：只读，不创建任何东西；失败码 `HomeMissing|MemoryMissing|MemoryUnreadable|MemoryEmpty`，编排器统一置 `ErrorPaused(memory_unavailable)` 并在 UI 展示具体原因。`MEMORY.md` 必须是 Home 根下的普通文件（符号链接/目录一律拒绝，防止把任意文件读进模型上下文）。
+2. **值守开始前的同步闸门 `verifyMemoryAvailable`**：只读，不创建任何东西；失败码 `HomeMissing|MemoryMissing|MemoryUnreadable|MemoryEmpty`，编排器统一置 `ErrorPaused(memory_unavailable)` 并在 UI 展示具体原因。`MEMORY.md` 必须是 Home 根下的普通文件（符号链接/目录一律拒绝，防止把任意文件读进模型上下文）——**符号链接由这个闸门用 lstat 拦截**，core 侧的 `FileSystemPort.stat` 会跟随链接，只兜住缺失/目录/不可读。
 3. **会话上下文加载（core，第二层防线）严格失败**：Home 或 MEMORY.md 缺失、非普通文件、不可读、为空都抛 `AgentMemoryUnavailableError`（`home_missing|memory_missing|memory_unreadable|memory_empty`），**不走项目记忆的宽松 catch**；agent 会话绝不自动创建 Home 目录。过长按现有预算（200 行 / 25000 字符）截断并明示 `WARNING: … Only part of it was loaded`，不静默当作完整读取。
 4. **项目记忆自动抽取对 agent 会话关闭**（另一套记录规则、另一个目录）；Agent 按 raft-agent 规则显式维护 MEMORY/notes。
 5. Agent 记忆不受 Settings 的项目记忆开关影响（它是身份恢复入口，不能被静默关掉）。

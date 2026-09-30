@@ -399,9 +399,14 @@ test("官方 MCP 引用不可用：fail-closed 不换代不恢复不 spawn", asy
   assert.equal(store.writes.length, 0);
   assert.equal(sessions.resumes.length, 0);
   assert.equal(supervisor.startCalls.length, 0);
+  // 置 ErrorPaused(mcp_unavailable)：否则 UI 一直投影 Starting，用户看不到原因（评审 b51caf5c）。
+  assert.deepEqual(runtime.resolveRunState(store.current()[0]), {
+    kind: "ErrorPaused",
+    reason: "mcp_unavailable",
+  });
 });
 
-test("resume 失败：中止且不置 ErrorPaused（非本机故障语义），换代已保留", async () => {
+test("resume 失败：置 ErrorPaused(session_unavailable)，换代已保留", async () => {
   const sessions = fakeSessions([{ ok: true, duplicate: false }], [
     { ok: false, code: "failed", detail: "rpc down" },
   ]);
@@ -411,5 +416,10 @@ test("resume 失败：中止且不置 ErrorPaused（非本机故障语义），�
   assert.ok(!outcome.ok && outcome.detail === "rpc down");
   assert.equal(supervisor.startCalls.length, 0, "resume 未过不启动 bridge");
   assert.equal(store.writes.length, 1, "换代已持久化（幂等键唯一性保留）");
-  assert.equal(runtime.resolveRunState(store.current()[0]), undefined, "无覆盖层，投影回落推导");
+  // 置 ErrorPaused(session_unavailable)（评审 b51caf5c）：投影可诊断而非一直 Starting；
+  // 下次 startWatch 成功或 stopWatch 清除。
+  assert.deepEqual(runtime.resolveRunState(store.current()[0]), {
+    kind: "ErrorPaused",
+    reason: "session_unavailable",
+  });
 });

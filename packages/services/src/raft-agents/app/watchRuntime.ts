@@ -63,10 +63,11 @@ export interface RaftWatchRuntimeOptions {
   /** 记忆门（T5）；未注入时跳过该步——宿主接线必须补上（顺序红线）。 */
   memory?: RaftMemoryGatePort;
   /**
-   * 官方宿主 MCP 具名引用（与 provisioning 同一来源）：resume 冷恢复必须重发，缺了
-   * 重建的 runtime 没有 Raft 工具。返回 undefined/空 = 插件不可用（fail-closed 不启动）。
+   * 官方宿主 MCP 具名引用（与 provisioning 同一来源，env 按 binding 派生）：
+   * resume 冷恢复必须重发，缺了重建的 runtime 没有 Raft 工具。
+   * 返回 undefined/空 = 插件不可用（fail-closed 不启动）。
    */
-  resolveOfficialMcpServers: () => Promise<ZCodeOfficialMcpServerRef[] | undefined>;
+  resolveOfficialMcpServers: (binding: RaftAgentBinding) => Promise<ZCodeOfficialMcpServerRef[] | undefined>;
   clock?: ClockPort;
   logger?: ServiceLogger;
 }
@@ -179,8 +180,11 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
 
     // 官方 MCP 引用（fail-closed）：resume 冷恢复必须重发；插件不可用就不启动值守
     //（没有 Raft 工具的会话收了唤醒也无法处理，fail-fast 比带病值守好）。
-    const officialMcpServers = await options.resolveOfficialMcpServers();
+    const officialMcpServers = await options.resolveOfficialMcpServers(initial);
     if (officialMcpServers === undefined || officialMcpServers.length === 0) {
+      // 置 ErrorPaused(mcp_unavailable)：不置值 UI 会一直投影成 Starting，用户看不到
+      // 原因（评审线程 b51caf5c）；下次 startWatch 成功或 stopWatch 清除。
+      overlay.set(bindingId, { kind: "ErrorPaused", reason: "mcp_unavailable" });
       logger?.warn(undefined, "raft watch start blocked: official mcp unavailable", { bindingId });
       return { ok: false, code: "McpUnavailable" };
     }
@@ -211,8 +215,9 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
     overlay.delete(bindingId);
 
     // 会话恢复（spec §3：先于 bridge 启动）：resume 重发记忆作用域与 MCP 引用——
-    // 冷恢复会重建 runtime，缺了会退回项目记忆且无 Raft 工具。失败不置 ErrorPaused
-    //（RPC/会话层问题非本机故障语义），由用户或下次 Host 启动重试。
+    // 冷恢复会重建 runtime，缺了会退回项目记忆且无 Raft 工具。失败置
+    // ErrorPaused(session_unavailable)（评审线程 b51caf5c：不置值 UI 会一直显示
+    // 启动中，用户看不到原因）；下次 startWatch 成功或 stopWatch 清除。
     const resumed = await options.sessions.resumeAgentSession({
       workspacePath: binding.homeWorkspacePath,
       sessionId: locked.sessionId,
@@ -220,6 +225,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
       officialMcpServers,
     });
     if (!resumed.ok) {
+      overlay.set(bindingId, { kind: "ErrorPaused", reason: "session_unavailable" });
       logger?.warn(undefined, "raft watch start blocked: session resume failed", {
         bindingId,
         sessionId: locked.sessionId,

@@ -31,5 +31,7 @@ export function sanitizeAgentName(name: string | undefined): string {
   }
   const collapsed = out.replace(/\s+/gu, " ").trim();
   if (collapsed.length === 0) return "Raft Agent";
-  return collapsed.length > 120 ? `${collapsed.slice(0, 120).trimEnd()}…` : collapsed;
+  // 按码点截断，避免在代理对中间劈开产生孤立代理项。
+  const codePoints = Array.from(collapsed);
+  return codePoints.length > 120 ? `${codePoints.slice(0, 120).join("").trimEnd()}…` : collapsed;
 }

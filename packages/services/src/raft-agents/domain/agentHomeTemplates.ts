@@ -24,7 +24,11 @@ export function sanitizeInline(
   for (const ch of value ?? "") out += isControlOrSeparator(ch.codePointAt(0) ?? 0) ? " " : ch;
   const collapsed = out.replace(/\s+/g, " ").trim();
   if (collapsed.length === 0) return fallback;
-  return collapsed.length > maxChars ? `${collapsed.slice(0, maxChars).trimEnd()}…` : collapsed;
+  // 按码点截断（不是 UTF-16 单位），避免在代理对中间劈开产生孤立代理项。
+  const codePoints = Array.from(collapsed);
+  return codePoints.length > maxChars
+    ? `${codePoints.slice(0, maxChars).join("").trimEnd()}…`
+    : collapsed;
 }
 
 function fill(template: string, values: Record<string, string>): string {

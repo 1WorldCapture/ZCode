@@ -83,6 +83,19 @@ export function createBridgeSupervisor(options: BridgeSupervisorOptions): Bridge
     }
   }
 
+  /**
+   * activity drain 端点：官方 bridge 默认把它派生成「唤醒端点的 origin + /activity/drain」
+   * （整段 pathname 被替换，会丢掉 /<bindingId>/ 前缀），而唤醒服务按绑定分路由，
+   * 所以必须显式传 --activity-channel-endpoint，否则每轮 drain 都 404 产生失败噪音。
+   * 复用唤醒端点的 token（bridge 的 activity token 缺省即 wake token）。
+   */
+  function activityEndpointOf(endpointUrl: string): string {
+    const url = new URL(endpointUrl);
+    url.pathname = url.pathname.replace(/\/wake\/?$/u, "/activity/drain");
+    url.search = "";
+    return url.toString();
+  }
+
   function buildArgs(binding: BridgeBindingRef, endpointUrl: string): string[] {
     // 身份固定：--profile 与 --expected-agent 都来自绑定记录；token 不在 argv 里。
     return [
@@ -94,6 +107,7 @@ export function createBridgeSupervisor(options: BridgeSupervisorOptions): Bridge
       `--adapter-instance=${binding.bindingId}`,
       "--wake-adapter=wake-channel",
       `--wake-channel-endpoint=${endpointUrl}`,
+      `--activity-channel-endpoint=${activityEndpointOf(endpointUrl)}`,
       "--json",
     ];
   }

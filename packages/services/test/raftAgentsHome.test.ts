@@ -109,3 +109,13 @@ test("verifyMemoryAvailable：MEMORY.md 是符号链接或目录时拒绝（不�
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("截断按码点：不在代理对中间劈开", () => {
+  const emojiName = "😀".repeat(200);
+  const clipped = sanitizeInline(emojiName, 120, "f");
+  assert.equal(Array.from(clipped.replace("…", "")).length, 120);
+  assert.ok(
+    !/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(clipped),
+    "不得出现孤立代理项",
+  );
+});
