@@ -189,6 +189,14 @@ export function createRaftCliAdapter(): RaftCliPort {
       // relative 不越过根（".." 开头）也不等于根本身。防任意目录误删。
       const root = resolve(params.profilesRoot);
       const target = resolve(params.profileDir);
+      // win32 跨盘符显式拒绝：relative() 对不同盘符会给出 ".." 开头的路径（已被拦），
+      // 但盘符比较更直白、不依赖实现细节。
+      const drive = (p: string) => (/^[a-zA-Z]:/.exec(p)?.[0]?.toLowerCase() ?? "");
+      const rootDrive = drive(root);
+      const targetDrive = drive(target);
+      if (rootDrive !== targetDrive) {
+        throw new Error(`refusing to destroy profile on a different drive: ${targetDrive || "?"} vs ${rootDrive || "?"}`);
+      }
       const rel = relative(root, target);
       if (!isAbsolute(params.profileDir) || rel === "" || rel.startsWith("..")) {
         throw new Error(`refusing to destroy profile outside profiles root: ${rel}`);
