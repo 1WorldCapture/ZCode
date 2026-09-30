@@ -23,6 +23,30 @@ const zhCN: Record<string, string> = {
   "agentCenter.reason.credential_invalid": "凭据失效",
   "agentCenter.reason.bridge_exit": "桥接异常退出",
   "agentCenter.reason.inbox_log_write_failed": "收件日志写入失败",
+  "agentCenter.reason.cli_unavailable": "Raft CLI 不可用",
+  "agentCenter.unavailable": "当前环境不支持接入 Raft Agent",
+  "agentCenter.loading": "正在加载…",
+  "agentCenter.loadFailed": "无法加载 Agent 列表",
+  "agentCenter.refreshFailed": "刷新失败，显示的可能不是最新状态",
+  "agentCenter.actionFailed": "操作失败，请稍后重试",
+  "agentCenter.form.saving": "正在接入…",
+  "agentCenter.form.error.CliMissing":
+    "没有找到 raft 命令行工具，请先安装（需要 0.0.24 或更高版本）",
+  "agentCenter.form.error.CliVersionUnsupported":
+    "raft 命令行工具版本过低，请升级到 0.0.24 或更高版本",
+  "agentCenter.form.error.OriginInvalid": "服务地址格式不正确，或 Home 路径必须是绝对路径",
+  "agentCenter.form.error.AgentIdInvalid": "Agent ID 格式不正确（应为 UUID）",
+  "agentCenter.form.error.TokenInvalid": "Token 无效，请检查后重新粘贴",
+  "agentCenter.form.error.IdentityMismatch":
+    "这个 Token 属于另一个 Agent 或另一个服务，请核对 Agent ID 和服务地址",
+  "agentCenter.form.error.CredentialCheckFailed":
+    "暂时无法验证凭据（网络或服务不可达），请稍后重试",
+  "agentCenter.form.error.PathConflict":
+    "这个 Home 路径与已接入的 Agent 冲突，请换一个目录（{detail}）",
+  "agentCenter.form.error.SlugConflict": "内部标识冲突，请重试（{detail}）",
+  "agentCenter.form.error.AlreadyBound": "这个 Agent 已经接入过了（{detail}）",
+  "agentCenter.form.error.ProvisioningFailed": "接入准备失败，可以重试（步骤：{detail}）",
+  "agentCenter.form.error.StoreWriteFailed": "保存失败，请重试",
   "agentCenter.form.description":
     "输入 Raft 服务地址、Agent ID 和 Token 完成接入。Token 经安全通道传递，不会进入日志与界面存储。",
   "agentCenter.form.serverUrl": "服务地址",

@@ -3,7 +3,11 @@
  * 连接状态与运行状态是两个维度（spec §10），不允许压成一个状态点。
  */
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import type { RaftAgentConnectionState, RaftAgentErrorPauseReason, RaftAgentRunState } from "@/agents/types.js";
+import type {
+  RaftAgentConnectionState,
+  RaftAgentErrorPauseReason,
+  RaftAgentRunState,
+} from "@/agents/types.js";
 import { isErrorPaused } from "@/agents/types.js";
 
 export function formatConnectionState(
@@ -33,6 +37,8 @@ export function formatErrorPauseReason(
       return formatMessage({ id: "agentCenter.reason.bridge_exit" });
     case "inbox_log_write_failed":
       return formatMessage({ id: "agentCenter.reason.inbox_log_write_failed" });
+    case "cli_unavailable":
+      return formatMessage({ id: "agentCenter.reason.cli_unavailable" });
   }
 }
 

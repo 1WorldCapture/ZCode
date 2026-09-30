@@ -12,13 +12,19 @@ import { useAgentCenterStore } from "@/agents/agentCenterStore.js";
 import { AgentConnectFormPage } from "@/agents/AgentConnectFormPage.js";
 import { AgentDetailPage } from "@/agents/AgentDetailPage.js";
 import { AgentListPage } from "@/agents/AgentListPage.js";
+import { useAgentCenterSync, useRaftAgentsService } from "@/agents/useAgentCenterSync.js";
 
 export function AgentCenterLayer({ onClose }: { onClose: () => void }) {
   const { intl } = useZCodeIntl();
   const view = useAgentCenterStore((state) => state.view);
+  // 数据同步随 Agent 中心层挂载/卸载；关闭层不影响 host 里的值守。
+  useAgentCenterSync(useRaftAgentsService());
 
   return (
-    <div className="absolute inset-0 z-10 flex flex-col bg-background" data-testid="agent-center-layer">
+    <div
+      className="absolute inset-0 z-10 flex flex-col bg-background"
+      data-testid="agent-center-layer"
+    >
       <div className="flex h-11 shrink-0 items-center justify-between border-b border-border pl-4 pr-2">
         <span className="text-ui-base font-semibold text-foreground">
           {intl.formatMessage({ id: "agentCenter.title" })}

@@ -8,6 +8,9 @@ import { Bot, Play, Plus, Square } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useAgentCenterStore } from "@/agents/agentCenterStore.js";
+import { pauseAgent, startAgent } from "@/agents/agentCenterActions.js";
+import { useRaftAgentsService } from "@/agents/useAgentCenterSync.js";
+import { isErrorPaused } from "@/agents/types.js";
 import {
   connectionStateTextClass,
   formatConnectionState,
@@ -17,11 +20,37 @@ import {
 
 export function AgentListPage() {
   const { intl } = useZCodeIntl();
+  const service = useRaftAgentsService();
   const items = useAgentCenterStore((state) => state.items);
+  const loaded = useAgentCenterStore((state) => state.loaded);
+  const loadFailed = useAgentCenterStore((state) => state.loadFailed);
+  const actionFailed = useAgentCenterStore((state) => state.actionFailed);
   const openConnectForm = useAgentCenterStore((state) => state.openConnectForm);
   const openDetail = useAgentCenterStore((state) => state.openDetail);
-  const startAgent = useAgentCenterStore((state) => state.startAgent);
-  const pauseAgent = useAgentCenterStore((state) => state.pauseAgent);
+
+  // 当前环境没有装配 Raft Agents 服务（如 Web/远端）：如实说明，不显示空列表引导。
+  if (!service) {
+    return (
+      <div className="flex h-full items-center justify-center px-6 text-center">
+        <p className="max-w-72 text-ui-caption text-foreground-subtle">
+          {intl.formatMessage({ id: "agentCenter.unavailable" })}
+        </p>
+      </div>
+    );
+  }
+
+  // 首次加载完成前不显示空态，避免闪一下「还没有接入任何 Agent」。
+  if (!loaded) {
+    return (
+      <div className="flex h-full items-center justify-center px-6 text-center">
+        <p className="text-ui-caption text-foreground-subtle" role="status">
+          {intl.formatMessage({
+            id: loadFailed ? "agentCenter.loadFailed" : "agentCenter.loading",
+          })}
+        </p>
+      </div>
+    );
+  }
 
   if (items.length === 0) {
     return (
@@ -45,10 +74,7 @@ export function AgentListPage() {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
         <span className="text-ui-sm font-medium text-foreground-subtle">
-          {intl.formatMessage(
-            { id: "agentCenter.agentCount" },
-            { count: items.length },
-          )}
+          {intl.formatMessage({ id: "agentCenter.agentCount" }, { count: items.length })}
         </span>
         <Button
           type="button"
@@ -61,9 +87,20 @@ export function AgentListPage() {
           {intl.formatMessage({ id: "agentCenter.connect" })}
         </Button>
       </div>
+      {loadFailed || actionFailed ? (
+        <p
+          className="border-b border-border px-4 py-2 text-ui-caption text-destructive"
+          role="alert"
+        >
+          {intl.formatMessage({
+            id: actionFailed ? "agentCenter.actionFailed" : "agentCenter.refreshFailed",
+          })}
+        </p>
+      ) : null}
       <ul className="min-w-0 flex-1 overflow-y-auto p-2" data-testid="agent-center-list">
         {items.map((item) => {
-          const paused = item.runState === "ReadyStopped";
+          // 用户暂停与异常暂停都允许再次点「开始」（异常暂停按原因修复后重新拉起）。
+          const canStart = item.runState === "ReadyStopped" || isErrorPaused(item.runState);
           const canPause = item.runState === "Running" || item.runState === "Starting";
           return (
             <li key={item.bindingId} className="group/agent-row">
@@ -95,7 +132,7 @@ export function AgentListPage() {
                       variant="ghost"
                       size="icon-sm"
                       aria-label={intl.formatMessage({ id: "agentCenter.pause" })}
-                      onClick={() => pauseAgent(item.bindingId)}
+                      onClick={() => void pauseAgent(service, item.bindingId)}
                     >
                       <Square className="size-3.5" aria-hidden="true" />
                     </Button>
@@ -105,8 +142,8 @@ export function AgentListPage() {
                       variant="ghost"
                       size="icon-sm"
                       aria-label={intl.formatMessage({ id: "agentCenter.start" })}
-                      disabled={!paused}
-                      onClick={() => startAgent(item.bindingId)}
+                      disabled={!canStart}
+                      onClick={() => void startAgent(service, item.bindingId)}
                     >
                       <Play className="size-3.5" aria-hidden="true" />
                     </Button>

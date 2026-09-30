@@ -1,151 +1,62 @@
 /**
- * Agent 中心 UI store —— 第一期 mock 阶段。
+ * Agent 中心 UI store —— 只保存视图状态与服务端事实的本地投影。
  *
- * 数据目前来自内存 mock（覆盖生命周期全部状态，便于联调展示）；
- * task #2 的 Binding registry 服务落地后，列表读写改走 RaftIntegrationService 投影，
- * 本 store 只保留视图状态（当前页、选中项、表单草稿）。
+ * 权威数据在 host 的 RaftAgentsService（绑定记录 + 运行态覆盖层）；这里的 items 只是
+ * 最近一次 list() 的快照，由 useAgentCenterSync 经事件与轮询刷新，UI 不推导、不持久化。
+ * token 永不进入本 store（只存在于表单组件的本次提交内）。
  */
 import { create } from "zustand";
-import { createUuid } from "@zcode/shared";
-import type { RaftAgentBinding, RaftAgentBindingInput, RaftAgentListItem } from "@zcode/shared";
+import type { RaftAgentListItem, RaftAgentSetupErrorCode } from "@/agents/types.js";
 
 export type AgentCenterView =
   | { page: "list" }
   | { page: "connect" }
   | { page: "detail"; bindingId: string };
 
+export interface AgentSubmitError {
+  code: RaftAgentSetupErrorCode;
+  /** 已完成到的步骤/冲突对象等补充信息（展示用，不含凭据）。 */
+  detail?: string;
+}
+
 interface AgentCenterState {
-  /** 列表行投影（mock 数据源）。 */
+  /** 最近一次 list() 的快照。 */
   items: RaftAgentListItem[];
-  /** 持久化绑定的 mock 副本（表单提交时追加）。 */
-  bindings: RaftAgentBinding[];
-  /** 当前视图。 */
+  /** 是否已成功加载过一次（区分「空列表」与「还没加载」）。 */
+  loaded: boolean;
+  /** 最近一次刷新失败（服务不可用/RPC 异常）；成功后清除。 */
+  loadFailed: boolean;
   view: AgentCenterView;
+  /** 接入表单提交中（provisioning 可能要几秒）。 */
+  submitting: boolean;
+  submitError: AgentSubmitError | null;
+  /** 开始/暂停等操作的失败提示。 */
+  actionFailed: boolean;
   openConnectForm: () => void;
   openDetail: (bindingId: string) => void;
   backToList: () => void;
-  /** mock：开始值守（ErrorPaused/ReadyStopped → Starting → Running）。 */
-  startAgent: (bindingId: string) => void;
-  /** mock：暂停值守（任意状态 → ReadyStopped）。 */
-  pauseAgent: (bindingId: string) => void;
-  /** mock：表单提交，创建绑定并回到列表。 */
-  addBinding: (input: RaftAgentBindingInput) => void;
-}
-
-/** 覆盖 spec §3 全部状态的 mock 行，联调后可删除。 */
-function createMockItems(): RaftAgentListItem[] {
-  return [
-    {
-      bindingId: "mock-binding-reviewer",
-      displayName: "Reviewer",
-      raftOrigin: "https://raft.build",
-      connectionState: "credential_ok",
-      runState: "Running",
-      homePath: "/Users/demo/.zcode/agents/mock-binding-reviewer/workspace",
-    },
-    {
-      bindingId: "mock-binding-docs-helper",
-      displayName: "Docs Helper",
-      raftOrigin: "https://raft.build",
-      connectionState: "credential_ok",
-      runState: "ReadyStopped",
-      homePath: "/Users/demo/.zcode/agents/mock-binding-docs-helper/workspace",
-    },
-    {
-      bindingId: "mock-binding-test-bot",
-      displayName: "Test Bot",
-      raftOrigin: "https://raft-dev.internal.example",
-      connectionState: "unverified",
-      runState: { kind: "ErrorPaused", reason: "memory_unavailable" },
-      homePath: "/Users/demo/.zcode/agents/mock-binding-test-bot/workspace",
-    },
-    {
-      bindingId: "mock-binding-legacy",
-      displayName: "Legacy Bot",
-      raftOrigin: "https://raft-dev.internal.example",
-      connectionState: "credential_invalid",
-      runState: { kind: "ErrorPaused", reason: "credential_invalid" },
-      homePath: "/Users/demo/.zcode/agents/mock-binding-legacy/workspace",
-    },
-  ];
-}
-
-/** mock：模拟启动中的短暂过渡，之后落到 Running。 */
-function scheduleRunning(bindingId: string) {
-  setTimeout(() => {
-    useAgentCenterStore.setState((state) => ({
-      items: state.items.map((item) =>
-        item.bindingId === bindingId && item.runState === "Starting"
-          ? { ...item, runState: "Running" as const }
-          : item,
-      ),
-    }));
-  }, 600);
+  setItems: (items: RaftAgentListItem[]) => void;
+  setLoadFailed: (failed: boolean) => void;
+  setSubmitting: (submitting: boolean) => void;
+  setSubmitError: (error: AgentSubmitError | null) => void;
+  setActionFailed: (failed: boolean) => void;
 }
 
 export const useAgentCenterStore = create<AgentCenterState>()((set) => ({
-  items: createMockItems(),
-  bindings: [],
+  items: [],
+  loaded: false,
+  loadFailed: false,
   view: { page: "list" },
+  submitting: false,
+  submitError: null,
+  actionFailed: false,
 
-  openConnectForm: () => set({ view: { page: "connect" } }),
-  openDetail: (bindingId) => set({ view: { page: "detail", bindingId } }),
-  backToList: () => set({ view: { page: "list" } }),
-
-  startAgent: (bindingId) => {
-    set((state) => ({
-      items: state.items.map((item) =>
-        item.bindingId === bindingId ? { ...item, runState: "Starting" as const } : item,
-      ),
-    }));
-    scheduleRunning(bindingId);
-  },
-
-  pauseAgent: (bindingId) => {
-    set((state) => ({
-      items: state.items.map((item) =>
-        item.bindingId === bindingId ? { ...item, runState: "ReadyStopped" as const } : item,
-      ),
-    }));
-  },
-
-  addBinding: (input) => {
-    const bindingId = createUuid();
-    const now = new Date().toISOString();
-    const raftOrigin = input.raftOrigin.trim().replace(/\/+$/, "");
-    const binding: RaftAgentBinding = {
-      bindingId,
-      displayName: input.raftAgentId.trim(),
-      raftOrigin,
-      serverId: "",
-      raftAgentId: input.raftAgentId.trim(),
-      profileSlug: `raft-${bindingId.slice(0, 8)}`,
-      homeWorkspacePath:
-        input.homeWorkspacePath?.trim() ||
-        // mock 阶段占位；正式接入时由 RaftIntegrationService 生成默认 Home 目录。
-        `<ZCodeDataRoot>/agents/${bindingId}/workspace`,
-      mainSessionRef: null,
-      desiredState: "ReadyStopped",
-      autostartConsent: false,
-      adapterInstance: bindingId,
-      createdAt: now,
-      updatedAt: now,
-    };
-    set((state) => ({
-      bindings: [...state.bindings, binding],
-      items: [
-        ...state.items,
-        {
-          bindingId,
-          displayName: binding.displayName,
-          raftOrigin,
-          // mock 阶段新绑定未经官方 login 核验，保持 unverified。
-          connectionState: "unverified",
-          runState: "ReadyStopped",
-          homePath: binding.homeWorkspacePath,
-        },
-      ],
-      view: { page: "list" },
-    }));
-  },
+  openConnectForm: () => set({ view: { page: "connect" }, submitError: null }),
+  openDetail: (bindingId) => set({ view: { page: "detail", bindingId }, actionFailed: false }),
+  backToList: () => set({ view: { page: "list" }, actionFailed: false }),
+  setItems: (items) => set({ items, loaded: true, loadFailed: false }),
+  setLoadFailed: (loadFailed) => set({ loadFailed }),
+  setSubmitting: (submitting) => set({ submitting }),
+  setSubmitError: (submitError) => set({ submitError }),
+  setActionFailed: (actionFailed) => set({ actionFailed }),
 }));

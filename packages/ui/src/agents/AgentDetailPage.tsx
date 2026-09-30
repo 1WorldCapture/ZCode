@@ -12,6 +12,9 @@ import { usePlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import { useAgentCenterStore } from "@/agents/agentCenterStore.js";
+import { pauseAgent, startAgent } from "@/agents/agentCenterActions.js";
+import { useRaftAgentsService } from "@/agents/useAgentCenterSync.js";
+import { isErrorPaused } from "@/agents/types.js";
 import {
   connectionStateTextClass,
   formatConnectionState,
@@ -25,22 +28,24 @@ export function AgentDetailPage({ bindingId }: { bindingId: string }) {
   const item = useAgentCenterStore((state) =>
     state.items.find((current) => current.bindingId === bindingId),
   );
+  const service = useRaftAgentsService();
+  const loaded = useAgentCenterStore((state) => state.loaded);
+  const actionFailed = useAgentCenterStore((state) => state.actionFailed);
   const backToList = useAgentCenterStore((state) => state.backToList);
-  const startAgent = useAgentCenterStore((state) => state.startAgent);
-  const pauseAgent = useAgentCenterStore((state) => state.pauseAgent);
 
-  // 绑定被移除后（例如解绑）详情页不再有效，回到列表。
+  // 绑定被移除后（例如解绑）详情页不再有效，回到列表；首次加载完成前不误判为已移除。
   useEffect(() => {
-    if (!item) {
+    if (loaded && !item) {
       backToList();
     }
-  }, [item, backToList]);
+  }, [loaded, item, backToList]);
 
-  if (!item) {
+  if (!item || !service) {
     return null;
   }
 
-  const paused = item.runState === "ReadyStopped";
+  // 用户暂停与异常暂停都允许再次点「开始」。
+  const canStart = item.runState === "ReadyStopped" || isErrorPaused(item.runState);
   const canPause = item.runState === "Running" || item.runState === "Starting";
 
   const handleOpenHome = () => {
@@ -83,7 +88,7 @@ export function AgentDetailPage({ bindingId }: { bindingId: string }) {
             variant="ghost"
             size="sm"
             className="gap-1.5"
-            onClick={() => pauseAgent(item.bindingId)}
+            onClick={() => void pauseAgent(service, item.bindingId)}
           >
             <Square className="size-3.5" aria-hidden="true" />
             {intl.formatMessage({ id: "agentCenter.pause" })}
@@ -94,14 +99,22 @@ export function AgentDetailPage({ bindingId }: { bindingId: string }) {
             variant="ghost"
             size="sm"
             className="gap-1.5"
-            disabled={!paused}
-            onClick={() => startAgent(item.bindingId)}
+            disabled={!canStart}
+            onClick={() => void startAgent(service, item.bindingId)}
           >
             <Play className="size-3.5" aria-hidden="true" />
             {intl.formatMessage({ id: "agentCenter.start" })}
           </Button>
         )}
       </div>
+      {actionFailed ? (
+        <p
+          className="border-b border-border px-4 py-2 text-ui-caption text-destructive"
+          role="alert"
+        >
+          {intl.formatMessage({ id: "agentCenter.actionFailed" })}
+        </p>
+      ) : null}
       <div className="min-w-0 flex-1 overflow-y-auto">
         <dl className="flex flex-col gap-3 border-b border-border px-6 py-4">
           <div className="flex min-w-0 flex-col gap-0.5">
@@ -131,7 +144,10 @@ export function AgentDetailPage({ bindingId }: { bindingId: string }) {
               {intl.formatMessage({ id: "agentCenter.homePath" })}
             </dt>
             <dd className="flex min-w-0 items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-ui-base text-foreground" title={item.homePath}>
+              <span
+                className="min-w-0 flex-1 truncate text-ui-base text-foreground"
+                title={item.homePath}
+              >
                 {item.homePath}
               </span>
               <Button

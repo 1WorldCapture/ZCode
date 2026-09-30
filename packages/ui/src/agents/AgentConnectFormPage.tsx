@@ -11,11 +11,35 @@ import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useAgentCenterStore } from "@/agents/agentCenterStore.js";
+import { submitConnect } from "@/agents/agentCenterActions.js";
+import { useRaftAgentsService } from "@/agents/useAgentCenterSync.js";
+import type { RaftAgentSetupErrorCode } from "@/agents/types.js";
+
+/** 每个接入错误码对应一条用户可理解的表单文案（穷尽：新增错误码会在这里编译报错）。 */
+function setupErrorMessageId(code: RaftAgentSetupErrorCode): string {
+  switch (code) {
+    case "CliMissing":
+    case "CliVersionUnsupported":
+    case "OriginInvalid":
+    case "AgentIdInvalid":
+    case "TokenInvalid":
+    case "IdentityMismatch":
+    case "CredentialCheckFailed":
+    case "PathConflict":
+    case "SlugConflict":
+    case "AlreadyBound":
+    case "ProvisioningFailed":
+    case "StoreWriteFailed":
+      return `agentCenter.form.error.${code}`;
+  }
+}
 
 export function AgentConnectFormPage() {
   const { intl } = useZCodeIntl();
   const backToList = useAgentCenterStore((state) => state.backToList);
-  const addBinding = useAgentCenterStore((state) => state.addBinding);
+  const service = useRaftAgentsService();
+  const submitting = useAgentCenterStore((state) => state.submitting);
+  const submitError = useAgentCenterStore((state) => state.submitError);
 
   const [raftOrigin, setRaftOrigin] = useState("");
   const [raftAgentId, setRaftAgentId] = useState("");
@@ -24,15 +48,33 @@ export function AgentConnectFormPage() {
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = () => {
-    // mock 阶段必填校验；URL 结构校验留给接入官方 CLI 时统一处理。
+    if (!service) return;
+    // 只做必填校验；地址/Agent ID/Home 路径的格式与唯一性由服务端统一判定并返回错误码。
     if (!raftOrigin.trim() || !raftAgentId.trim() || !token.trim()) {
       setError(intl.formatMessage({ id: "agentCenter.form.error.required" }));
       return;
     }
-    // Token 只存在于本次提交（mock 直接丢弃），不进日志、argv、持久 store 与 Home。
-    addBinding({ raftOrigin, raftAgentId, token, homeWorkspacePath });
+    setError(null);
+    // Token 只存在于本次提交：经服务直达官方 CLI 的 stdin，不进日志、argv、持久 store 与 Home。
+    const input = {
+      raftOrigin: raftOrigin.trim(),
+      raftAgentId: raftAgentId.trim(),
+      token,
+      ...(homeWorkspacePath.trim() ? { homeWorkspacePath: homeWorkspacePath.trim() } : {}),
+    };
+    // 无论成功失败都立即清掉输入框里的 token，重试需要重新粘贴。
     setToken("");
+    void submitConnect(service, input);
   };
+
+  const errorText =
+    error ??
+    (submitError
+      ? intl.formatMessage(
+          { id: setupErrorMessageId(submitError.code) },
+          { detail: submitError.detail ?? "" },
+        )
+      : null);
 
   return (
     <div className="flex h-full flex-col">
@@ -99,14 +141,21 @@ export function AgentConnectFormPage() {
               placeholder={intl.formatMessage({ id: "agentCenter.form.homePathPlaceholder" })}
             />
           </label>
-          {error ? (
+          {errorText ? (
             <p className="text-ui-caption text-destructive" role="alert">
-              {error}
+              {errorText}
             </p>
           ) : null}
           <div className="flex items-center gap-2">
-            <Button type="button" size="sm" onClick={handleSubmit}>
-              {intl.formatMessage({ id: "agentCenter.form.save" })}
+            <Button
+              type="button"
+              size="sm"
+              disabled={submitting || !service}
+              onClick={handleSubmit}
+            >
+              {intl.formatMessage({
+                id: submitting ? "agentCenter.form.saving" : "agentCenter.form.save",
+              })}
             </Button>
             <Button type="button" variant="ghost" size="sm" onClick={backToList}>
               {intl.formatMessage({ id: "agentCenter.form.cancel" })}

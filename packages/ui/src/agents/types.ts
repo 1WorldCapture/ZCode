@@ -10,6 +10,7 @@ export {
   type RaftAgentConnectionState,
   type RaftAgentListItem,
   type RaftAgentRunState,
+  type RaftAgentSetupErrorCode,
 } from "@zcode/shared";
 
 import type { RaftAgentRunState } from "@zcode/shared";

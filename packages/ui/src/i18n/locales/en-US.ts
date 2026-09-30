@@ -23,6 +23,31 @@ const enUS: Record<string, string> = {
   "agentCenter.reason.credential_invalid": "Invalid credential",
   "agentCenter.reason.bridge_exit": "Bridge exited unexpectedly",
   "agentCenter.reason.inbox_log_write_failed": "Inbox log write failed",
+  "agentCenter.reason.cli_unavailable": "Raft CLI unavailable",
+  "agentCenter.unavailable": "Connecting Raft Agents isn't supported in this environment",
+  "agentCenter.loading": "Loading…",
+  "agentCenter.loadFailed": "Couldn't load the Agent list",
+  "agentCenter.refreshFailed": "Refresh failed; what's shown may be out of date",
+  "agentCenter.actionFailed": "That didn't work. Please try again",
+  "agentCenter.form.saving": "Connecting…",
+  "agentCenter.form.error.CliMissing":
+    "The raft command-line tool wasn't found. Install version 0.0.24 or later",
+  "agentCenter.form.error.CliVersionUnsupported":
+    "The raft command-line tool is too old. Upgrade to 0.0.24 or later",
+  "agentCenter.form.error.OriginInvalid":
+    "The server address is invalid, or the Home path isn't absolute",
+  "agentCenter.form.error.AgentIdInvalid": "The Agent ID isn't valid (expected a UUID)",
+  "agentCenter.form.error.TokenInvalid": "The token is invalid. Check it and paste it again",
+  "agentCenter.form.error.IdentityMismatch":
+    "This token belongs to a different Agent or server. Check the Agent ID and server address",
+  "agentCenter.form.error.CredentialCheckFailed":
+    "Couldn't verify the credential right now (network or server unreachable). Try again later",
+  "agentCenter.form.error.PathConflict":
+    "This Home path conflicts with a connected Agent. Pick another folder ({detail})",
+  "agentCenter.form.error.SlugConflict": "Internal identifier conflict. Please retry ({detail})",
+  "agentCenter.form.error.AlreadyBound": "This Agent is already connected ({detail})",
+  "agentCenter.form.error.ProvisioningFailed": "Setup failed and can be retried (step: {detail})",
+  "agentCenter.form.error.StoreWriteFailed": "Couldn't save. Please retry",
   "agentCenter.form.description":
     "Enter the Raft server URL, Agent ID and token to connect. The token is passed through a secure channel and never enters logs or UI storage.",
   "agentCenter.form.serverUrl": "Server URL",
