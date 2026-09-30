@@ -12,7 +12,7 @@
  * 4. 发帖超时/结果不确定时返回 unknown，不自动重发。
  * 5. 应用日志只记 messageId 与条数，不记正文。
  */
-import { parseCliErrorCode, runCli } from "./cliRunner.js";
+import { parseCliErrorCode, runCli } from "@zcode/shared/node/cli-process";
 import { buildRaftCommand, parseCheckedMessages, type RaftToolCall } from "./toolCall.js";
 import type { InboxLogFailureSink, InboxLogPort, ToolLoggerPort } from "./ports.js";
 

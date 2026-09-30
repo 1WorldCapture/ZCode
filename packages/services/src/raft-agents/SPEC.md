@@ -124,3 +124,34 @@ interface IRaftAgentsService {
 - 启动环境（只放路径与标识，不含 token）：`ZCODE_RAFT_BINDING_ID`、`ZCODE_RAFT_PROFILE_SLUG`、`ZCODE_RAFT_PROFILE_DIR`（单个 profile 目录）、`ZCODE_RAFT_DATA_ROOT`、`ZCODE_RAFT_CLI_PATH`（T1 已校验的 CLI 入口）；可选 `ZCODE_RAFT_INBOX_RETENTION_DAYS`。
 - 日志写失败的感知：服务进程向 stderr 输出一行 `RAFT_INBOX_LOG_WRITE_FAILED {"bindingId":...,"reason":...}`，宿主据此置 `ErrorPaused(inbox_log_write_failed)`。
 - 工具名（模型可见）：`raft_message_check|read|send`、`raft_task_list|claim|update`，入参见上表，均不含身份字段。
+
+## T2：Bridge 管理（task #3）
+
+上游依据：第一期 spec §8.1、§9；T3 已锁定的 `WakeEndpointPort` 约定。
+
+### 行为
+
+每个绑定一个官方 `raft agent bridge` 子进程（`adapters/bridgeSupervisor.ts`），启动参数：`--profile <slug> agent bridge --expected-agent=<agentId> --adapter-instance=<bindingId> --wake-adapter=wake-channel --wake-channel-endpoint=<url> --json`。`RAFT_CHANNEL_TOKEN` 只经子进程环境传入（token 由唤醒端点所有者生成并保管，只存内存）；环境净化，不继承 `RAFT_*`/`SLOCK_*`。
+
+### 不变量
+
+1. 同一绑定同一时刻最多一个 bridge：进程内映射 + pid 锁文件 `<ZCodeDataRoot>/raft/locks/<bindingId>.lock`（持有者是拉起 bridge 的宿主进程；持有者已不存在视为陈旧锁并清除；只删自己写的锁）。
+2. 只有主窗口承载：启动前必须通过 `OwnerGuardPort.isOwner()`，否则返回 `NotOwner`，且**不得打开唤醒端点**。
+3. 顺序：先 `wakeEndpoint.open()` 再拉起进程（端点必须先存在）；进程**确认退出后**才释放锁、`close()` 端点、通知（stop 与崩溃路径一致）。`stop()` 等待的是这些清理完成之后。
+4. 拉起后 settle 窗口（默认 1.5s）内退出视为启动失败，返回 `EarlyExit` 与已脱敏的 stderr 尾部（覆盖参数错误、身份不符等立即失败）；该情况不再走 `onExit` 通知。
+5. 意外退出**不自动重启**：通知 `BridgeExitInfo{requested:false, code, signal, stderrTail}`，由服务置 `ErrorPaused(bridge_exit)`；用户点开始才重新拉起。主动 stop 的退出 `requested:true`，不算故障。
+6. stderr 尾部（4KB）与错误信息里抹掉本次 token 与任何 `sk_agent_` 形态内容；token 不进 argv、日志、通知。
+
+### 关停
+
+- `stopAll()`：SIGTERM，超过宽限（默认 2s，**必须小于** Host `service-dispose` 阶段超时 3.5s）后 SIGKILL；挂进 Host 关停的 `service-dispose` 阶段。
+- `terminateAllNow()`：同步强杀，用于 `disposeHostResourcesBestEffort` 这类无法 await 的同步收口路径。
+- 已知限制：宿主进程被强杀（崩溃）时 bridge 子进程可能成为孤儿；它的唤醒会打到已关闭的端点被拒，重启后重新 open 换新 token，旧 bridge 因 token 失效无法注入。孤儿进程的主动回收（按 pid 记录清理）留给后续。
+
+### 接口
+
+`BridgeSupervisorPort`：`start(binding, cliPath)`、`stop`、`stopAll`、`terminateAllNow`、`isRunning`、`onExit`。启动结果码：`NotOwner|AlreadyRunning|LockHeld|EndpointUnavailable|SpawnFailed|EarlyExit`。`WakeEndpointPort`（`open/close`）由 T3 提供，类型定义在 `app/bridgePorts.ts`。服务侧编排（会话恢复与 MEMORY 校验之后才启动 bridge、退出后置 ErrorPaused）在 T3/T5 接入时装配，本任务不改 T1 的服务文件。
+
+### 验收（T2 部分）
+
+单测（`packages/services/test/raftAgentsBridge.test.ts`，9 项）覆盖：固定身份 argv 与 token 只在环境变量里、主动 stop 不算故障、启动早退与脱敏、意外退出上报、非主窗口拒绝且不打开端点、重复启动、pid 锁（存活持有者/陈旧锁/只删自己的锁）、忽略 SIGTERM 时强杀、同步强杀。

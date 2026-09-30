@@ -73,7 +73,9 @@ export function findBindingConflicts(
   },
   existing: RaftAgentBinding[],
   opts: { win32: boolean },
-): { kind: "PathConflict" | "SlugConflict" | "AlreadyBound"; conflictWith: RaftAgentBinding } | undefined {
+):
+  | { kind: "PathConflict" | "SlugConflict" | "AlreadyBound"; conflictWith: RaftAgentBinding }
+  | undefined {
   for (const binding of existing) {
     const bindingPath = normalizeHomePathForCompare(binding.homeWorkspacePath, opts);
     if (bindingPath !== undefined && homePathsConflict(candidate.homePathForCompare, bindingPath)) {

@@ -7,11 +7,22 @@
  * 扩展时先更新 SPEC.md 再动 contract。
  */
 import type { Event } from "@zcode/rpc";
-import { ServiceChannels, type RaftAgentBinding, type RaftAgentBindingInput, type RaftAgentListItem, type RaftAgentSetupResult } from "@zcode/shared";
+import {
+  ServiceChannels,
+  type RaftAgentBinding,
+  type RaftAgentBindingInput,
+  type RaftAgentListItem,
+  type RaftAgentSetupResult,
+} from "@zcode/shared";
 
 import { createServiceDescriptor } from "#src/descriptors.js";
 
-export type { RaftAgentBinding, RaftAgentBindingInput, RaftAgentListItem, RaftAgentSetupResult } from "@zcode/shared";
+export type {
+  RaftAgentBinding,
+  RaftAgentBindingInput,
+  RaftAgentListItem,
+  RaftAgentSetupResult,
+} from "@zcode/shared";
 
 /**
  * Raft Agents 服务实例接口，由 host 进程持有并经 RPC 暴露给 renderer。
@@ -37,7 +48,9 @@ export interface IRaftAgentsService {
   onBindingsChanged: Event<RaftAgentBinding[]>;
 }
 
-export const IRaftAgentsService = createServiceDescriptor<IRaftAgentsService>(ServiceChannels.RaftAgents);
+export const IRaftAgentsService = createServiceDescriptor<IRaftAgentsService>(
+  ServiceChannels.RaftAgents,
+);
 
 /**
  * Provisioning 步骤注入点：T5（Home 初始化）/T3（主会话）按序接入，全部幂等。

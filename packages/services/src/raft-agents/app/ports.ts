@@ -11,7 +11,11 @@ export type RaftCliResolution =
 /** 登录/核验结果；code 对应 raft CLI 的 stderr Code 分类（T0 已核实）。 */
 export type RaftCliLoginOutcome =
   | { ok: true; agentName: string | undefined }
-  | { ok: false; code: "TokenInvalid" | "IdentityMismatch" | "CredentialCheckFailed"; detail?: string };
+  | {
+      ok: false;
+      code: "TokenInvalid" | "IdentityMismatch" | "CredentialCheckFailed";
+      detail?: string;
+    };
 
 export interface RaftCliWhoami {
   agentId: string;
@@ -35,7 +39,10 @@ export interface RaftCliPort {
     token: string;
   }): Promise<RaftCliLoginOutcome>;
   /** `raft auth whoami`（恒 JSON，token 不回显）——身份二次核验与 serverId 来源。 */
-  whoami(params: { profileSlug: string; profileDir: string }): Promise<RaftCliWhoami | { error: string }>;
+  whoami(params: {
+    profileSlug: string;
+    profileDir: string;
+  }): Promise<RaftCliWhoami | { error: string }>;
   /**
    * 删除本地 profile 目录（登录成功后的失败路径防孤儿凭据）。
    * profilesRoot 用于包含性防护：profileDir 不在其内则拒绝删除。

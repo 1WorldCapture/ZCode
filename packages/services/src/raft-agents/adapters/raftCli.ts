@@ -13,11 +13,26 @@
  * - `raft auth whoami` 恒 JSON 输出，token 不回显。
  * - 失败形态：非零退出 + stderr `Code: <CODE>` 行。
  */
-import { spawn } from "node:child_process";
 import { access, constants, rm } from "node:fs/promises";
 import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 
-import { MINIMUM_RAFT_CLI_VERSION, type RaftCliLoginOutcome, type RaftCliPort, type RaftCliResolution, type RaftCliWhoami } from "../app/ports.js";
+import {
+  capKeepingTail,
+  parseCliErrorCode,
+  runCli,
+  sanitizedEnv,
+} from "@zcode/shared/node/cli-process";
+
+import {
+  MINIMUM_RAFT_CLI_VERSION,
+  type RaftCliLoginOutcome,
+  type RaftCliPort,
+  type RaftCliResolution,
+  type RaftCliWhoami,
+} from "../app/ports.js";
+
+// 环境净化 / 输出截断 / 命令运行 / 错误码解析的唯一事实源在 @zcode/shared；此处再导出以保持既有导入路径。
+export { capKeepingTail, parseCliErrorCode, sanitizedEnv };
 
 /** 开发/测试用的显式 CLI 路径覆盖。 */
 const CLI_PATH_ENV = "ZCODE_RAFT_CLI";
@@ -25,89 +40,15 @@ const CLI_PATH_ENV = "ZCODE_RAFT_CLI";
 const LOGIN_TIMEOUT_MS = 45_000;
 const WHOAMI_TIMEOUT_MS = 10_000;
 const VERSION_TIMEOUT_MS = 8_000;
-/** 子进程输出捕获上限（超出保留尾部——错误 Code 行在 stderr 末尾）。 */
-const MAX_STDOUT_BYTES = 1_000_000;
-const MAX_STDERR_BYTES = 256_000;
-
-/** 输出截断：保尾部（错误信息在尾部），UTF-8 边界对齐。 */
-export function capKeepingTail(text: string, maxBytes: number): string {
-  if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
-  let sliced = text.slice(-maxBytes);
-  // 从整字符边界开始（避免半个多字节字符开头）。
-  while (sliced.length > 0 && Buffer.byteLength(sliced, "utf8") > maxBytes) {
-    sliced = sliced.slice(1);
-  }
-  return sliced;
-}
-
-interface CliRun {
-  status: number | null;
-  stdout: string;
-  stderr: string;
-}
-
-/**
- * 白名单子进程环境：仅宿主的进程定位必需项 + 我们显式设置的项。
- * 不含任何凭据形态；代理与 CA 变量是为企业内网可达性（不透传则 CLI 连不上内网 Raft）。
- * 代理/证书变量同时收大小写两种形态（类 Unix 上 env 键区分大小写，curl 习惯用小写）。
- */
-const POSIX_ENV_KEYS = [
-  "HOME",
-  "PATH",
-  "TMPDIR",
-  "LANG",
-  "LC_ALL",
-  "HTTPS_PROXY",
-  "https_proxy",
-  "HTTP_PROXY",
-  "http_proxy",
-  "NO_PROXY",
-  "no_proxy",
-  "NODE_EXTRA_CA_CERTS",
-] as const;
-// win32：Node 的网络/crypto 需要 SystemRoot；TEMP/TMP 是默认临时目录；
-// USERPROFILE/HOMEDRIVE/HOMEPATH/APPDATA/LOCALAPPDATA/PROGRAMDATA 是用户级路径解析；
-// COMSPEC/PATHEXT 影响 spawn 与可执行查找。缺 SystemRoot 时 Node 子进程可能直接起不来。
-const WIN32_ENV_KEYS = [
-  ...POSIX_ENV_KEYS,
-  "SystemRoot",
-  "windir",
-  "SYSTEMDRIVE",
-  "TEMP",
-  "TMP",
-  "USERPROFILE",
-  "HOMEDRIVE",
-  "HOMEPATH",
-  "APPDATA",
-  "LOCALAPPDATA",
-  "PROGRAMDATA",
-  "PROGRAMFILES",
-  "COMSPEC",
-  "PATHEXT",
-] as const;
-
-export function sanitizedEnv(
-  extra: Record<string, string>,
-  opts: { platform?: NodeJS.Platform; source?: Record<string, string | undefined> } = {},
-): Record<string, string> {
-  const platform = opts.platform ?? process.platform;
-  const source = opts.source ?? process.env;
-  const keys = platform === "win32" ? WIN32_ENV_KEYS : POSIX_ENV_KEYS;
-  const env: Record<string, string> = {};
-  for (const key of keys) {
-    const value = source[key];
-    if (value !== undefined) env[key] = value;
-  }
-  return { ...env, ...extra };
-}
-
 /** PATH 上的可执行文件查找（win32 走 PATHEXT）。 */
 async function findOnPath(binary: string): Promise<string | undefined> {
   const pathValue = process.env.PATH;
   if (!pathValue) return undefined;
   const isWindows = process.platform === "win32";
   const candidates = isWindows
-    ? (process.env.PATHEXT || ".COM;.EXE;.CMD;.BAT").split(";").map((ext) => `${binary}${ext.toLowerCase()}`)
+    ? (process.env.PATHEXT || ".COM;.EXE;.CMD;.BAT")
+        .split(";")
+        .map((ext) => `${binary}${ext.toLowerCase()}`)
     : [binary];
   for (const dir of pathValue.split(delimiter)) {
     if (!dir) continue;
@@ -122,49 +63,6 @@ async function findOnPath(binary: string): Promise<string | undefined> {
     }
   }
   return undefined;
-}
-
-function runCli(
-  cliPath: string,
-  args: string[],
-  opts: { timeoutMs: number; env: Record<string, string>; stdin?: string },
-): Promise<CliRun> {
-  return new Promise((resolve) => {
-    const child = spawn(cliPath, args, {
-      env: sanitizedEnv(opts.env),
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    let stdout = "";
-    let stderr = "";
-    const timer = setTimeout(() => {
-      child.kill();
-    }, opts.timeoutMs);
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout = capKeepingTail(stdout + chunk.toString("utf8"), MAX_STDOUT_BYTES);
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr = capKeepingTail(stderr + chunk.toString("utf8"), MAX_STDERR_BYTES);
-    });
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      resolve({ status: null, stdout, stderr: capKeepingTail(`${stderr}${String(error)}`, MAX_STDERR_BYTES) });
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ status: code, stdout, stderr });
-    });
-    if (opts.stdin !== undefined) {
-      child.stdin.write(opts.stdin);
-    }
-    child.stdin.end();
-  });
-}
-
-/** 解析 stderr 里的 `Code: <XXX>` 行（CLI 错误契约）。 */
-export function parseCliErrorCode(stderr: string): string | undefined {
-  const match = /^Code:\s*([A-Z0-9_]+)\s*$/m.exec(stderr);
-  return match?.[1];
 }
 
 /** `Raft CLI: 0.0.24` → [0,0,24]；解析失败返回 undefined。 */
@@ -235,15 +133,21 @@ export function createRaftCliAdapter(): RaftCliPort {
 
     async login(params): Promise<RaftCliLoginOutcome> {
       const cliPath = await resolveCliPath();
-      if (cliPath === undefined) return { ok: false, code: "CredentialCheckFailed", detail: "CliMissing" };
+      if (cliPath === undefined)
+        return { ok: false, code: "CredentialCheckFailed", detail: "CliMissing" };
       const run = await runCli(
         cliPath,
         [
-          "agent", "login",
-          "--server", params.origin,
-          "--agent", params.expectedAgentId,
-          "--profile-slug", params.profileSlug,
-          "--profile-dir", params.profileDir,
+          "agent",
+          "login",
+          "--server",
+          params.origin,
+          "--agent",
+          params.expectedAgentId,
+          "--profile-slug",
+          params.profileSlug,
+          "--profile-dir",
+          params.profileDir,
         ],
         {
           timeoutMs: LOGIN_TIMEOUT_MS,

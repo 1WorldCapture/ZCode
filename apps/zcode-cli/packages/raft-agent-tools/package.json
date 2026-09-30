@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",
+    "@zcode/shared": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {

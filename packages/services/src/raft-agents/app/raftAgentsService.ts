@@ -11,7 +11,13 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
 import { Emitter, type Event } from "@zcode/rpc";
-import { raftAgentIdSchema, type RaftAgentBinding, type RaftAgentBindingInput, type RaftAgentListItem, type RaftAgentSetupResult } from "@zcode/shared";
+import {
+  raftAgentIdSchema,
+  type RaftAgentBinding,
+  type RaftAgentBindingInput,
+  type RaftAgentListItem,
+  type RaftAgentSetupResult,
+} from "@zcode/shared";
 import { createServiceLogger, type ServiceLogger } from "#src/logger/serviceLogger.js";
 
 import type { IRaftAgentsService, RaftProvisioningStep } from "../contract.js";
@@ -64,9 +70,15 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
    */
   async function cleanupProfileQuietly(profileDir: string): Promise<void> {
     try {
-      await cli.destroyProfile({ profileDir, profilesRoot: join(options.dataRootDir, "raft", "profiles") });
+      await cli.destroyProfile({
+        profileDir,
+        profilesRoot: join(options.dataRootDir, "raft", "profiles"),
+      });
     } catch (error) {
-      log.warn(undefined, "profile cleanup after failed setup left residue", { profileSlugPath: profileDir, error: String(error) });
+      log.warn(undefined, "profile cleanup after failed setup left residue", {
+        profileSlugPath: profileDir,
+        error: String(error),
+      });
     }
   }
 
@@ -130,7 +142,8 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
 
       const bindingId = randomUUID();
       const profileSlug = deriveProfileSlug(bindingId);
-      const homePath = preflight.homePath || join(options.dataRootDir, "agents", bindingId, "workspace");
+      const homePath =
+        preflight.homePath || join(options.dataRootDir, "agents", bindingId, "workspace");
       if (!isAbsolute(homePath)) {
         return { ok: false, code: "OriginInvalid" };
       }
@@ -226,7 +239,11 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
         );
         if (conflict) {
           const code =
-            conflict.kind === "PathConflict" ? "PathConflict" : conflict.kind === "SlugConflict" ? "SlugConflict" : "AlreadyBound";
+            conflict.kind === "PathConflict"
+              ? "PathConflict"
+              : conflict.kind === "SlugConflict"
+                ? "SlugConflict"
+                : "AlreadyBound";
           await cleanupProfileQuietly(profileDir);
           return { ok: false as const, code, detail: conflict.conflictWith.displayName };
         }
@@ -269,7 +286,9 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
         await store.writeAll(next);
         // 本地 profile 随记录移除一并删除（凭据不留孤儿）；Raft 侧 token 不撤销（D4）。
         if (removed) {
-          await cleanupProfileQuietly(join(options.dataRootDir, "raft", "profiles", removed.profileSlug));
+          await cleanupProfileQuietly(
+            join(options.dataRootDir, "raft", "profiles", removed.profileSlug),
+          );
         }
         log.info("binding removed", { bindingId, deleteHomeRequested: opts.deleteHome });
         bindingsChanged.fire(next);
