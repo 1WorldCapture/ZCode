@@ -89,6 +89,12 @@
   - 附带：TestAgent-2 bridge 同步收到同频道 wake，check 后不动作（非@自己）——频道投递语义正确。
 - **S3 保存不开始 — 通过（强证据版，15:45 保存 TestAgent-3 后核验）**：①ps 中 bridge 恰 2 个（TestAgent-1/2），无 TestAgent-3（fd56b3b3）；②收件日志目录 `~/.zcode/raft/inbox-logs/` 无 fd56b3b3（无读取）；③nginx（grokbot）：15:45:19 仅一次 `GET /internal/agent-api/`（保存时身份核验），此后零轮询。bindings.json 中 TestAgent-3 desiredState=ReadyStopped。附注：保存时主会话已预建（sess_843dafce，gen 1）——provisioning 设计内行为，无运行、无外部效应，不违反判据。
 - **S2 错 token 拒绝 — 通过（16:09–16:11，TestAgent-4 变体）**：表单填 TestAgent-4 ID + TestAgent-1 真实 token → 服务器侧 16:09:46 身份核验 200（token 本身有效）→ CLI 判明归属 agent 与填写 ID 不符 → 表单报"这个 Token 属于另一个 Agent 或另一个服务，请核对 Agent ID 和服务地址"（IdentityMismatch 中文文案，lyonliang 截图 f413b196）。**无残留**（对比提交前基线）：bindings.json 仍 3 条、profile 目录无新增（失败路径清理）、Home 无新增、收件日志无新增；TestAgent-1/2 已有绑定数据不变（Running/session/gen 未动）。附带：首次误填格式非法 token 验证了本地格式校验路径（未联网即拒，服务器零请求）。
+
+### 2026-09-30 16:19–16:23 B 轮（暂停→积压→重启→点开始；执行：lyonliang+PM / 盯日志：Dev-developer + grokbot）
+
+- **S9 积压处理 — 通过**：16:19:12 暂停（bridge 进程归零、ReadyStopped ×2、服务器侧推送流 16:18:42/46 断开后零轮询——三方核验起点干净）；PM 16:19:20/24 两条积压入库未读；16:21 重启后列表"已停止"→分别点开始→"运行中"（截图 a8965b61，含状态圆点 UI）；**drain 点开始后 1–6 秒拉到积压**（16:21:10/15，服务器侧 16:21:26/28 读走清空队列）；两条积压各恰一条回复（16:22:06 / 16:22:45），内容均准确说明"重启后才看到"。
+- **S6 记忆仍在 — 通过（含自动恢复口径拆分）**："自动恢复值守"（desiredState=Running 重启即自动拉起）已于 15:14 重启实测（S4 记录）；本轮强化"记忆仍在+补查"：TestAgent-1 引用 MEMORY/notes 内容（含"不代答 TestAgent-2"约定）；TestAgent-2 给出最强证据——15:29 **预写**笔记"B 轮会被暂停、PM 会发积压、恢复后要回复"，本回合读回并照做（写入→重启→读回→指导行为闭环）。会话恢复：sessionId 不变、generation 6→7 换代（resume 而非重建）。
+- **发送超时修复（merge 21225de）实测生效**：send 全部秒级完成（5.4s/7.6s/4.4s），无 60s 白等、零 CONNECTION_CLOSED；TestAgent-2 首次 send 被新鲜度门扣草稿后重发（host db 与 grokbot 服务器侧时间线互证）。另两处 Edit 小错（文件忙）模型自重试成功。
 - 备注（更正）：TestAgent-1 回复中提到 commit 号 fd8c6b2 **不是幻觉**——出自 Dev-developer 15:13:36 发在 99a13660 线程的消息（ab00f41c），其补复正是在该线程内，属读线程上下文的合法引用。
 - 记忆无串核验（S7 附加项）：直读 TestAgent-1 的 Home 记忆文件（`~/.zcode/agents/f2b0a9f0…/workspace/notes/work-log.md`）——内容全为自身经历（自身 10 次工具失败、自身 held 草稿、自身补复）+ 频道公开消息可得的事实（"第六层"/fd8c6b2 引用来源见上）；"send 结果不确定时的处理经验"为其亲历（TestAgent-2 的同类经验在各自 Home，互不渗透）；其记忆还记有"未代答发给 TestAgent-2 的消息（验收要求身份不串）"。**结论：无串记忆。**
 
