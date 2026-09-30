@@ -1,0 +1,7 @@
+{
+  "name": "raft-agent-tools",
+  "version": "0.1.0",
+  "description": "Raft Agent tools host for ZCode. Not user-facing: it carries no skill and appears in no marketplace listing; it provides the per-binding stdio MCP server that lets a Raft Agent session read and send Raft messages through the official raft CLI.",
+  "author": { "name": "Z.ai" },
+  "license": "MIT"
+}

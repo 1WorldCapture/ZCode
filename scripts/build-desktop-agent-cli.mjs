@@ -56,6 +56,11 @@ const requiredDevPluginRuntimeBuilds = [
     artifactPath: "node-repl-host/dist/mcp/server.js",
   },
   {
+    // Raft Agent 工具宿主：raft-agents 服务按绑定注入，产物归属独立包。
+    packageName: "@zcode/raft-agent-tools",
+    artifactPath: "raft-agent-tools/dist/mcp/server.js",
+  },
+  {
     // browser-use 自己的 runtime 只剩 browser-client；宿主不再由它携带。
     packageName: "@zcode/browser-use-plugin",
     artifactPath: "browser-use-plugin/scripts/browser-client.mjs",

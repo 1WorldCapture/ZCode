@@ -54,6 +54,7 @@ import { resolveOfficialPluginRoots } from "./app/bundled-plugins.js";
 import {
   DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS,
   OFFICIAL_NODE_REPL_HOST_PLUGIN_NAME,
+  OFFICIAL_RAFT_AGENT_TOOLS_PLUGIN_NAME,
   OFFICIAL_PLUGIN_DEFINITIONS,
 } from "./app/official-plugin-definitions.js";
 import { getCliStorageRoot, getPluginStorageRoot } from "./app/paths.js";
@@ -244,7 +245,12 @@ function countVisibleMarketplacePlugins(
 ): number | undefined {
   if (!plugins) return undefined;
   if (marketplaceId !== ZCODE_OFFICIAL_PLUGIN_MARKETPLACE) return plugins.length;
-  return plugins.filter((entry) => entry.name !== OFFICIAL_NODE_REPL_HOST_PLUGIN_NAME).length;
+  // 宿主型条目（无 listing、不对用户露出）都不计入。
+  return plugins.filter(
+    (entry) =>
+      entry.name !== OFFICIAL_NODE_REPL_HOST_PLUGIN_NAME &&
+      entry.name !== OFFICIAL_RAFT_AGENT_TOOLS_PLUGIN_NAME,
+  ).length;
 }
 
 export function resolveZCodePlugins(options: ResolveZCodePluginsOptions = {}): PluginLoadOutcome {

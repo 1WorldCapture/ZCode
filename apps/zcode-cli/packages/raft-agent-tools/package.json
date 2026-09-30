@@ -1,0 +1,27 @@
+{
+  "name": "@zcode/raft-agent-tools",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Raft Agent 工具宿主：每个 Raft 绑定的 session 隔离 stdio MCP 服务。封装白名单 Raft 操作（官方 raft CLI），并负责收件日志的唯一写入。",
+  "type": "module",
+  "exports": {
+    ".": "./src/server.ts"
+  },
+  "scripts": {
+    "build": "tsc && node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src --no-ignore",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "@modelcontextprotocol/client": "2.0.0"
+  }
+}
