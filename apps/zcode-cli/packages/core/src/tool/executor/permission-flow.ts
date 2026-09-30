@@ -101,7 +101,7 @@ export async function resolveToolPermission(
   });
   // 无人值守边界排在 memory 放行之后：memory root 位于 workspace 内，两道规则不会冲突；
   // 越出 workspace 的目标在这里拒绝，deny 不可被后续 hook/审批改写为放行之外的状态。
-  permissionDecision = applyWorkspaceFileScopePermission({
+  permissionDecision = await applyWorkspaceFileScopePermission({
     decision: permissionDecision,
     enabled: deps.confineFileToolsToWorkspace,
     executionInput,

@@ -46,6 +46,7 @@ interface IRaftAgentsService {
 | OriginInvalid                                           | 地址不可规范化            | 无                         |
 | TokenInvalid / IdentityMismatch / CredentialCheckFailed | 登录被拒（CLI Code 分类） | profile 可能残留，重试幂等 |
 | PathConflict / SlugConflict                             | 唯一性校验                | 无                         |
+| HomeOverlapsCredentials                                 | Home 包住/落入 raft/profiles（明文凭据；登录前拒绝） | 无             |
 | StoreWriteFailed                                        | 持久化失败                | 内存态回滚                 |
 
 重试 = 重新提交表单；每步幂等，不产生重复副作用。
@@ -197,7 +198,7 @@ interface IRaftAgentsService {
 2. **`toolAllowlist`（注册级白名单）**：`session/create`/`session/resume` 原生参数，内置与 MCP 工具都按注册面过滤。= Raft 六工具（`mcp__raft_agent_tools__*`，server 名由 app-server 锁定）+ `Read`/`Write`/`Edit`/`Glob`/`Grep`/`TodoWrite`（维护 Home 记忆所需最小集）。**刻意不含 Bash**（唯一任意副作用入口）；**不含 ApplyPatch**（其路径藏在 `patch_text` 里，第 3 层无法低成本校验）。resume 必须重发（否则冷恢复后工具面变宽）。工具集与 `apps/zcode-cli` 的 `official-mcp-hosts.ts` 锁定的 serverKey 两处同步。
 3. **`confineFileToolsToWorkspace`（文件工具边界，新增 wire 参数）**：yolo 与白名单都约束不了「已注册文件工具指向哪里」——现状文件工具对 workspaceRoot 外路径不设防（path-policy 故意放行子代理跨仓需求），yolo 下等于全盘可读写。开启后 `Read`/`Write`/`Edit`/`Glob`/`Grep` 的路径入参（`file_path`/`path`/`cwd`）越出 workspaceRoot（= Agent Home）在**执行边界**拒绝（deny 可恢复，模型可改用根内路径），排在 yolo 放行与 memory 放行之后、不可被 hook/审批改写。**读也一并限**：全盘可读 + `raft_message_send` 即数据外带通道。create 与 resume 同语义重发。
 
-安全性质：频道里的任意消息最多驱动 Agent 读写自己的 Home 与发 Raft 消息。已知残余面：符号链接逃逸（值守会话无 Bash 造不出链接，Home 初始无链接；v1 不做 realpath）。
+安全性质：频道里的任意消息最多驱动 Agent 读写自己的 Home 与发 Raft 消息。路径判定在 realpath 两侧进行（根与目标都规范化后判包含）：Home 内预置的指向外部的符号链接被解析后拒绝，根本身经符号链接给出（macOS `/var` → `/private/var` 一类）不产生误判。glob 模式键（Glob.pattern / Grep.glob）含 `..` 段或绝对路径前缀直接拒绝（Grep.pattern 是内容正则，不在此列）。配套：T1 创建绑定拒绝「Home 包住或落入 `raft/profiles`（明文凭据）」的路径（`HomeOverlapsCredentials`），否则该限制形同虚设。
 
 ### 已知限制
 

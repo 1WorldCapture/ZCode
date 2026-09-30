@@ -84,6 +84,12 @@ export const raftAgentSetupErrorCodeSchema = z.enum([
   "CredentialCheckFailed",
   "PathConflict",
   "SlugConflict",
+  /**
+   * 自定义 Home 包住（或落入）Raft 凭据目录（数据根下 raft/profiles，明文
+   * sk_agent_*）。值守会话的文件工具被 confineFileToolsToWorkspace 锁在 Home 内，
+   * Home 若覆盖凭据目录，频道消息即可读出凭据——创建时直接拒绝。
+   */
+  "HomeOverlapsCredentials",
   /** 同一 (raftOrigin, serverId, raftAgentId) 身份已有绑定（区别于 slug 碰撞）。 */
   "AlreadyBound",
   /** Provisioning 步骤失败（步骤名在 detail）；步骤自身应保持幂等可重试。 */

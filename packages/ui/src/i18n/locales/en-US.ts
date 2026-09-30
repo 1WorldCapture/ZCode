@@ -47,6 +47,8 @@ const enUS: Record<string, string> = {
   "agentCenter.form.error.PathConflict":
     "This Home path conflicts with a connected Agent. Pick another folder ({detail})",
   "agentCenter.form.error.SlugConflict": "Internal identifier conflict. Please retry ({detail})",
+  "agentCenter.form.error.HomeOverlapsCredentials":
+    "The Home path must not contain or fall inside the Raft credentials directory (raft/profiles). Choose another directory",
   "agentCenter.form.error.AlreadyBound": "This Agent is already connected ({detail})",
   "agentCenter.form.error.ProvisioningFailed": "Setup failed and can be retried (step: {detail})",
   "agentCenter.form.error.StoreWriteFailed": "Couldn't save. Please retry",

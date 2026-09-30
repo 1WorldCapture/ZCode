@@ -25,6 +25,7 @@ import type { IRaftAgentsService, RaftProvisioningStep } from "../contract.js";
 import {
   deriveProfileSlug,
   findBindingConflicts,
+  homePathsConflict,
   normalizeHomePathForCompare,
   normalizeRaftOrigin,
 } from "../domain/binding.js";
@@ -163,6 +164,19 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
       const homePathForCompare = normalizeHomePathForCompare(homePath, { win32 });
       if (homePathForCompare === undefined) {
         return { ok: false, code: "OriginInvalid" };
+      }
+      // Home 不得包住（或落入）Raft 凭据目录：明文 sk_agent_* 在 raft/profiles 下，
+      // 值守会话文件工具被锁在 Home 内（confineFileToolsToWorkspace）——若 Home 覆盖
+      // 凭据目录，限制形同虚设，频道消息即可读出全部 agent 凭据（评审定稿，e2e S4）。
+      const profilesRootForCompare = normalizeHomePathForCompare(
+        join(options.dataRootDir, "raft", "profiles"),
+        { win32 },
+      );
+      if (
+        profilesRootForCompare !== undefined &&
+        homePathsConflict(homePathForCompare, profilesRootForCompare)
+      ) {
+        return { ok: false, code: "HomeOverlapsCredentials" };
       }
 
       // 步骤 2：唯一性 fail-closed 快速路径（本地校验先于任何网络副作用；
