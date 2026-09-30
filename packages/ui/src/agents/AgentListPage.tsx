@@ -6,6 +6,7 @@
  */
 import { Bot, Play, Plus, Square } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
+import { StatusDot } from "@/settings/StatusDot.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useAgentCenterStore } from "@/agents/agentCenterStore.js";
 import { pauseAgent, startAgent } from "@/agents/agentCenterActions.js";
@@ -15,6 +16,7 @@ import {
   connectionStateTextClass,
   formatConnectionState,
   formatRunState,
+  runStateDot,
   runStateTextClass,
 } from "@/agents/agentStatusPresentation.js";
 
@@ -120,8 +122,11 @@ export function AgentListPage() {
                     <span className={connectionStateTextClass(item.connectionState)}>
                       {formatConnectionState(intl.formatMessage, item.connectionState)}
                     </span>
-                    <span className={runStateTextClass(item.runState)}>
-                      {formatRunState(intl.formatMessage, item.runState)}
+                    <span className="inline-flex items-center gap-1">
+                      <StatusDot {...runStateDot(item.runState)} />
+                      <span className={runStateTextClass(item.runState)}>
+                        {formatRunState(intl.formatMessage, item.runState)}
+                      </span>
                     </span>
                   </span>
                 </button>

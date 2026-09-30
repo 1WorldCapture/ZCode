@@ -9,6 +9,7 @@
 import { useEffect } from "react";
 import { ArrowLeft, FolderOpen, Play, Square } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
+import { toast } from "@/components/ui/toast.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
@@ -54,6 +55,8 @@ export function AgentDetailPage({ bindingId }: { bindingId: string }) {
       .openInFileManager(item.homePath)
       .then((result) => {
         if (!result.success) {
+          // 与 ModelTrajectoryPane 的惯例一致：失败要让用户感知，不能只写日志。
+          toast(intl.formatMessage({ id: "appHeader.openInFileManagerFailed" }));
           logger.warn("[AgentCenter] 打开 Home 文件夹失败", {
             bindingId: item.bindingId,
             error: result.error,
@@ -61,6 +64,7 @@ export function AgentDetailPage({ bindingId }: { bindingId: string }) {
         }
       })
       .catch((error) => {
+        toast(intl.formatMessage({ id: "appHeader.openInFileManagerFailed" }));
         logger.warn("[AgentCenter] 打开 Home 文件夹异常", {
           bindingId: item.bindingId,
           error,
