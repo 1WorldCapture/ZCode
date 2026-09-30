@@ -122,6 +122,13 @@ export type {
   CuaHelperInstallerOptions,
 } from "./cua-permission-broker/index.js";
 export { createBotsService } from "./bots/botsService.js";
+export {
+  IRaftAgentsService,
+  createDefaultRaftAgentsService,
+  type DefaultRaftAgentsServiceOptions,
+  type RaftProvisioningStep,
+} from "./raft-agents/contract.js";
+export { raftAgentsModule } from "./raft-agents/module.js";
 export { createFileWatcherService } from "./fileWatcher/fileWatcherService.js";
 export { createOAuthService } from "./oauth/oauthService.js";
 export { createOAuthProviderLogoutHandler } from "./oauth/oauthProviderLogout.js";
@@ -352,6 +359,7 @@ import { createZCodeTaskIndexSyncer } from "./zcode-agent/zcodeTaskIndexSyncer.j
 import { TaskIndexRepo } from "./session/taskIndexRepo.js";
 import { createBotsService } from "./bots/botsService.js";
 import { createBotRemoteWorkspaceService } from "./bots/botRemoteWorkspaceBridge.js";
+import { IRaftAgentsService, createDefaultRaftAgentsService } from "./raft-agents/contract.js";
 import type { SessionMessageSendRequested } from "#src/session/sessionMailbox.js";
 import { createFileWatcherService } from "./fileWatcher/fileWatcherService.js";
 import { createOAuthService } from "./oauth/oauthService.js";
@@ -2463,6 +2471,7 @@ export function createLocalServices(options: {
       }),
     )
     .register(IFileWatcherService, createFileWatcherService())
+    .register(IRaftAgentsService, createDefaultRaftAgentsService())
     .register(IOAuthService, oauthService)
     .register(
       IUsageStatsService,
