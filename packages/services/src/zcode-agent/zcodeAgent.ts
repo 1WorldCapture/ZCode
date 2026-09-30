@@ -159,6 +159,8 @@ export interface ZCodeAgentResumeSessionParams extends ZCodeAgentSessionTarget {
   // 禁 Bash 等）。否则 resume 后模型可见工具面/执行权限会比创建时更宽。
   toolAllowlist?: string[];
   toolDenylist?: string[];
+  // 与 create 同语义；缺省 = 冷恢复的无人值守会话退回全盘文件访问。
+  confineFileToolsToWorkspace?: boolean;
 }
 
 export interface ZCodeAgentInitializeResult {
@@ -211,6 +213,8 @@ export interface ZCodeAgentCreateSessionParams extends ZCodeAgentWorkspaceTarget
   officialMcpServers?: ZCodeOfficialMcpServerRef[];
   toolAllowlist?: string[];
   toolDenylist?: string[];
+  // 无人值守会话的文件工具边界（见 shared schema 注释）；Raft Agent 主会话必带 true。
+  confineFileToolsToWorkspace?: boolean;
   importedHistory?: ZCodeSessionImportHistory;
 }
 

@@ -128,6 +128,8 @@ export function resolveAppRuntimeConfig(input: {
     // 只写了几个 allowedTools 的用户突然丢失其余全部工具。
     toolAllowlist: options.runtimeConfig?.toolAllowlist,
     toolDisallowlist: options.runtimeConfig?.toolDisallowlist,
+    // 无人值守文件边界与工具面同层：runtime 启动期配置，只在 create/resume 请求边界传递。
+    confineFileToolsToWorkspace: options.runtimeConfig?.confineFileToolsToWorkspace,
     embeddedSearchBackend:
       options.runtimeConfig?.embeddedSearchBackend ??
       resolveDefaultEmbeddedSearchBackend({

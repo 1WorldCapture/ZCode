@@ -212,13 +212,15 @@ test("zcodeSession 适配器：ACK 六态映射 + requestedDelivery queue + comm
     type: string;
     sessionId: string | null;
     commandId: string;
-    payload: { requestedDelivery?: string; text: string };
+    payload: { requestedDelivery?: string; text: string; mode?: string };
   };
   assert.equal(first.type, "sendText");
   assert.equal(first.sessionId, "sess-7");
   assert.equal(first.commandId, "cmd-0");
   assert.equal(first.payload.requestedDelivery, "queue");
   assert.equal(first.payload.text, "t");
+  // 每次投递显式 yolo：mode 固化进队列输入 intent，空草稿会话冷恢复后首个输入仍全自动。
+  assert.equal(first.payload.mode, "yolo");
 });
 
 test("zcodeSession 适配器：RPC 抛异常按 transport（可退避重试）", async () => {

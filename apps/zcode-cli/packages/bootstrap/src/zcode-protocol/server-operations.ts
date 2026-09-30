@@ -3359,6 +3359,10 @@ async function createRecord(
       // 不能只依赖 prompt 文本约束，否则内置工具和动态 MCP 工具仍可能越过调用面。
       toolAllowlist: "toolAllowlist" in params ? params.toolAllowlist : undefined,
       toolDisallowlist: "toolDenylist" in params ? params.toolDenylist : undefined,
+      // 同一安全边界的路径维度：无人值守会话的文件工具越出 workspaceRoot 即拒绝。
+      // create 与 resume 共用 createRecord，冷恢复由此保持同一约束。
+      confineFileToolsToWorkspace:
+        "confineFileToolsToWorkspace" in params ? params.confineFileToolsToWorkspace : undefined,
       nativeSearchEnhancementsEnabled: startupPreferences.nativeSearchEnhancementsEnabled,
       modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
       // Memory Settings 是现有 CLI features.memory/use 之外的总开关。只在关闭时

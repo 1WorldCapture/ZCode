@@ -189,6 +189,16 @@ interface IRaftAgentsService {
 - 重建失败（create 也失败）才置 ErrorPaused(session_unavailable) 并不启动 bridge。
 - 日志：重建前后各一条（含原因与新旧 sessionId）。
 
+### 主会话权限模型（无人值守，e2e S4 第五层定稿）
+
+主会话由频道消息驱动、无人审批，权限模型与交互会话不同，三层缺一不可：
+
+1. **`mode: "yolo"`（全自动）**：V4 缺省权限模式对 MCP 工具调用要求人工批准，值守场景没人批准 → 工具调用永久悬挂（`pendingPermissions` 挂起，run4 根因）。yolo 在权限服务里排在项目规则之前放行，是值守会话唯一可用的模式。create 时锁定；每次 `sendText` 投递也显式带 `mode:"yolo"`——mode 会固化进队列输入的 canonical intent，堵住「空草稿会话重启后 resume 派生不出 mode、退回默认 ask 模式」的角落。resume 不传 mode（协议侧从持久化消息派生）。
+2. **`toolAllowlist`（注册级白名单）**：`session/create`/`session/resume` 原生参数，内置与 MCP 工具都按注册面过滤。= Raft 六工具（`mcp__raft_agent_tools__*`，server 名由 app-server 锁定）+ `Read`/`Write`/`Edit`/`Glob`/`Grep`/`TodoWrite`（维护 Home 记忆所需最小集）。**刻意不含 Bash**（唯一任意副作用入口）；**不含 ApplyPatch**（其路径藏在 `patch_text` 里，第 3 层无法低成本校验）。resume 必须重发（否则冷恢复后工具面变宽）。工具集与 `apps/zcode-cli` 的 `official-mcp-hosts.ts` 锁定的 serverKey 两处同步。
+3. **`confineFileToolsToWorkspace`（文件工具边界，新增 wire 参数）**：yolo 与白名单都约束不了「已注册文件工具指向哪里」——现状文件工具对 workspaceRoot 外路径不设防（path-policy 故意放行子代理跨仓需求），yolo 下等于全盘可读写。开启后 `Read`/`Write`/`Edit`/`Glob`/`Grep` 的路径入参（`file_path`/`path`/`cwd`）越出 workspaceRoot（= Agent Home）在**执行边界**拒绝（deny 可恢复，模型可改用根内路径），排在 yolo 放行与 memory 放行之后、不可被 hook/审批改写。**读也一并限**：全盘可读 + `raft_message_send` 即数据外带通道。create 与 resume 同语义重发。
+
+安全性质：频道里的任意消息最多驱动 Agent 读写自己的 Home 与发 Raft 消息。已知残余面：符号链接逃逸（值守会话无 Bash 造不出链接，Home 初始无链接；v1 不做 realpath）。
+
 ### 已知限制
 
 - Agent Home 会话必须经 Agent 列表进入（宿主才会带上 `agentMemory` 与 `officialMcpServers`）。若绕过它、把 Home 目录当普通项目直接打开会话，会退回项目记忆且没有 Raft 工具，第一期靠「Home 会话只从 Agent 列表进入、不注册普通 tab」（D7）规避，不做目录猜测。

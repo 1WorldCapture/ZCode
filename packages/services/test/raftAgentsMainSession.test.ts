@@ -136,12 +136,17 @@ test("zcodeSession 适配器 create/resume：session 通道透传 agentMemory + 
     agentMemory?: { homeRoot: string; agentName?: string };
     officialMcpServers?: ZCodeOfficialMcpServerRef[];
     persistence?: string;
+    mode?: string;
+    toolAllowlist?: readonly string[];
+    confineFileToolsToWorkspace?: boolean;
   }[] = [];
   const resumed: {
     workspacePath: string;
     sessionId: string;
     agentMemory?: { homeRoot: string; agentName?: string };
     officialMcpServers?: ZCodeOfficialMcpServerRef[];
+    toolAllowlist?: readonly string[];
+    confineFileToolsToWorkspace?: boolean;
   }[] = [];
   const agent: ZcodeSessionAgent = {
     async sendConversationCommandV4() {
@@ -153,6 +158,9 @@ test("zcodeSession 适配器 create/resume：session 通道透传 agentMemory + 
         agentMemory: params.agentMemory,
         officialMcpServers: params.officialMcpServers,
         persistence: params.persistence,
+        mode: params.mode,
+        toolAllowlist: params.toolAllowlist,
+        confineFileToolsToWorkspace: params.confineFileToolsToWorkspace,
       });
       return { session: { sessionId: "sess-42" } };
     },
@@ -162,6 +170,8 @@ test("zcodeSession 适配器 create/resume：session 通道透传 agentMemory + 
         sessionId: params.sessionId,
         agentMemory: params.agentMemory,
         officialMcpServers: params.officialMcpServers,
+        toolAllowlist: params.toolAllowlist,
+        confineFileToolsToWorkspace: params.confineFileToolsToWorkspace,
       });
       return {};
     },
@@ -180,6 +190,12 @@ test("zcodeSession 适配器 create/resume：session 通道透传 agentMemory + 
   // deferred 草稿创建：首个输入（V4 drain/wake）的统一持久化边界才写 session 行；
   // 缺省 immediate 会让 V4 durable admission 跳过该边界 → session_input 外键失败（e2e S4）。
   assert.equal(created[0].persistence, "deferred");
+  // 无人值守权限模型（e2e S4 第五层）：yolo 全自动 + 工具白名单 + 文件工具锁定 workspace。
+  assert.equal(created[0].mode, "yolo");
+  assert.ok(created[0].toolAllowlist?.includes("mcp__raft_agent_tools__raft_message_check"));
+  assert.ok(!created[0].toolAllowlist?.includes("Bash"));
+  assert.ok(!created[0].toolAllowlist?.includes("ApplyPatch"));
+  assert.equal(created[0].confineFileToolsToWorkspace, true);
 
   const resumeOutcome = await port.resumeAgentSession({
     workspacePath: "/tmp/wh",
@@ -191,6 +207,9 @@ test("zcodeSession 适配器 create/resume：session 通道透传 agentMemory + 
   assert.equal(resumed[0].sessionId, "sess-42");
   assert.deepEqual(resumed[0].agentMemory, agentMemory);
   assert.deepEqual(resumed[0].officialMcpServers, MCP_REFS);
+  // resume 重发工具面与文件边界（mode 由协议侧从持久化状态派生，不随 resume 传）。
+  assert.deepEqual(resumed[0].toolAllowlist, created[0].toolAllowlist);
+  assert.equal(resumed[0].confineFileToolsToWorkspace, true);
 
   const failing: ZcodeSessionAgent = {
     ...agent,
