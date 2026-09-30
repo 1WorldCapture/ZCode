@@ -54,7 +54,11 @@ async function main(): Promise<void> {
     },
   });
 
-  const handle = serveStdio(() => createRaftToolsServer(adapter), { legacy: "reject" });
+  // 两种 wire era 都要服务：宿主对 session 隔离的官方 MCP 连接实测发 2025-era
+  // initialize（无 _meta envelope），legacy:"reject" 会让握手必然失败——工具声明
+  // 来自 manifest，模型看得到工具但每次调用都悬挂（e2e S4 第四层根因）。
+  // 身份隔离不依赖握手 era（来自注入的 env），放宽到默认双 era 是安全的。
+  const handle = serveStdio(() => createRaftToolsServer(adapter));
   let shutdownStarted = false;
   const shutdown = () => {
     if (shutdownStarted) return;

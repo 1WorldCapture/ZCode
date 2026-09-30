@@ -80,3 +80,44 @@ test("stdio 端到端：真实 MCP 客户端调用构建产物，check 先落盘
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("stdio 端到端（legacy 握手）：2025-era initialize 也必须连上并完成工具调用", async () => {
+  // 宿主对 session 隔离的官方 MCP 连接发的是无 _meta envelope 的 2025-era initialize；
+  // legacy:"reject" 时代这里握手被拒、真实会话的工具调用悬挂（e2e S4 第四层根因）。
+  const dir = await mkdtemp(join(tmpdir(), "raft-tools-e2e-legacy-"));
+  try {
+    const bundle = join(dir, "dist", "mcp", "server.js");
+    await buildRaftAgentToolsBundle({ outfile: bundle });
+    const cli = join(dir, "fake-raft.mjs");
+    await writeFile(
+      cli,
+      `#!/usr/bin/env node\nprocess.stdout.write("[target=#dev msg=bbbb2222 time=t type=human] @lyon: yo\\nNo more new inbox messages.\\n");`,
+    );
+    await chmod(cli, 0o755);
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [resolve(bundle)],
+      env: {
+        ...(process.env as Record<string, string>),
+        ZCODE_RAFT_BINDING_ID: "bind-legacy",
+        ZCODE_RAFT_CLI_PATH: cli,
+        ZCODE_RAFT_PROFILE_SLUG: "raft-x",
+        ZCODE_RAFT_PROFILE_DIR: join(dir, "profile"),
+        ZCODE_RAFT_DATA_ROOT: dir,
+      },
+      stderr: "ignore",
+    });
+    const client = new Client({ name: "e2e-legacy", version: "1" }, { versionNegotiation: { mode: "legacy" } });
+    await client.connect(transport);
+    try {
+      assert.equal((await client.listTools()).tools.length, 6);
+      const checked = await client.callTool({ name: "raft_message_check", arguments: {} });
+      assert.ok(JSON.stringify(checked.content).includes("bbbb2222"));
+      assert.equal((await readdir(join(dir, "raft", "inbox-logs", "bind-legacy"))).length, 1);
+    } finally {
+      await client.close();
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
