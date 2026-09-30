@@ -1,0 +1,361 @@
+/**
+ * 值守编排器（watchRuntime）测试。
+ * 覆盖：启动链顺序（CLI→MEMORY 门→锁内换代→spawn→D8 drain）、幂等入口、
+ * 各失败分支的 ErrorPaused 置位、意图翻转中止、onExit 意外退出、stop/恢复/关停、
+ * 每绑定线性化与并发合并。
+ */
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import type { RaftAgentBinding } from "@zcode/shared";
+
+import {
+  backlogDrainCommandId,
+  buildBacklogDrainPrompt,
+  createRaftWatchRuntime,
+  type RaftMemoryGatePort,
+} from "../src/raft-agents/app/watchRuntime.js";
+import type { RaftBindingStorePort, RaftSessionPort, RaftSessionSendOutcome } from "../src/raft-agents/app/ports.js";
+import type { BridgeBindingRef, BridgeStartResult, BridgeExitInfo, BridgeSupervisorPort } from "../src/raft-agents/app/bridgePorts.js";
+import { createRaftStoreWriteLock } from "../src/raft-agents/app/storeLock.js";
+
+const BINDING_ID = "99999999-8888-4777-a666-555555555555";
+const AGENT_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+const CLI_PATH = "/fake/raft/dist/index.js";
+
+function makeBinding(overrides: Partial<RaftAgentBinding> = {}): RaftAgentBinding {
+  return {
+    bindingId: BINDING_ID,
+    displayName: "t0-test-agent",
+    raftOrigin: "https://raft.example.com",
+    serverId: "srv-1",
+    raftAgentId: AGENT_ID,
+    profileSlug: "t0-test-agent",
+    homeWorkspacePath: "/tmp/raft-homes/agent-a",
+    mainSessionRef: { sessionId: "sess-7", sessionGeneration: 1 },
+    desiredState: "Running",
+    autostartConsent: false,
+    adapterInstance: BINDING_ID,
+    createdAt: "2026-09-30T00:00:00Z",
+    updatedAt: "2026-09-30T00:00:00Z",
+    ...overrides,
+  };
+}
+
+/** 可变 store 假件：writeAll 生效；readScript 可模拟"锁内重读结果与初读不同"。 */
+function fakeStore(initial: RaftAgentBinding[]) {
+  let current = [...initial];
+  const writes: RaftAgentBinding[][] = [];
+  let readScript: (() => RaftAgentBinding[]) | undefined;
+  const port: RaftBindingStorePort = {
+    async readAll() {
+      return readScript ? readScript() : [...current];
+    },
+    async writeAll(bindings) {
+      writes.push(bindings);
+      current = [...bindings];
+    },
+  };
+  return {
+    port,
+    writes,
+    current: () => current,
+    setReadScript(script: (() => RaftAgentBinding[]) | undefined) {
+      readScript = script;
+    },
+  };
+}
+
+/** 可编程 supervisor 假件：start 按脚本回放，exit() 手动触发 onExit 通知。 */
+function fakeSupervisor(startScript: BridgeStartResult[] = [{ ok: true, pid: 4321 }]) {
+  const startCalls: Array<{ ref: BridgeBindingRef; cliPath: string }> = [];
+  const stopCalls: string[] = [];
+  let stopAllCalls = 0;
+  let running = new Set<string>();
+  const exitListeners: Array<(info: BridgeExitInfo) => void> = [];
+  let i = 0;
+  const supervisor: BridgeSupervisorPort = {
+    async start(ref, cliPath) {
+      startCalls.push({ ref, cliPath });
+      const result = startScript[Math.min(i, startScript.length - 1)];
+      i += 1;
+      if (result.ok) running.add(ref.bindingId);
+      return result;
+    },
+    async stop(bindingId) {
+      stopCalls.push(bindingId);
+      running.delete(bindingId);
+    },
+    async stopAll() {
+      stopAllCalls += 1;
+      running = new Set();
+    },
+    terminateAllNow() {
+      running = new Set();
+    },
+    isRunning: (bindingId) => running.has(bindingId),
+    onExit(listener) {
+      exitListeners.push(listener);
+      return () => {
+        const idx = exitListeners.indexOf(listener);
+        if (idx >= 0) exitListeners.splice(idx, 1);
+      };
+    },
+  };
+  return {
+    supervisor,
+    startCalls,
+    stopCalls,
+    stopAllCalls: () => stopAllCalls,
+    async exit(info: BridgeExitInfo) {
+      if (!info.requested) running.delete(info.bindingId);
+      for (const listener of exitListeners) listener(info);
+    },
+  };
+}
+
+function fakeSessions(scripts: RaftSessionSendOutcome[] = [{ ok: true, duplicate: false }]) {
+  const sent: Array<{ workspacePath: string; sessionId: string; commandId: string; text: string }> = [];
+  let i = 0;
+  const port: RaftSessionPort = {
+    async sendQueuedText(params) {
+      sent.push(params);
+      const script = scripts[Math.min(i, scripts.length - 1)];
+      i += 1;
+      return script;
+    },
+  };
+  return { port, sent };
+}
+
+const okCli = { resolve: async () => ({ ok: true as const, cliPath: CLI_PATH, version: "0.0.24" }) };
+
+function makeRuntime(overrides: {
+  store?: ReturnType<typeof fakeStore>;
+  supervisor?: ReturnType<typeof fakeSupervisor>;
+  sessions?: ReturnType<typeof fakeSessions>;
+  cli?: typeof okCli;
+  memory?: RaftMemoryGatePort;
+} = {}) {
+  const store = overrides.store ?? fakeStore([makeBinding()]);
+  const supervisor = overrides.supervisor ?? fakeSupervisor();
+  const sessions = overrides.sessions ?? fakeSessions();
+  const runtime = createRaftWatchRuntime({
+    store: store.port,
+    lock: createRaftStoreWriteLock(),
+    sessions: sessions.port,
+    supervisor: supervisor.supervisor,
+    cli: overrides.cli ?? okCli,
+    memory: overrides.memory,
+    clock: { nowIso: () => "2026-09-30T12:00:00.000Z" },
+  });
+  return { runtime, store, supervisor, sessions };
+}
+
+test("startWatch 成功链：换代+1 持久化 → spawn(带 cliPath) → D8 drain(代次幂等键) → Running", async () => {
+  const { runtime, store, supervisor, sessions } = makeRuntime();
+  const outcome = await runtime.startWatch(BINDING_ID);
+  assert.deepEqual(outcome, { ok: true });
+
+  // 换代 1→2 已持久化（锁内写）。
+  assert.equal(store.current()[0].mainSessionRef?.sessionGeneration, 2);
+  assert.equal(store.writes.length, 1);
+  // spawn 参数：绑定引用与 CLI 路径。
+  assert.equal(supervisor.startCalls.length, 1);
+  assert.deepEqual(supervisor.startCalls[0].ref, {
+    bindingId: BINDING_ID,
+    profileSlug: "t0-test-agent",
+    raftAgentId: AGENT_ID,
+  });
+  assert.equal(supervisor.startCalls[0].cliPath, CLI_PATH);
+  // D8 drain：commandId = bindingId+代次，文本含工具引导与代次，无凭据形态。
+  assert.equal(sessions.sent.length, 1);
+  assert.equal(sessions.sent[0].commandId, `raft-drain:${BINDING_ID}:2`);
+  assert.equal(sessions.sent[0].sessionId, "sess-7");
+  assert.equal(sessions.sent[0].workspacePath, "/tmp/raft-homes/agent-a");
+  assert.ok(sessions.sent[0].text.includes("raft_message_check"));
+  assert.ok(!sessions.sent[0].text.includes("sk_agent_"));
+  // 投影：覆盖层 Running。
+  assert.equal(runtime.resolveRunState(store.current()[0]), "Running");
+});
+
+test("幂等入口：bridge 已在跑则直接成功，不换代/不 spawn/不 drain", async () => {
+  const supervisor = fakeSupervisor();
+  // 预置为已运行（模拟先前 startWatch 的结果）。
+  await supervisor.supervisor.start({ bindingId: BINDING_ID, profileSlug: "s", raftAgentId: AGENT_ID }, CLI_PATH);
+  const { runtime, store, sessions } = makeRuntime({ supervisor });
+  const outcome = await runtime.startWatch(BINDING_ID);
+  assert.deepEqual(outcome, { ok: true });
+  assert.equal(supervisor.startCalls.length, 1, "无第二次 spawn");
+  assert.equal(store.writes.length, 0, "未再换代");
+  assert.equal(sessions.sent.length, 0, "未再 drain");
+  assert.equal(runtime.resolveRunState(store.current()[0]), "Running");
+});
+
+test("MEMORY 门失败：ErrorPaused(memory_unavailable)，不换代不 spawn（顺序红线）", async () => {
+  const memory: RaftMemoryGatePort = {
+    verifyMemoryAvailable: async () => ({ ok: false, code: "MemoryUnreadable", detail: "EACCES" }),
+  };
+  const { runtime, store, supervisor, sessions } = makeRuntime({ memory });
+  const outcome = await runtime.startWatch(BINDING_ID);
+  assert.equal(outcome.ok, false);
+  assert.ok(!outcome.ok && outcome.code === "MemoryUnavailable");
+  assert.ok(!outcome.ok && outcome.detail === "MemoryUnreadable: EACCES");
+  assert.equal(store.writes.length, 0, "未换代");
+  assert.equal(supervisor.startCalls.length, 0, "MEMORY 门未过不碰 bridge");
+  assert.equal(sessions.sent.length, 0);
+  assert.deepEqual(runtime.resolveRunState(store.current()[0]), {
+    kind: "ErrorPaused",
+    reason: "memory_unavailable",
+  });
+});
+
+test("CLI 不可用：ErrorPaused(cli_unavailable)，先于 MEMORY 门与 spawn", async () => {
+  const gateCalls: string[] = [];
+  const memory: RaftMemoryGatePort = {
+    verifyMemoryAvailable: async (input) => {
+      gateCalls.push(input.homeWorkspacePath);
+      return { ok: true };
+    },
+  };
+  const { runtime, store, supervisor } = makeRuntime({
+    cli: { resolve: async () => ({ ok: false as const, code: "CliMissing" as const, detail: "not found" }) },
+    memory,
+  });
+  const outcome = await runtime.startWatch(BINDING_ID);
+  assert.ok(!outcome.ok && outcome.code === "CliUnavailable");
+  assert.equal(gateCalls.length, 0, "CLI 前置失败不再走记忆门");
+  assert.equal(supervisor.startCalls.length, 0);
+  assert.deepEqual(runtime.resolveRunState(store.current()[0]), {
+    kind: "ErrorPaused",
+    reason: "cli_unavailable",
+  });
+});
+
+test("锁内意图翻转：start 期间用户停止 → 中止且不写不 spawn", async () => {
+  const store = fakeStore([makeBinding()]);
+  // 初读 Running（锁外），锁内重读已变 ReadyStopped（模拟 setDesiredState 先落盘）。
+  let readCount = 0;
+  store.setReadScript(() => {
+    readCount += 1;
+    return readCount <= 1 ? [makeBinding()] : [makeBinding({ desiredState: "ReadyStopped" })];
+  });
+  const { runtime, supervisor } = makeRuntime({ store });
+  const outcome = await runtime.startWatch(BINDING_ID);
+  assert.ok(!outcome.ok && outcome.code === "NotRunningIntent");
+  assert.equal(supervisor.startCalls.length, 0);
+  assert.equal(store.writes.length, 0);
+  // 中止不置任何覆盖层（store 本体未被本次修改，投影回落推导）。
+  assert.equal(runtime.resolveRunState(store.current()[0]), undefined);
+});
+
+test("spawn 失败分支：EarlyExit → ErrorPaused(bridge_exit)，换代已持久化；AlreadyRunning 兜底成功", async () => {
+  const fail = fakeSupervisor([{ ok: false, code: "EarlyExit", detail: "exit 1" }]);
+  const first = makeRuntime({ supervisor: fail });
+  const failOutcome = await first.runtime.startWatch(BINDING_ID);
+  assert.ok(!failOutcome.ok && failOutcome.code === "BridgeStartFailed");
+  assert.equal(first.store.writes.length, 1, "换代先于 spawn，失败也保留代次");
+  assert.deepEqual(first.runtime.resolveRunState(first.store.current()[0]), {
+    kind: "ErrorPaused",
+    reason: "bridge_exit",
+  });
+
+  const already = fakeSupervisor([{ ok: false, code: "AlreadyRunning" }]);
+  const second = makeRuntime({ supervisor: already });
+  const okOutcome = await second.runtime.startWatch(BINDING_ID);
+  assert.deepEqual(okOutcome, { ok: true });
+  assert.equal(second.sessions.sent.length, 0, "AlreadyRunning 不重复 drain");
+  assert.equal(second.runtime.resolveRunState(second.store.current()[0]), "Running");
+});
+
+test("onExit：意外退出置 ErrorPaused(bridge_exit)，requested 不算故障", async () => {
+  const { runtime, store, supervisor } = makeRuntime();
+  await runtime.startWatch(BINDING_ID);
+  assert.equal(runtime.resolveRunState(store.current()[0]), "Running");
+
+  await supervisor.exit({
+    bindingId: BINDING_ID,
+    requested: false,
+    code: 1,
+    signal: null,
+    stderrTail: "bridge crashed",
+  });
+  assert.deepEqual(runtime.resolveRunState(store.current()[0]), {
+    kind: "ErrorPaused",
+    reason: "bridge_exit",
+  });
+
+  // 恢复：requested 退出不置错；下次 startWatch 成功后覆盖层清为 Running。
+  await supervisor.exit({ bindingId: BINDING_ID, requested: true, code: 0, signal: null, stderrTail: "" });
+  assert.deepEqual(runtime.resolveRunState(store.current()[0]), {
+    kind: "ErrorPaused",
+    reason: "bridge_exit",
+  }, "requested 退出不清除既有 ErrorPaused（那属于新一次启动的事）");
+  const again = await runtime.startWatch(BINDING_ID);
+  assert.deepEqual(again, { ok: true });
+  assert.equal(runtime.resolveRunState(store.current()[0]), "Running");
+});
+
+test("drain 提交失败（transport）：bridge 不回滚，结果仍成功，覆盖层 Running", async () => {
+  const sessions = fakeSessions([{ ok: false, code: "transport", detail: "rpc down" }]);
+  const { runtime, store, supervisor } = makeRuntime({ sessions });
+  const outcome = await runtime.startWatch(BINDING_ID);
+  assert.deepEqual(outcome, { ok: true });
+  assert.equal(supervisor.startCalls.length, 1, "bridge 保持运行");
+  assert.equal(runtime.resolveRunState(store.current()[0]), "Running");
+});
+
+test("并发合并：同绑定两次并发 startWatch 只执行一次链路", async () => {
+  const supervisor = fakeSupervisor();
+  const { runtime, store } = makeRuntime({ supervisor });
+  const [a, b] = await Promise.all([runtime.startWatch(BINDING_ID), runtime.startWatch(BINDING_ID)]);
+  assert.deepEqual(a, { ok: true });
+  assert.deepEqual(b, { ok: true });
+  assert.equal(supervisor.startCalls.length, 1);
+  assert.equal(store.writes.length, 1, "只换代一次");
+});
+
+test("stopWatch：等 bridge 退出并清覆盖层；disposeAllAndWait 停全部", async () => {
+  const { runtime, store, supervisor } = makeRuntime();
+  await runtime.startWatch(BINDING_ID);
+  await runtime.stopWatch(BINDING_ID);
+  assert.deepEqual(supervisor.stopCalls, [BINDING_ID]);
+  // 停止后 desiredState 仍为 Running（落盘是调用方职责），投影回落 Starting。
+  assert.equal(runtime.resolveRunState(store.current()[0]), undefined);
+
+  await runtime.startWatch(BINDING_ID);
+  await runtime.disposeAllAndWait();
+  assert.equal(supervisor.stopAllCalls(), 1);
+  assert.equal(runtime.resolveRunState(store.current()[0]), undefined);
+});
+
+test("recoverAllDesiredRunning：只恢复 desiredState=Running 的绑定，彼此独立", async () => {
+  const other = makeBinding({
+    bindingId: "11111111-2222-4333-8444-555555555555",
+    profileSlug: "agent-b",
+    mainSessionRef: { sessionId: "sess-8", sessionGeneration: 4 },
+  });
+  const stopped = makeBinding({
+    bindingId: "33333333-2222-4333-8444-555555555555",
+    profileSlug: "agent-c",
+    desiredState: "ReadyStopped",
+  });
+  const store = fakeStore([makeBinding(), other, stopped]);
+  const supervisor = fakeSupervisor();
+  const { runtime } = makeRuntime({ store, supervisor });
+  await runtime.recoverAllDesiredRunning();
+  assert.equal(supervisor.startCalls.length, 2);
+  const startedIds = supervisor.startCalls.map((c) => c.ref.bindingId).sort();
+  assert.deepEqual(startedIds, [BINDING_ID, "11111111-2222-4333-8444-555555555555"].sort());
+});
+
+test("幂等键与文本：代次参与 commandId；prompt 含绑定/代次与工具引导", () => {
+  assert.equal(backlogDrainCommandId(BINDING_ID, 3), `raft-drain:${BINDING_ID}:3`);
+  assert.notEqual(backlogDrainCommandId(BINDING_ID, 3), backlogDrainCommandId(BINDING_ID, 4));
+  const text = buildBacklogDrainPrompt({ bindingId: BINDING_ID, generation: 3, nowIso: "2026-09-30T12:00:00Z" });
+  assert.ok(text.includes(BINDING_ID));
+  assert.ok(text.includes("代次=3"));
+  assert.ok(text.includes("raft_message_send"));
+  assert.ok(text.includes("backlog drain"));
+  assert.ok(!text.includes("sk_agent_"));
+});

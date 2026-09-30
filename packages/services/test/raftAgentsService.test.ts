@@ -356,3 +356,89 @@ test("绑定存储损坏时按空集恢复（读加固）", async () => {
     await rm(dataRoot, { recursive: true, force: true });
   }
 });
+
+test("list 投影：resolveRunState 覆盖层优先于 desiredState 推导；停止态如实投影", async () => {
+  const dataRoot = await mkdtemp(join(tmpdir(), "raft-agents-"));
+  try {
+    const service = await makeService(fakeCli({}), dataRoot);
+    const created = await service.createBinding({
+      raftOrigin: "https://raft.example.com",
+      raftAgentId: AGENT_ID,
+      token: "sk_agent_testtoken123",
+    });
+    assert.ok(created.ok);
+    if (!created.ok) return;
+    const bindingId = created.binding.bindingId;
+
+    // 无运行时源：Running 意图 → Starting（既有语义不变）。
+    await service.setDesiredState(bindingId, "Running");
+    assert.equal((await service.list())[0].runState, "Starting");
+
+    // 注入运行态来源（编排器接线形态）：ErrorPaused 与 Running 直达列表。
+    const withOverlay = createRaftAgentsService({
+      cli: fakeCli({}),
+      store: createRaftBindingStore(dataRoot),
+      clock: fixedClock,
+      dataRootDir: dataRoot,
+      resolveRunState: (binding) =>
+        binding.bindingId === bindingId ? { kind: "ErrorPaused", reason: "memory_unavailable" } : undefined,
+    });
+    assert.deepEqual((await withOverlay.list())[0].runState, {
+      kind: "ErrorPaused",
+      reason: "memory_unavailable",
+    });
+
+    // 停止态不咨询运行时源（用户暂停如实投影，不被覆盖层污染）。
+    await withOverlay.setDesiredState(bindingId, "ReadyStopped");
+    assert.equal((await withOverlay.list())[0].runState, "ReadyStopped");
+  } finally {
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("onDesiredStateChanged：落盘成功后锁外回调；绑定不存在不触发；抛错被吞", async () => {
+  const dataRoot = await mkdtemp(join(tmpdir(), "raft-agents-"));
+  try {
+    const calls: Array<{ bindingId: string; desired: string }> = [];
+    const service = createRaftAgentsService({
+      cli: fakeCli({}),
+      store: createRaftBindingStore(dataRoot),
+      clock: fixedClock,
+      dataRootDir: dataRoot,
+      onDesiredStateChanged: (params) => {
+        calls.push(params);
+      },
+    });
+    const created = await service.createBinding({
+      raftOrigin: "https://raft.example.com",
+      raftAgentId: AGENT_ID,
+      token: "sk_agent_testtoken123",
+    });
+    assert.ok(created.ok);
+    if (!created.ok) return;
+
+    await service.setDesiredState(created.binding.bindingId, "Running");
+    assert.deepEqual(calls, [{ bindingId: created.binding.bindingId, desired: "Running" }]);
+
+    // 不存在的绑定：不落盘也不回调。
+    calls.length = 0;
+    await service.setDesiredState("00000000-0000-4000-8000-000000000000", "Running");
+    assert.equal(calls.length, 0);
+
+    // 回调同步抛错不影响 setDesiredState 的结果（状态已落盘）。
+    const throwing = createRaftAgentsService({
+      cli: fakeCli({}),
+      store: createRaftBindingStore(dataRoot),
+      clock: fixedClock,
+      dataRootDir: dataRoot,
+      onDesiredStateChanged: () => {
+        throw new Error("callback boom");
+      },
+    });
+    await throwing.setDesiredState(created.binding.bindingId, "ReadyStopped");
+    const stored = await throwing.get(created.binding.bindingId);
+    assert.equal(stored?.desiredState, "ReadyStopped");
+  } finally {
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});

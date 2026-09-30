@@ -8,7 +8,13 @@ import { getZCodeDataRootDir } from "#src/paths.js";
 import type { RaftProvisioningStep } from "./contract.js";
 import { createRaftAgentsService, type RaftAgentsServiceOptions } from "./app/raftAgentsService.js";
 import { createRaftWakeDelivery, type RaftWakeDeliveryOptions } from "./app/wakeDelivery.js";
+import {
+  createRaftWatchRuntime,
+  type RaftWatchRuntime,
+  type RaftWatchRuntimeOptions,
+} from "./app/watchRuntime.js";
 import type { RaftSessionPort, WakeHandlerPort } from "./app/ports.js";
+import type { RaftStoreWriteLock } from "./app/storeLock.js";
 import { createRaftBindingStore } from "./adapters/bindingStore.js";
 import { createRaftCliAdapter } from "./adapters/raftCli.js";
 
@@ -19,6 +25,9 @@ export interface DefaultRaftAgentsServiceOptions {
   dataRootDir?: string;
   logger?: RaftAgentsServiceOptions["logger"];
   provisioningSteps?: RaftProvisioningStep[];
+  storeWriteLock?: RaftStoreWriteLock;
+  resolveRunState?: RaftAgentsServiceOptions["resolveRunState"];
+  onDesiredStateChanged?: RaftAgentsServiceOptions["onDesiredStateChanged"];
 }
 
 export function createDefaultRaftAgentsService(options: DefaultRaftAgentsServiceOptions = {}) {
@@ -30,6 +39,33 @@ export function createDefaultRaftAgentsService(options: DefaultRaftAgentsService
     dataRootDir,
     logger: options.logger,
     provisioningSteps: options.provisioningSteps,
+    storeWriteLock: options.storeWriteLock,
+    resolveRunState: options.resolveRunState,
+    onDesiredStateChanged: options.onDesiredStateChanged,
+  });
+}
+
+/**
+ * 值守编排器组合根（T3）：宿主必须把与 createDefaultRaftAgentsService 同一把
+ * storeWriteLock 传入两侧（换代写与 setDesiredState 互斥的前提）。supervisor 与
+ * memory（T5 AgentHomePort 的 verifyMemoryAvailable 面）由宿主注入。
+ */
+export function createDefaultRaftWatchRuntime(
+  options: Omit<RaftWatchRuntimeOptions, "store" | "cli"> & {
+    dataRootDir?: string;
+    cli?: RaftWatchRuntimeOptions["cli"];
+  },
+): RaftWatchRuntime {
+  const dataRootDir = options.dataRootDir ?? getZCodeDataRootDir();
+  return createRaftWatchRuntime({
+    store: createRaftBindingStore(dataRootDir),
+    lock: options.lock,
+    sessions: options.sessions,
+    supervisor: options.supervisor,
+    cli: options.cli ?? createRaftCliAdapter(),
+    memory: options.memory,
+    clock: options.clock,
+    logger: options.logger,
   });
 }
 

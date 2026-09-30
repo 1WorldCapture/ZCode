@@ -16,6 +16,7 @@ import {
   type RaftAgentBinding,
   type RaftAgentBindingInput,
   type RaftAgentListItem,
+  type RaftAgentRunState,
   type RaftAgentSetupResult,
 } from "@zcode/shared";
 import { createServiceLogger, type ServiceLogger } from "#src/logger/serviceLogger.js";
@@ -28,6 +29,7 @@ import {
   normalizeRaftOrigin,
 } from "../domain/binding.js";
 import type { ClockPort, RaftBindingStorePort, RaftCliPort } from "./ports.js";
+import { createRaftStoreWriteLock, type RaftStoreWriteLock } from "./storeLock.js";
 
 /** Provisioning 步骤注入点：类型定义在 contract.ts（公开契约），此处只引用。 */
 
@@ -39,6 +41,19 @@ export interface RaftAgentsServiceOptions {
   dataRootDir: string;
   logger?: ServiceLogger;
   provisioningSteps?: RaftProvisioningStep[];
+  /**
+   * 与值守编排器（watchRuntime）共享的存储写锁：宿主装配创建一次注入两侧，
+   * 保证 setDesiredState 与编排器的换代写互斥。缺省内部自建私有锁。
+   */
+  storeWriteLock?: RaftStoreWriteLock;
+  /** 值守运行态来源（编排器 resolveRunState）：优先于 desiredState 推导（list 投影）。 */
+  resolveRunState?: (binding: RaftAgentBinding) => RaftAgentRunState | undefined;
+  /**
+   * desiredState 持久化成功后的通知（宿主接编排器 startWatch/stopWatch）。
+   * 锁外、不 await——编排是长操作（bridge 启动秒级），不阻塞状态落盘；
+   * 回调内的异步与异常由宿主自行处理，同步抛错只记日志。
+   */
+  onDesiredStateChanged?: (params: { bindingId: string; desired: RaftAgentBinding["desiredState"] }) => void;
 }
 
 export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaftAgentsService {
@@ -52,15 +67,11 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
    * 服务级写互斥：所有会写绑定记录的入口（create/remove/setDesiredState）经此串行化，
    * 写前在锁内重读，杜绝登录耗时窗口（最长 45s）内的读-改-写丢更新。
    * 注意：登录/whoami 等慢操作不持锁，锁内只有读-校验-写。
+   * 锁实例可由宿主注入（与值守编排器共用同一把，防换代写竞态）；缺省私有。
    */
-  let storeWriteChain: Promise<unknown> = Promise.resolve();
+  const storeLock = options.storeWriteLock ?? createRaftStoreWriteLock();
   function withStoreLock<T>(fn: () => Promise<T>): Promise<T> {
-    const run = storeWriteChain.then(fn, fn);
-    storeWriteChain = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
+    return storeLock.withLock(fn);
   }
 
   /**
@@ -102,8 +113,10 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
   }
 
   function toListItem(binding: RaftAgentBinding): RaftAgentListItem {
-    // T1 无 bridge/会话运行时源：Running 意图如实投影为 Starting（等待 T2/T3 接管）。
-    const runState = binding.desiredState === "Running" ? "Starting" : "ReadyStopped";
+    // 运行态优先取值守编排器覆盖层（ErrorPaused/Running，T3）；无运行时源时按意图
+    // 推导（Running 意图 → Starting，等编排器接管；ReadyStopped 如实投影）。
+    const runState: RaftAgentRunState =
+      binding.desiredState === "Running" ? (options.resolveRunState?.(binding) ?? "Starting") : "ReadyStopped";
     return {
       bindingId: binding.bindingId,
       displayName: binding.displayName,
@@ -296,9 +309,9 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
     },
 
     async setDesiredState(bindingId: string, desired: "ReadyStopped" | "Running"): Promise<void> {
+      let updated = false;
       await withStoreLock(async () => {
         const existing = await store.readAll();
-        let updated = false;
         const next = existing.map((b) => {
           if (b.bindingId !== bindingId) return b;
           updated = true;
@@ -308,6 +321,15 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
         await store.writeAll(next);
         bindingsChanged.fire(next);
       });
+      // 持久化成功后通知（锁外、不 await）：宿主接编排器 startWatch/stopWatch；
+      // 编排是长操作，不阻塞状态落盘。同步抛错只记日志（回调语义见 options 注释）。
+      if (updated && options.onDesiredStateChanged) {
+        try {
+          options.onDesiredStateChanged({ bindingId, desired });
+        } catch (error) {
+          log.warn(undefined, "raft desired-state callback failed", { bindingId, error: String(error) });
+        }
+      }
     },
 
     get onBindingsChanged(): Event<RaftAgentBinding[]> {

@@ -128,6 +128,9 @@ export const raftAgentRunStateSchema = z.union([
         "credential_invalid",
         "bridge_exit",
         "inbox_log_write_failed",
+        // T3 增量：CLI 缺失/版本不符时无法拉起 bridge，按异常暂停呈现（枚举追加，
+        // 旧读取方需容忍新值——reason 是展示用投影，不参与持久化判等）。
+        "cli_unavailable",
       ]),
     })
     .strict(),
