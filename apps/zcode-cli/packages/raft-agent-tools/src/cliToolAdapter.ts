@@ -53,6 +53,8 @@ export interface CliToolAdapter {
 }
 
 const DEFAULT_LOG_WRITE_ATTEMPTS = 3;
+/** 官方 CLI 发送成功的权威输出行（raft-source send.ts：服务端确认后才打印）。 */
+const SEND_SUCCESS_LINE = /^Message (?:sent|queued) to \S+\. Message ID: \S+/m;
 const LOG_RETRY_DELAY_MS = 50;
 
 export function createCliToolAdapter(options: CliToolAdapterOptions): CliToolAdapter {
@@ -98,11 +100,17 @@ export function createCliToolAdapter(options: CliToolAdapterOptions): CliToolAda
         timeoutMs: built.timeoutMs,
         env: { RAFT_PROFILE_DIR: identity.profileDir },
         stdin: built.stdin,
+        // 发送成功行是服务端确认后才打印的权威结果：看到它就不再等 CLI 自然退出
+        //（联调实测：发送已成功但 CLI 残留句柄不退出，拖到 60s 超时被判"结果不确定"）。
+        ...(call.tool === "message_send" ? { settleWhenStdoutMatches: SEND_SUCCESS_LINE } : {}),
       });
 
       const combined = [run.stdout, run.stderr].filter((part) => part.trim().length > 0).join("\n");
 
-      // 被杀或未拿到退出码：对发帖意味着结果不确定。
+      // 被杀或未拿到退出码：对发帖意味着结果不确定——除非已经打印了权威成功行。
+      if (run.status === null && call.tool === "message_send" && SEND_SUCCESS_LINE.test(run.stdout)) {
+        return { kind: "ok", text: run.stdout };
+      }
       if (run.status === null) {
         if (call.tool === "message_send") {
           return {
