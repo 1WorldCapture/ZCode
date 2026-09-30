@@ -20,11 +20,18 @@ export const raftAgentMainSessionRefSchema = z
   .strict();
 export type RaftAgentMainSessionRef = z.infer<typeof raftAgentMainSessionRefSchema>;
 
+/**
+ * Agent ID 的规范校验（RFC 9562 UUID，含 nil/max 特例）。
+ * 绑定 schema 与表单输入 schema 共用同一事实源，防止两侧"什么算合法 UUID"语义漂移。
+ */
+export const raftAgentIdSchema = z.uuid();
+export type RaftAgentId = z.infer<typeof raftAgentIdSchema>;
+
 /** 绑定记录（应用管理数据，非 Agent Home、非 UI store）。 */
 export const raftAgentBindingSchema = z
   .object({
     /** 稳定 UUID，创建后不变。 */
-    bindingId: z.string().uuid(),
+    bindingId: z.uuid(),
     /** 显示名（登录身份返回的 agentName，解析失败回退 agentId）。 */
     displayName: z.string().min(1),
     /** 规范化服务地址：去尾斜杠、小写 host。 */
@@ -32,7 +39,7 @@ export const raftAgentBindingSchema = z
     /** 登录时核验得到。 */
     serverId: z.string().min(1),
     /** 期望 Agent ID；与登录核验结果必须一致。 */
-    raftAgentId: z.string().uuid(),
+    raftAgentId: raftAgentIdSchema,
     /** ZCode 生成的稳定 slug（不依赖显示名）。 */
     profileSlug: z.string().min(1),
     /** Agent Home 绝对路径；全局唯一（含前缀包含判断）。 */
@@ -59,7 +66,7 @@ export type RaftAgentsConfigFile = z.infer<typeof raftAgentsConfigFileSchema>;
 export const raftAgentBindingInputSchema = z
   .object({
     raftOrigin: z.string().trim().min(1),
-    raftAgentId: z.string().trim().min(1),
+    raftAgentId: z.string().trim().pipe(raftAgentIdSchema),
     token: z.string().min(1),
     homeWorkspacePath: z.string().trim().optional(),
   })
@@ -71,6 +78,7 @@ export const raftAgentSetupErrorCodeSchema = z.enum([
   "CliMissing",
   "CliVersionUnsupported",
   "OriginInvalid",
+  "AgentIdInvalid",
   "TokenInvalid",
   "IdentityMismatch",
   "CredentialCheckFailed",

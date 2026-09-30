@@ -39,7 +39,9 @@ export function normalizeHomePathForCompare(
   opts: { win32: boolean },
 ): string | undefined {
   const normalized = opts.win32 ? path.replace(/\\/g, "/") : path;
-  if (!normalized.startsWith("/")) return undefined;
+  // 绝对路径：POSIX 根斜杠，或 win32 盘符（C:/…）。
+  const isAbsolute = normalized.startsWith("/") || (opts.win32 && /^[a-zA-Z]:\//.test(normalized));
+  if (!isAbsolute) return undefined;
   const collapsed = normalized.replace(/\/+$/, "");
   return collapsed.length > 0 ? (opts.win32 ? collapsed.toLowerCase() : collapsed) : undefined;
 }

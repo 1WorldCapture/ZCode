@@ -11,15 +11,10 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
 import { Emitter, type Event } from "@zcode/rpc";
-import type {
-  RaftAgentBinding,
-  RaftAgentBindingInput,
-  RaftAgentListItem,
-  RaftAgentSetupResult,
-} from "@zcode/shared";
+import { raftAgentIdSchema, type RaftAgentBinding, type RaftAgentBindingInput, type RaftAgentListItem, type RaftAgentSetupResult } from "@zcode/shared";
 import { createServiceLogger, type ServiceLogger } from "#src/logger/serviceLogger.js";
 
-import type { IRaftAgentsService } from "../contract.js";
+import type { IRaftAgentsService, RaftProvisioningStep } from "../contract.js";
 import {
   deriveProfileSlug,
   findBindingConflicts,
@@ -28,11 +23,7 @@ import {
 } from "../domain/binding.js";
 import type { ClockPort, RaftBindingStorePort, RaftCliPort } from "./ports.js";
 
-/** Provisioning 步骤注入点：T5（Home 初始化）/T3（主会话）按序接入，全部幂等。 */
-export interface RaftProvisioningStep {
-  readonly name: string;
-  execute(binding: RaftAgentBinding): Promise<void>;
-}
+/** Provisioning 步骤注入点：类型定义在 contract.ts（公开契约），此处只引用。 */
 
 export interface RaftAgentsServiceOptions {
   cli: RaftCliPort;
@@ -56,11 +47,14 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
   }
 
   /** 表单输入的前置校验（本地、无副作用、不打网络）。 */
-  function validateInput(input: RaftAgentBindingInput): { origin: string; homePath: string } | { error: string } {
+  function validateInput(
+    input: RaftAgentBindingInput,
+  ): { origin: string; homePath: string } | { error: "OriginInvalid" | "AgentIdInvalid" } {
     const origin = normalizeRaftOrigin(input.raftOrigin);
     if (origin === undefined) return { error: "OriginInvalid" };
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.raftAgentId.trim())) {
-      return { error: "OriginInvalid" };
+    // 与绑定 schema 同一事实源（shared raftAgentIdSchema），杜绝两侧 UUID 语义漂移。
+    if (!raftAgentIdSchema.safeParse(input.raftAgentId.trim()).success) {
+      return { error: "AgentIdInvalid" };
     }
     // home 省略时用默认值（bindingId 前缀生成在调用处完成）；提供时必须绝对路径。
     if (input.homeWorkspacePath !== undefined) {
@@ -96,8 +90,8 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
     async createBinding(input: RaftAgentBindingInput): Promise<RaftAgentSetupResult> {
       const preflight = validateInput(input);
       if ("error" in preflight) {
-        // OriginInvalid 同时承载 agentId/homePath 的输入形状错误：文案由 UI 层区分。
-        return { ok: false, code: "OriginInvalid" };
+        // 输入形状错误按字段分流：OriginInvalid / AgentIdInvalid；homePath 形状仍归 OriginInvalid。
+        return { ok: false, code: preflight.error };
       }
       const token = input.token.trim();
       if (!/^sk_agent_[A-Za-z0-9_-]+$/.test(token)) {

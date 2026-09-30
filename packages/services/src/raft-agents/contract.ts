@@ -39,5 +39,15 @@ export interface IRaftAgentsService {
 
 export const IRaftAgentsService = createServiceDescriptor<IRaftAgentsService>(ServiceChannels.RaftAgents);
 
-export { createDefaultRaftAgentsService, type DefaultRaftAgentsServiceOptions } from "./compose.js";
-export type { RaftProvisioningStep } from "./app/raftAgentsService.js";
+/**
+ * Provisioning 步骤注入点：T5（Home 初始化）/T3（主会话）按序接入，全部幂等。
+ * 类型属于公开契约，定义在 contract（app 实现只引用不定义），保持依赖单向 app → contract。
+ */
+export interface RaftProvisioningStep {
+  readonly name: string;
+  execute(binding: RaftAgentBinding): Promise<void>;
+}
+
+// 组合根工厂不走 contract 导出（storage 模块先例）：contract 只含类型与描述符，
+// 避免实现文件反向 import contract 形成 require 环（raftAgentsService → contract → compose → raftAgentsService）。
+// 工厂从 services 包入口（node.ts）导出：createDefaultRaftAgentsService ← ./raft-agents/compose.js。

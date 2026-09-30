@@ -1,11 +1,12 @@
 /**
  * 模块内组合根：把官方 CLI 适配器与文件存储接到服务上。
- * 宿主（node.ts createLocalServices）只经 contract.ts 拿到
- * createDefaultRaftAgentsService，不接触模块内部层级。
+ * 宿主（node.ts createLocalServices）从这里拿 createDefaultRaftAgentsService，
+ * 类型契约经 contract.ts；依赖方向保持 compose → app/adapters → contract 单向。
  */
 import { getZCodeDataRootDir } from "#src/paths.js";
 
-import { createRaftAgentsService, type RaftAgentsServiceOptions, type RaftProvisioningStep } from "./app/raftAgentsService.js";
+import type { RaftProvisioningStep } from "./contract.js";
+import { createRaftAgentsService, type RaftAgentsServiceOptions } from "./app/raftAgentsService.js";
 import { createRaftBindingStore } from "./adapters/bindingStore.js";
 import { createRaftCliAdapter } from "./adapters/raftCli.js";
 
