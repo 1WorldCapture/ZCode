@@ -95,6 +95,13 @@
 - **S9 积压处理 — 通过**：16:19:12 暂停（bridge 进程归零、ReadyStopped ×2、服务器侧推送流 16:18:42/46 断开后零轮询——三方核验起点干净）；PM 16:19:20/24 两条积压入库未读；16:21 重启后列表"已停止"→分别点开始→"运行中"（截图 a8965b61，含状态圆点 UI）；**drain 点开始后 1–6 秒拉到积压**（16:21:10/15，服务器侧 16:21:26/28 读走清空队列）；两条积压各恰一条回复（16:22:06 / 16:22:45），内容均准确说明"重启后才看到"。
 - **S6 记忆仍在 — 通过（含自动恢复口径拆分）**："自动恢复值守"（desiredState=Running 重启即自动拉起）已于 15:14 重启实测（S4 记录）；本轮强化"记忆仍在+补查"：TestAgent-1 引用 MEMORY/notes 内容（含"不代答 TestAgent-2"约定）；TestAgent-2 给出最强证据——15:29 **预写**笔记"B 轮会被暂停、PM 会发积压、恢复后要回复"，本回合读回并照做（写入→重启→读回→指导行为闭环）。会话恢复：sessionId 不变、generation 6→7 换代（resume 而非重建）。
 - **发送超时修复（merge 21225de）实测生效**：send 全部秒级完成（5.4s/7.6s/4.4s），无 60s 白等、零 CONNECTION_CLOSED；TestAgent-2 首次 send 被新鲜度门扣草稿后重发（host db 与 grokbot 服务器侧时间线互证）。另两处 Edit 小错（文件忙）模型自重试成功。
+
+### 2026-09-30 16:25–16:29 S10 + S8（执行：lyonliang / TestAgent-3）
+
+- **S10 异常暂停可区分 — 两段均通过（四方证据：UI/host 日志/db/服务器侧）**：①把 TestAgent-3 的 MEMORY.md 改名后点开始 → UI"异常暂停，记忆不可读"（memory_unavailable 文案，与手动暂停可区分）；host 日志 `raft watch start blocked: memory unavailable {gateCode:"MemoryMissing"}`；零 bridge 进程；服务器侧零 TestAgent-3 请求。②恢复文件名后再点开始 → 运行中；bridge 拉起（服务器侧 16:28:32 读走积压 1577 字节、轮询变三个）；**顺带第三次实测会话自动重建**（dfcd362：预建空壳会话 resume 报 Session not found → 自动重建，old/new sessionId 均记录，sess_843dafce→sess_1d3f1243）→ 首次 drain → raft 工具正常调用。
+- **S8 已知限制标注 — 通过**：SPEC 两条已如实标注（"先落盘再返回、丢失无法重放"/"结果不确定返回 unknown 不自动重发"），实测行为一致；补实测注记（成功行提前收口消除误报 unknown，fa613c7）。
+
+**至此 §13 十条场景 S1–S10 全部通过。** 剩余：桌面安装包冒烟（打包中）。
 - 备注（更正）：TestAgent-1 回复中提到 commit 号 fd8c6b2 **不是幻觉**——出自 Dev-developer 15:13:36 发在 99a13660 线程的消息（ab00f41c），其补复正是在该线程内，属读线程上下文的合法引用。
 - 记忆无串核验（S7 附加项）：直读 TestAgent-1 的 Home 记忆文件（`~/.zcode/agents/f2b0a9f0…/workspace/notes/work-log.md`）——内容全为自身经历（自身 10 次工具失败、自身 held 草稿、自身补复）+ 频道公开消息可得的事实（"第六层"/fd8c6b2 引用来源见上）；"send 结果不确定时的处理经验"为其亲历（TestAgent-2 的同类经验在各自 Home，互不渗透）；其记忆还记有"未代答发给 TestAgent-2 的消息（验收要求身份不串）"。**结论：无串记忆。**
 
