@@ -180,6 +180,15 @@ interface IRaftAgentsService {
 - `agentMemory: { homeRoot: string, agentName?: string }`：缺省 = 普通项目记忆会话。**resume 不带会让冷恢复的 Agent 会话退回项目记忆**，所以宿主每次恢复都要再次下发。
 - `officialMcpServers: [{ name: "raft-agent-tools", env: [{name, value}] }]`：官方宿主型 MCP 服务的具名引用。command/args/`isolation:"session"`/`protocolVersion:"2026-07-28"` 由 app-server 用自己的插件 rootPath 拼装并锁定（打包态的 `process.execPath` 与插件宿主前缀参数只在 app-server 进程里有意义，host 侧自己拼会在打包态断裂）。`name` 白名单，未知名字拒绝；`env` 键必须以 `ZCODE_RAFT_` 开头，其余（如 `NODE_OPTIONS`）拒绝；插件缺失或未启用时 fail-closed 抛错，不静默降级为无工具会话。MCP 会话内 server 名为 `raft_agent_tools`。
 
+### 主会话重建（resume 失败时，2026-09-30 PM 批准提前进第一期）
+
+内嵌 agent 运行时的会话事件存储为内存态：ZCode 进程退出（重启/崩溃）后，`mainSessionRef` 指向的主会话不复存在（实测 `Session not found`）。值守开始链在 resume 失败时**自动重建**主会话：
+
+- 重建走 `createAgentSession`（与接入时同一入口），`agentMemory`/`officialMcpServers` 同语义重发；锁内把 `mainSessionRef` 改绑为新会话、代次重置为 1（旧 fencing 随旧 sessionId 失效），仅在引用仍指向被替换旧会话时写入（防并发双写）。
+- **语义（界面与文档如实说明）：重建后主会话内的对话上下文丢弃，不保留；Home 里的长期记忆（MEMORY.md/notes）不受影响。** Home 记忆是持久层，主会话是可重建的运行时资源。
+- 重建失败（create 也失败）才置 ErrorPaused(session_unavailable) 并不启动 bridge。
+- 日志：重建前后各一条（含原因与新旧 sessionId）。
+
 ### 已知限制
 
 - Agent Home 会话必须经 Agent 列表进入（宿主才会带上 `agentMemory` 与 `officialMcpServers`）。若绕过它、把 Home 目录当普通项目直接打开会话，会退回项目记忆且没有 Raft 工具，第一期靠「Home 会话只从 Agent 列表进入、不注册普通 tab」（D7）规避，不做目录猜测。

@@ -117,6 +117,7 @@ function fakeSupervisor(startScript: BridgeStartResult[] = [{ ok: true, pid: 432
 function fakeSessions(
   scripts: RaftSessionSendOutcome[] = [{ ok: true, duplicate: false }],
   resumeScript: Array<{ ok: true } | { ok: false; code: "failed"; detail?: string }> = [{ ok: true }],
+  createScript: Array<{ ok: true; sessionId: string } | { ok: false; code: "failed"; detail?: string }> = [],
 ) {
   const sent: Array<{ workspacePath: string; sessionId: string; commandId: string; text: string }> = [];
   const resumes: Array<{
@@ -125,14 +126,27 @@ function fakeSessions(
     agentMemory: { homeRoot: string; agentName?: string };
     officialMcpServers: ZCodeOfficialMcpServerRef[];
   }> = [];
+  const creates: Array<{
+    workspacePath: string;
+    agentMemory: { homeRoot: string; agentName?: string };
+    officialMcpServers: ZCodeOfficialMcpServerRef[];
+  }> = [];
   let i = 0;
   let j = 0;
+  let k = 0;
   const port: RaftSessionPort = {
     async sendQueuedText(params) {
       sent.push(params);
       const script = scripts[Math.min(i, scripts.length - 1)];
       i += 1;
       return script;
+    },
+    async createAgentSession(params) {
+      creates.push(params);
+      const fallback = createScript.length > 0 ? createScript[createScript.length - 1] : { ok: true, sessionId: "sess-new" };
+      const script = createScript[Math.min(k, createScript.length - 1)] ?? fallback;
+      k += 1;
+      return script as { ok: true; sessionId: string } | { ok: false; code: "failed"; detail?: string };
     },
     async resumeAgentSession(params) {
       resumes.push(params);
@@ -141,7 +155,7 @@ function fakeSessions(
       return script;
     },
   };
-  return { port, sent, resumes };
+  return { port, sent, resumes, creates };
 }
 
 const MCP_REFS: ZCodeOfficialMcpServerRef[] = [
@@ -406,15 +420,17 @@ test("官方 MCP 引用不可用：fail-closed 不换代不恢复不 spawn", asy
   });
 });
 
-test("resume 失败：置 ErrorPaused(session_unavailable)，换代已保留", async () => {
+test("resume 失败且重建也失败：置 ErrorPaused(session_unavailable)，换代已保留", async () => {
   const sessions = fakeSessions([{ ok: true, duplicate: false }], [
+    { ok: false, code: "failed", detail: "Session not found: sess_old" },
+  ], [
     { ok: false, code: "failed", detail: "rpc down" },
   ]);
   const { runtime, store, supervisor } = makeRuntime({ sessions });
   const outcome = await runtime.startWatch(BINDING_ID);
   assert.ok(!outcome.ok && outcome.code === "SessionResumeFailed");
   assert.ok(!outcome.ok && outcome.detail === "rpc down");
-  assert.equal(supervisor.startCalls.length, 0, "resume 未过不启动 bridge");
+  assert.equal(supervisor.startCalls.length, 0, "重建未过不启动 bridge");
   assert.equal(store.writes.length, 1, "换代已持久化（幂等键唯一性保留）");
   // 置 ErrorPaused(session_unavailable)（评审 b51caf5c）：投影可诊断而非一直 Starting；
   // 下次 startWatch 成功或 stopWatch 清除。
@@ -422,4 +438,28 @@ test("resume 失败：置 ErrorPaused(session_unavailable)，换代已保留", a
     kind: "ErrorPaused",
     reason: "session_unavailable",
   });
+});
+
+test("resume 失败自动重建：改绑新会话（代次重置 1）→ bridge 照常启动 → drain 用新会话", async () => {
+  const sessions = fakeSessions([{ ok: true, duplicate: false }], [
+    { ok: false, code: "failed", detail: "Session not found: sess_old" },
+  ], [
+    { ok: true, sessionId: "sess_rebuilt" },
+  ]);
+  const { runtime, store, supervisor } = makeRuntime({ sessions });
+  const outcome = await runtime.startWatch(BINDING_ID);
+  assert.ok(outcome.ok, outcome.ok ? "" : String(outcome.code));
+  // 改绑持久化：新会话 + 代次 1（旧 fencing 随旧会话失效）。
+  const persisted = store.current()[0];
+  assert.equal(persisted.mainSessionRef?.sessionId, "sess_rebuilt");
+  assert.equal(persisted.mainSessionRef?.sessionGeneration, 1);
+  // 重建请求带齐记忆作用域与官方 MCP 引用（冷恢复同语义）。
+  assert.equal(sessions.creates.length, 1);
+  assert.deepEqual(sessions.creates[0].agentMemory, { homeRoot: persisted.homeWorkspacePath, agentName: persisted.displayName });
+  assert.equal(sessions.creates[0].officialMcpServers.length, 1);
+  // bridge 启动且 drain 指向新会话、代次 1。
+  assert.equal(supervisor.startCalls.length, 1);
+  assert.equal(sessions.sent[0].sessionId, "sess_rebuilt");
+  assert.equal(sessions.sent[0].commandId, `raft-drain:${BINDING_ID}:1`);
+  assert.deepEqual(runtime.resolveRunState(persisted), "Running");
 });

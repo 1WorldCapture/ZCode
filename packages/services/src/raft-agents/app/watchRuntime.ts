@@ -5,7 +5,8 @@
  *   CLI 就绪 → MEMORY 门（T5 AgentHomePort.verifyMemoryAvailable；失败即
  *   ErrorPaused(memory_unavailable)，不碰 bridge）→ 官方 MCP 引用解析（fail-closed）→
  *   锁内换代 sessionGeneration+1 并持久化 → 会话恢复（resume 重发 agentMemory +
- *   officialMcpServers——冷恢复重建 runtime 缺了会退回项目记忆且无 Raft 工具）→
+ *   officialMcpServers——冷恢复重建 runtime 缺了会退回项目记忆且无 Raft 工具；
+ *   会话记录已随 agent 进程消亡时自动重建主会话并改绑，见 resume 分支注释）→
  *   supervisor.start → 成功后 D8 积压 drain（commandId 无 messageId，
  *   按 bindingId+启动代次派生，重启后的 drain 不被误判重复）。
  *
@@ -224,14 +225,57 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
       agentMemory: { homeRoot: binding.homeWorkspacePath, agentName: binding.displayName },
       officialMcpServers,
     });
+    let sessionId = locked.sessionId;
+    let generation = locked.generation;
     if (!resumed.ok) {
-      overlay.set(bindingId, { kind: "ErrorPaused", reason: "session_unavailable" });
-      logger?.warn(undefined, "raft watch start blocked: session resume failed", {
+      // 会话记录随 agent 进程消亡（内嵌运行时事件存储为内存态）：ZCode 重启后
+      // mainSessionRef 指向的会话不复存在（e2e S6）。Home 记忆才是持久层，主会话是
+      // 可重建的运行时资源——重建并改绑（PM 批准进第一期；对话上下文丢弃、记忆保留，
+      // 语义在 SPEC.md「会话恢复」小节）。新会话代次重置为 1：旧 fencing 随旧 sessionId 一起失效。
+      logger?.warn(undefined, "raft watch: session resume failed, rebuilding main session", {
         bindingId,
-        sessionId: locked.sessionId,
-        detail: resumed.detail,
+        oldSessionId: locked.sessionId,
+        reason: resumed.detail,
       });
-      return { ok: false, code: "SessionResumeFailed", detail: resumed.detail };
+      const created = await options.sessions.createAgentSession({
+        workspacePath: binding.homeWorkspacePath,
+        agentMemory: { homeRoot: binding.homeWorkspacePath, agentName: binding.displayName },
+        officialMcpServers,
+      });
+      if (!created.ok) {
+        overlay.set(bindingId, { kind: "ErrorPaused", reason: "session_unavailable" });
+        logger?.warn(undefined, "raft watch start blocked: session rebuild failed", {
+          bindingId,
+          detail: created.detail,
+        });
+        return { ok: false, code: "SessionResumeFailed", detail: created.detail };
+      }
+      // 锁内改绑：仅在引用仍指向被替换的旧会话时写入（防与并发 start/stop 交错双写）。
+      const relock = await options.lock.withLock(async (): Promise<{ ok: true } | { ok: false }> => {
+        const bindings = await options.store.readAll();
+        const current = bindings.find((b) => b.bindingId === bindingId);
+        if (!current || current.mainSessionRef?.sessionId !== locked.sessionId) return { ok: false };
+        const next: RaftAgentBinding = {
+          ...current,
+          mainSessionRef: { sessionId: created.sessionId, sessionGeneration: 1 },
+          updatedAt: clock.nowIso(),
+        };
+        await options.store.writeAll(bindings.map((b) => (b.bindingId === bindingId ? next : b)));
+        return { ok: true };
+      });
+      if (!relock.ok) {
+        logger?.info(undefined, "raft watch: binding changed during session rebuild, aborting start", {
+          bindingId,
+        });
+        return { ok: false, code: "NotRunningIntent" };
+      }
+      sessionId = created.sessionId;
+      generation = 1;
+      logger?.info(undefined, "raft watch: main session rebuilt", {
+        bindingId,
+        oldSessionId: locked.sessionId,
+        newSessionId: created.sessionId,
+      });
     }
 
     const started = await options.supervisor.start(
@@ -264,23 +308,23 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
     // D8 积压 drain：bridge 起来后立即投一次（无 messageId，代次幂等键）。
     const drain = await options.sessions.sendQueuedText({
       workspacePath: binding.homeWorkspacePath,
-      sessionId: locked.sessionId,
-      commandId: backlogDrainCommandId(bindingId, locked.generation),
-      text: buildBacklogDrainPrompt({ bindingId, generation: locked.generation, nowIso: clock.nowIso() }),
+      sessionId,
+      commandId: backlogDrainCommandId(bindingId, generation),
+      text: buildBacklogDrainPrompt({ bindingId, generation, nowIso: clock.nowIso() }),
     });
     if (!drain.ok) {
       // bridge 已起、drain 提交失败不回滚：后续唤醒会继续投递（commandId 幂等，
       // transport/noSession 均可安全重试）；真实故障会在下一次唤醒路径暴露。
       logger?.warn(undefined, "raft backlog drain not delivered", {
         bindingId,
-        generation: locked.generation,
+        generation,
         code: drain.code,
         detail: drain.detail,
       });
     } else {
       logger?.info(undefined, "raft watch started", {
         bindingId,
-        generation: locked.generation,
+        generation,
         pid: started.pid,
         drainDuplicate: drain.duplicate,
       });
