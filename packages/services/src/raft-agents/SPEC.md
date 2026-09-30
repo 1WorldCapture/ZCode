@@ -200,6 +200,8 @@ interface IRaftAgentsService {
 
 安全性质：频道里的任意消息最多驱动 Agent 读写自己的 Home 与发 Raft 消息。路径判定在 realpath 两侧进行（根与目标都规范化后判包含）：Home 内预置的指向外部的符号链接被解析后拒绝，根本身经符号链接给出（macOS `/var` → `/private/var` 一类）不产生误判。glob 模式键（Glob.pattern / Grep.glob）含 `..` 段或绝对路径前缀直接拒绝（Grep.pattern 是内容正则，不在此列）。配套：T1 创建绑定拒绝「Home 包住或落入 `raft/profiles`（明文凭据）」的路径（`HomeOverlapsCredentials`），否则该限制形同虚设。
 
+已知边界（评审确认，非阻塞，2026-09-30）：① `isAbsolute(pattern)` 在 macOS/Linux 上识别不了 Windows 盘符写法（`C:/...`）——值守只跑在宿主平台，mac 无影响，将来支持 Windows 时补盘符判断；② Home 内指向外部目录的符号链接可能让 Glob `**` 遍历在结果里列出外部文件的名字——只泄露名字，读取时仍被 realpath 判定拦截，二期收紧。
+
 ### 已知限制
 
 - Agent Home 会话必须经 Agent 列表进入（宿主才会带上 `agentMemory` 与 `officialMcpServers`）。若绕过它、把 Home 目录当普通项目直接打开会话，会退回项目记忆且没有 Raft 工具，第一期靠「Home 会话只从 Agent 列表进入、不注册普通 tab」（D7）规避，不做目录猜测。
