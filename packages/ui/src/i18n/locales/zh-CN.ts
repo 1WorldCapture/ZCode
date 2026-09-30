@@ -60,8 +60,7 @@ const zhCN: Record<string, string> = {
   "agentCenter.detail.raftServer": "Raft 服务",
   "agentCenter.detail.connectionState": "连接状态",
   "agentCenter.detail.runState": "运行状态",
-  "agentCenter.detail.sessionPlaceholder":
-    "主会话视图将在接入后展示（依赖主会话能力落地后复用现有会话视图）",
+  "agentCenter.detail.sessionPlaceholder": "Agent 的对话与处理过程请在 Raft 中查看；ZCode 内的会话视图将在后续版本提供。",
   "startPlan.recommendation.subagentDescription":
     "你的体验套餐中，{model} 仍有可用额度，是否将此子智能体的模型切换到体验套餐？",
   "startPlan.recommendation.preferenceSaveFailed": "未能保存“不再提示”，本次仍按你的选择继续。",

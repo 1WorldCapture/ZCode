@@ -61,8 +61,7 @@ const enUS: Record<string, string> = {
   "agentCenter.detail.raftServer": "Raft server",
   "agentCenter.detail.connectionState": "Connection state",
   "agentCenter.detail.runState": "Run state",
-  "agentCenter.detail.sessionPlaceholder":
-    "The main session view will appear here once the main session capability lands (reusing the existing conversation view)",
+  "agentCenter.detail.sessionPlaceholder": "View this Agent's conversations in Raft; an in-app session view will come in a later version.",
   "startPlan.recommendation.subagentDescription":
     "Your Start Plan has quota available for {model}. Switch this subagent’s model to the Start Plan?",
   "startPlan.recommendation.preferenceSaveFailed":

@@ -1,8 +1,9 @@
 /**
  * Agent 详情页 —— 身份与状态 + Home 入口 + 主会话视图占位。
  *
- * 会话区域在 mock 阶段为占位：task #3/T3 的主会话落地后，这里改为复用 V4 会话视图
- * （spec §10：Home 会话只从 Agent 列表进入，不注册普通 workspace tab）。
+ * 会话区域：第一期不嵌入会话视图（已拍板）。现有会话视图长在 StableWorkspaceApp 里，
+ * 绑定当前工作区；且若从普通入口把 Home 当工作区冷恢复，会丢 agentMemory 与 Raft 工具、
+ * 退回项目记忆。因此这里只放说明，Agent 的对话在 Raft 里看；复用 V4 会话视图留到二期。
  * 关闭本页不等于停止 Agent（UI 生命周期与 Host 生命周期分离）。
  */
 import { useEffect } from "react";
