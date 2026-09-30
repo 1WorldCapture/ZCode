@@ -188,3 +188,24 @@ interface IRaftAgentsService {
 ### 验收（T5 部分）
 
 单测：Home 初始化（不覆盖、权限、模板注入防护）、`verifyMemoryAvailable` 各失败码且不创建 Home、符号链接/目录拒绝（services，5 项）；core：记忆根解析、agent section、请求上下文标签、严格加载各失败码、抽取跳过（6 项）；bootstrap：具名解析锁定隔离与协议版本、env 前缀白名单、fail-closed（3 项）；shared：schema 白名单与 create/resume 均携带（3 项）。
+
+## T6：最小 UI（task #7）
+
+上游依据：第一期 spec §10、范围文档 UI 条目；**范围调整（2026-09-30，已拍板）：第一期不嵌入会话视图**，spec §10 中"详情页复用现有会话视图"一条降到二期。
+
+### 第一期范围
+
+- 侧边栏一级入口 Agents；空状态显示"接入 Agent"引导；数据来自服务的 `list()`（绑定记录 + 运行态覆盖层），不从标签页推导。
+- 列表行：名称、Raft 服务、连接状态、运行状态、开始/暂停。**用户暂停与异常暂停可区分，异常暂停带原因**（`memory_unavailable|credential_invalid|bridge_exit|inbox_log_write_failed|cli_unavailable`）；两种暂停都允许再次点「开始」。
+- 详情页：身份、连接状态、运行状态（含原因）、Home 路径与"打开 Home 文件夹"；会话区只放说明，Agent 的对话在 Raft 里看。
+- 单表单接入页：服务地址、Agent ID、token（密码框）、Home 路径；提交调用 `createBinding`，12 个错误码各配中英文文案；token 提交后立即清空，永不进 store。
+- 数据同步：挂载加载 + `onBindingsChanged` 事件 + 3 秒轮询兜底运行态变化；卸载即停，不影响 host 值守（UI 生命周期与 Host 生命周期分离）。
+
+### 降到二期的原因
+
+现有会话视图长在 `StableWorkspaceApp` 里、绑定当前工作区，Agent 中心页没有 Home 工作区的服务上下文；且若从普通入口把 Home 当工作区冷恢复，会丢 `agentMemory` 与 Raft 工具、退回项目记忆（与"Home 会话只从 Agent 列表进入"的约束冲突）。二期需要：Home 会话的宿主侧恢复入口（带 `agentMemory`/`officialMcpServers`）+ 为 Agent 中心页构造 Home 工作区上下文，或改为基于绑定的工作区分类派生。
+
+### 验收（T6 部分）
+
+自动化：store/actions 4 项测试（刷新失败不清空旧数据、开始/暂停后刷新、提交失败不回列表、提交中不重复提交、token 不进 store）。**界面本身（布局、交互、中英文案显示）未经实际运行验证，放 task #8 由有条件的人点一遍**：接入表单各错误提示、列表两种暂停的显示、异常暂停后点开始、详情页打开 Home 文件夹。
+

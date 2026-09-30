@@ -23,12 +23,21 @@ import { isSameWorkspaceTab } from "@/store/tabWorkspaceIdentity.js";
 
 export const SETTINGS_TAB_ID = "__settings__" satisfies TabId;
 
+/** Agent 中心 tab：窗口内唯一的应用级页面，数据来自 Binding registry，不是 workspace tab。 */
+export const AGENTS_TAB_ID = "__agents__" satisfies TabId;
+
 export type WorkspaceAvailability = "available" | "unavailable-local-directory";
 
 export interface SettingsTabState {
   id: typeof SETTINGS_TAB_ID;
   kind: "settings";
   label: "settings";
+}
+
+export interface AgentsTabState {
+  id: typeof AGENTS_TAB_ID;
+  kind: "agents";
+  label: "agents";
 }
 
 export interface WorkspaceTabState extends TabState {
@@ -63,7 +72,7 @@ export interface RestorableWorkspaceTab {
   workspacePurpose?: WorkspacePurpose;
 }
 
-export type WindowTabState = WorkspaceTabState | SettingsTabState;
+export type WindowTabState = WorkspaceTabState | SettingsTabState | AgentsTabState;
 
 export function isWorkspaceTab(tab: WindowTabState): tab is WorkspaceTabState {
   return tab.kind === "workspace";
@@ -90,6 +99,10 @@ export function isWorkspaceReadOnly(
 
 export function isSettingsTab(tab: WindowTabState): tab is SettingsTabState {
   return tab.kind === "settings";
+}
+
+export function isAgentsTab(tab: WindowTabState): tab is AgentsTabState {
+  return tab.kind === "agents";
 }
 
 // ============================================================================
@@ -121,6 +134,8 @@ export interface TabStoreState {
   reorderWorkspaceTabs: (fromIndex: number, toIndex: number) => void;
   /** 打开设置标签页（窗口内唯一） */
   openSettingsTab: () => void;
+  /** 打开 Agent 中心标签页（窗口内唯一）；Agent 详情/会话不注册 workspace tab。 */
+  openAgentsTab: () => void;
   /** 通过 workspace 路径激活 tab（跨窗口 focus 用），返回是否找到 */
   activateTabByPath: (path: string, options?: { workspaceIdentity?: string }) => boolean;
   /** 切换 workspace 的展开/收起态 */
@@ -197,6 +212,14 @@ function createSettingsTab(): SettingsTabState {
     id: SETTINGS_TAB_ID,
     kind: "settings",
     label: "settings",
+  };
+}
+
+function createAgentsTab(): AgentsTabState {
+  return {
+    id: AGENTS_TAB_ID,
+    kind: "agents",
+    label: "agents",
   };
 }
 
@@ -500,6 +523,20 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
       set((state) => ({
         tabs: [...state.tabs, settingsTab],
         activeTabId: settingsTab.id,
+      }));
+    },
+
+    openAgentsTab: () => {
+      const existing = get().tabs.find(isAgentsTab);
+      if (existing) {
+        set({ activeTabId: existing.id });
+        return;
+      }
+
+      const agentsTab = createAgentsTab();
+      set((state) => ({
+        tabs: [...state.tabs, agentsTab],
+        activeTabId: agentsTab.id,
       }));
     },
 

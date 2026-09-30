@@ -1,0 +1,159 @@
+/**
+ * Agent 列表页 —— Agent 中心首页。
+ *
+ * 数据来自 Binding registry 投影（mock 阶段为内存假数据，spec §10：不允许从 tabStore 推导）。
+ * 空状态显示"接入 Agent"引导；每行区分用户暂停与异常暂停（带原因）。
+ */
+import { Bot, Play, Plus, Square } from "lucide-react";
+import { Button } from "@/components/ui/button.js";
+import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { useAgentCenterStore } from "@/agents/agentCenterStore.js";
+import { pauseAgent, startAgent } from "@/agents/agentCenterActions.js";
+import { useRaftAgentsService } from "@/agents/useAgentCenterSync.js";
+import { isErrorPaused } from "@/agents/types.js";
+import {
+  connectionStateTextClass,
+  formatConnectionState,
+  formatRunState,
+  runStateTextClass,
+} from "@/agents/agentStatusPresentation.js";
+
+export function AgentListPage() {
+  const { intl } = useZCodeIntl();
+  const service = useRaftAgentsService();
+  const items = useAgentCenterStore((state) => state.items);
+  const loaded = useAgentCenterStore((state) => state.loaded);
+  const loadFailed = useAgentCenterStore((state) => state.loadFailed);
+  const actionFailed = useAgentCenterStore((state) => state.actionFailed);
+  const openConnectForm = useAgentCenterStore((state) => state.openConnectForm);
+  const openDetail = useAgentCenterStore((state) => state.openDetail);
+
+  // 当前环境没有装配 Raft Agents 服务（如 Web/远端）：如实说明，不显示空列表引导。
+  if (!service) {
+    return (
+      <div className="flex h-full items-center justify-center px-6 text-center">
+        <p className="max-w-72 text-ui-caption text-foreground-subtle">
+          {intl.formatMessage({ id: "agentCenter.unavailable" })}
+        </p>
+      </div>
+    );
+  }
+
+  // 首次加载完成前不显示空态，避免闪一下「还没有接入任何 Agent」。
+  if (!loaded) {
+    return (
+      <div className="flex h-full items-center justify-center px-6 text-center">
+        <p className="text-ui-caption text-foreground-subtle" role="status">
+          {intl.formatMessage({
+            id: loadFailed ? "agentCenter.loadFailed" : "agentCenter.loading",
+          })}
+        </p>
+      </div>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+        <Bot className="size-8 text-foreground-subtlest" aria-hidden="true" />
+        <div className="text-ui-base font-medium text-foreground">
+          {intl.formatMessage({ id: "agentCenter.emptyTitle" })}
+        </div>
+        <div className="max-w-72 text-ui-caption text-foreground-subtle">
+          {intl.formatMessage({ id: "agentCenter.emptyDescription" })}
+        </div>
+        <Button type="button" size="sm" className="mt-1 gap-1.5" onClick={openConnectForm}>
+          <Plus className="size-3.5" aria-hidden="true" />
+          {intl.formatMessage({ id: "agentCenter.connect" })}
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+        <span className="text-ui-sm font-medium text-foreground-subtle">
+          {intl.formatMessage({ id: "agentCenter.agentCount" }, { count: items.length })}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="gap-1.5"
+          onClick={openConnectForm}
+        >
+          <Plus className="size-3.5" aria-hidden="true" />
+          {intl.formatMessage({ id: "agentCenter.connect" })}
+        </Button>
+      </div>
+      {loadFailed || actionFailed ? (
+        <p
+          className="border-b border-border px-4 py-2 text-ui-caption text-destructive"
+          role="alert"
+        >
+          {intl.formatMessage({
+            id: actionFailed ? "agentCenter.actionFailed" : "agentCenter.refreshFailed",
+          })}
+        </p>
+      ) : null}
+      <ul className="min-w-0 flex-1 overflow-y-auto p-2" data-testid="agent-center-list">
+        {items.map((item) => {
+          // 用户暂停与异常暂停都允许再次点「开始」（异常暂停按原因修复后重新拉起）。
+          const canStart = item.runState === "ReadyStopped" || isErrorPaused(item.runState);
+          const canPause = item.runState === "Running" || item.runState === "Starting";
+          return (
+            <li key={item.bindingId} className="group/agent-row">
+              <div className="flex min-w-0 items-center gap-2 rounded-md px-2 py-2 transition-colors hover:bg-hover">
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 flex-col gap-0.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                  onClick={() => openDetail(item.bindingId)}
+                >
+                  <span className="min-w-0 truncate text-ui-base font-medium text-foreground">
+                    {item.displayName}
+                  </span>
+                  <span className="min-w-0 truncate text-ui-caption text-foreground-subtlest">
+                    {item.raftOrigin}
+                  </span>
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-2 text-ui-caption">
+                    <span className={connectionStateTextClass(item.connectionState)}>
+                      {formatConnectionState(intl.formatMessage, item.connectionState)}
+                    </span>
+                    <span className={runStateTextClass(item.runState)}>
+                      {formatRunState(intl.formatMessage, item.runState)}
+                    </span>
+                  </span>
+                </button>
+                <div className="flex shrink-0 items-center opacity-0 transition-opacity group-hover/agent-row:opacity-100 group-focus-within/agent-row:opacity-100 [@media(hover:none)]:opacity-100">
+                  {canPause ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={intl.formatMessage({ id: "agentCenter.pause" })}
+                      onClick={() => void pauseAgent(service, item.bindingId)}
+                    >
+                      <Square className="size-3.5" aria-hidden="true" />
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={intl.formatMessage({ id: "agentCenter.start" })}
+                      disabled={!canStart}
+                      onClick={() => void startAgent(service, item.bindingId)}
+                    >
+                      <Play className="size-3.5" aria-hidden="true" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}

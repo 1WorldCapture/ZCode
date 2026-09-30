@@ -363,6 +363,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   const activateTab = useTabStore((state) => state.activateTab);
   const closeTab = useTabStore((state) => state.closeTab);
   const openSettingsTab = useTabStore((state) => state.openSettingsTab);
+  const openAgentsTab = useTabStore((state) => state.openAgentsTab);
   const expandedWorkspacePaths = useTabStore((state) => state.expandedWorkspacePaths);
   const toggleWorkspaceExpanded = useTabStore((state) => state.toggleWorkspaceExpanded);
   const reorderWorkspaceTabs = useTabStore((state) => state.reorderWorkspaceTabs);
@@ -1649,6 +1650,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
             onLocaleChange={handleLocaleChange}
             onThemeChange={handleThemeChange}
             onSettingsButtonClick={openSettingsTab}
+            onAgentsButtonClick={openAgentsTab}
             onUsageClick={openSettingsTab}
             onUpgradeClick={handleOpenCodingPlanUpgrade}
             onLogin={onLogin}
