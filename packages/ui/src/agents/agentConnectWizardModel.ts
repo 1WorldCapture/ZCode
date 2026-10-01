@@ -43,16 +43,28 @@ export function draftErrorId(draft: WizardDraft, step: WizardStep): string | nul
 }
 
 /**
- * 构造 createBinding 输入：token 直传与 existingProfileSlug 复用互斥
- * （SPEC「二期 A2」，a517415a 线程定稿）。Home 路径留空不下发，用服务端默认。
+ * 确认页显示并提交的 Home 路径：核验成功用服务端值（输入了就回显，留空是
+ * 服务端预派发默认——与 createBinding 同一派生函数，不会漂移），核验前/失败
+ * 或复用模式（UI 无 token 不能预核验）退回用户输入。
  */
-export function buildConnectInput(draft: WizardDraft): ConnectInput {
+export function resolveEffectiveHomePath(
+  homeWorkspacePath: string,
+  verifiedHomePath: string | null,
+): string {
+  return verifiedHomePath ?? homeWorkspacePath.trim();
+}
+
+/**
+ * 构造 createBinding 输入：token 直传与 existingProfileSlug 复用互斥
+ * （SPEC「二期 A2」，a517415a 线程定稿）。Home 路径把确认页显示的实际值
+ * 显式回传（A2/B1 验收：两侧共用同一派生函数）；复用模式留空仍走服务端默认。
+ */
+export function buildConnectInput(draft: WizardDraft & { effectiveHomePath?: string }): ConnectInput {
+  const homeWorkspacePath = (draft.effectiveHomePath ?? draft.homeWorkspacePath).trim();
   const base = {
     raftOrigin: draft.raftOrigin.trim(),
     raftAgentId: draft.raftAgentId.trim(),
-    ...(draft.homeWorkspacePath.trim()
-      ? { homeWorkspacePath: draft.homeWorkspacePath.trim() }
-      : {}),
+    ...(homeWorkspacePath ? { homeWorkspacePath } : {}),
   };
   return draft.reuseSlug !== null
     ? { ...base, existingProfileSlug: draft.reuseSlug }

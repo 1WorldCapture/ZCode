@@ -27,6 +27,7 @@ import type { RaftAgentSetupErrorCode } from "@/agents/types.js";
 import {
   buildConnectInput,
   draftErrorId,
+  resolveEffectiveHomePath,
   setupErrorMessageId,
   WIZARD_STEP_COUNT,
   type WizardStep,
@@ -69,6 +70,8 @@ export function AgentConnectWizardPage() {
   const [verifying, setVerifying] = useState(false);
   const [identity, setIdentity] = useState<VerifyIdentity | null>(null);
   const [verifyError, setVerifyError] = useState<RaftAgentSetupErrorCode | null>(null);
+  // 核验成功返回的实际生效 Home 路径（输入了回显输入，留空是服务端预派发默认）。
+  const [verifiedHomePath, setVerifiedHomePath] = useState<string | null>(null);
 
   // 进入第 2 步时拉取本机凭据列表（复用选择器数据源，A1 接口）。
   useEffect(() => {
@@ -103,10 +106,17 @@ export function AgentConnectWizardPage() {
   const displayIdentity: VerifyIdentity | null = reuseMode
     ? (selectedCredential ?? null)
     : identity;
+  // 确认页显示并提交的 Home：新凭据模式用核验返回的实际值（核验前/失败退回输入）；
+  // 复用模式 UI 无 token 不能预核验，只能用用户输入（留空时占位文案 + 服务端默认）。
+  const effectiveHomePath = reuseMode
+    ? homeWorkspacePath.trim()
+    : resolveEffectiveHomePath(homeWorkspacePath, verifiedHomePath);
 
   const goBack = () => {
     setFieldError(null);
     setVerifyError(null);
+    // 退回前面的步骤意味着 Home 输入可能再变，已核验的路径作废，重新核验。
+    setVerifiedHomePath(null);
     setStep((current) => Math.max(0, current - 1) as WizardStep);
   };
 
@@ -134,11 +144,14 @@ export function AgentConnectWizardPage() {
     setVerifying(true);
     setVerifyError(null);
     setIdentity(null);
+    setVerifiedHomePath(null);
     try {
       const result = await service.verifyCredential({
         raftOrigin: raftOrigin.trim(),
         raftAgentId: raftAgentId.trim(),
         token,
+        // 带 Home 输入一起核验：留空时服务端返回预派发默认路径（确认页据此显示）。
+        homeWorkspacePath: homeWorkspacePath.trim() || undefined,
       });
       if (!result.ok) {
         if (result.code === "CliMissing") {
@@ -149,6 +162,7 @@ export function AgentConnectWizardPage() {
         return;
       }
       setIdentity(result.identity);
+      setVerifiedHomePath(result.homePath);
     } catch (error) {
       logger.warn("[AgentCenter] 身份核验失败", { error });
       setVerifyError("CredentialCheckFailed");
@@ -158,6 +172,7 @@ export function AgentConnectWizardPage() {
   };
 
   const handleConfirm = () => {
+    // 确认页显示的实际 Home 路径显式回传（与核验共用服务端派生，两侧不漂移）。
     // 复用模式不下发 token，服务侧从既有 profile 读取（读取即弃，SPEC「二期 A2」）。
     const input = buildConnectInput({
       raftOrigin,
@@ -165,6 +180,7 @@ export function AgentConnectWizardPage() {
       token,
       homeWorkspacePath,
       reuseSlug,
+      effectiveHomePath: reuseMode ? homeWorkspacePath : effectiveHomePath,
     });
     // 无论成功失败都立即清掉输入框里的 token，重试需要重新粘贴。
     setToken("");
@@ -183,12 +199,14 @@ export function AgentConnectWizardPage() {
     setToken("");
     setIdentity(null);
     setVerifyError(null);
+    setVerifiedHomePath(null);
   };
 
   const switchToNewCredential = () => {
     setReuseSlug(null);
     setIdentity(null);
     setVerifyError(null);
+    setVerifiedHomePath(null);
   };
 
   const errorText =
@@ -276,7 +294,7 @@ export function AgentConnectWizardPage() {
             <StepConfirm
               raftOrigin={raftOrigin.trim()}
               raftAgentId={raftAgentId.trim()}
-              homeWorkspacePath={homeWorkspacePath.trim()}
+              homeWorkspacePath={effectiveHomePath}
               reuseMode={reuseMode}
               verifying={verifying}
               identity={displayIdentity}

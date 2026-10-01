@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildConnectInput,
   draftErrorId,
+  resolveEffectiveHomePath,
   WIZARD_STEP_COUNT,
   type WizardDraft,
 } from "../src/agents/agentConnectWizardModel.js";
@@ -62,6 +63,28 @@ test("输入构造：Home 路径留空不下发，填写则去除首尾空白", 
 
 test("步骤数为 4", () => {
   assert.equal(WIZARD_STEP_COUNT, 4);
+});
+
+test("确认页 Home 路径：核验返回值优先，否则退回用户输入（去空白）", () => {
+  // 核验成功：无论用户是否输入，都显示服务端返回的实际生效路径。
+  assert.equal(resolveEffectiveHomePath("", "/home/agent/default"), "/home/agent/default");
+  assert.equal(resolveEffectiveHomePath("/custom", "/custom"), "/custom");
+  // 核验前/失败：退回用户输入（trim，可能为空 → 确认页显示占位）。
+  assert.equal(resolveEffectiveHomePath(" /custom ", null), "/custom");
+  assert.equal(resolveEffectiveHomePath("  ", null), "");
+});
+
+test("输入构造：确认页生效路径显式回传，缺省时退回草稿字段", () => {
+  const withVerified = buildConnectInput(
+    draft({ homeWorkspacePath: "" }) as WizardDraft & { effectiveHomePath?: string },
+  );
+  assert.ok(!("homeWorkspacePath" in withVerified));
+
+  const effective = buildConnectInput({
+    ...draft(),
+    effectiveHomePath: "/home/agent/default",
+  });
+  assert.equal(effective.homeWorkspacePath, "/home/agent/default");
 });
 
 test("错误码翻译：全部 setup 错误码都映射到 i18n 文案，不允许原始错误码上屏", async () => {
