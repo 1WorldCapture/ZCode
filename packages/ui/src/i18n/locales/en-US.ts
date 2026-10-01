@@ -86,8 +86,8 @@ const enUS: Record<string, string> = {
   "agentCenter.wizard.cliMissing.title": "Raft CLI not found",
   "agentCenter.wizard.cliMissing.description":
     "Connecting requires the Raft CLI installed on this machine. Run the following command in a terminal:",
-  "agentCenter.wizard.cliMissing.placeholderNote":
-    "This install command is a placeholder; it will be replaced with the fork-built distribution before release. Come back and retry once installed.",
+  "agentCenter.wizard.cliMissing.versionNote":
+    "The install URL changes with CLI releases; use the latest published one. Come back and retry once installed.",
   "agentCenter.wizard.reuse.title": "Reuse a local credential",
   "agentCenter.wizard.reuse.occupied":
     "This credential is already used by another connection and can't be reused",

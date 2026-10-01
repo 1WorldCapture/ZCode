@@ -78,8 +78,8 @@ const zhCN: Record<string, string> = {
   "agentCenter.wizard.error.identityRequired": "请填写 Agent ID 和 Token，或选择一个本机凭据",
   "agentCenter.wizard.cliMissing.title": "未检测到 Raft CLI",
   "agentCenter.wizard.cliMissing.description": "接入需要本机安装 Raft CLI，请在终端执行以下命令：",
-  "agentCenter.wizard.cliMissing.placeholderNote":
-    "安装命令为占位文案，正式发布前会替换为 fork 构建版本的安装方式；安装完成后回到向导重试。",
+  "agentCenter.wizard.cliMissing.versionNote":
+    "CLI 版本升级时安装地址会变化，以最新发布为准；安装完成后回到向导重试。",
   "agentCenter.wizard.reuse.title": "复用本机已有凭据",
   "agentCenter.wizard.reuse.occupied": "该凭据已被其他接入占用，不可重复接入",
   "agentCenter.wizard.reuse.empty": "本机暂无可复用的凭据",

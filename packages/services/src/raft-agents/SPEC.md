@@ -216,7 +216,7 @@ interface IRaftAgentsService {
 ### 范围
 
 - **四页接入向导**替换 T6 单表单：步骤条 + 步骤间状态保留（来回切换不丢已填内容）。
-- **第 1 步 服务与 CLI**：Raft 服务地址输入 + CLI 检测；`CliMissing` 时只显示安装命令提示（占位文案，指向 fork 构建的 CLI；发布方式由 A3 给出后替换，不自动执行安装）。
+- **第 1 步 服务与 CLI**：Raft 服务地址输入 + CLI 检测；`CliMissing` 时只显示安装命令提示（fork 构建的 CLI 经 fork 仓库 Release 发布，真实命令已给出（A3，v0.0.24-zcode.1）；版本升级时 UI 常量同步更换），不自动执行安装。
 - **第 2 步 身份与凭据**：Agent ID + token（密码框）；复用本机已有凭据选择器（`listLocalCredentials`），被占用凭据（`boundBindingId` 非空）置灰并标注其已接入的绑定，实现"复用凭据只沿原身份"。
 - **第 3 步 Home 路径**：默认值 + 说明文案（agent 的工作区边界，文件工具只限 Home）。
 - **第 4 步 确认**：先调 `verifyCredential` 只核验不保存，展示服务端返回的 agent 名称/ID 供用户确认，确认后才 `createBinding`；13 个错误码（含复用模式的 `ProfileInUse`）各配中英文案；成功后清空向导状态回列表。

@@ -34,8 +34,12 @@ import {
   type VerifyIdentity,
 } from "@/agents/AgentConnectWizardSteps.js";
 
-/** 占位安装命令；fork 构建的 CLI 发布方式由 A3 给出后替换（SPEC「二期 A2」范围）。 */
-const CLI_INSTALL_COMMAND_PLACEHOLDER = "npm install -g @1worldcapture/raft-cli";
+/**
+ * 安装命令（fork 构建的 CLI，经 fork 仓库 GitHub Release 发布，A3）。
+ * 版本升级时地址会变化（raft-cli-vX.Y.Z-zcode.N），只改这一处。
+ */
+const CLI_INSTALL_COMMAND =
+  "npm install -g https://github.com/1WorldCapture/raft-source/releases/download/raft-cli-v0.0.24-zcode.1/botiverse-raft-0.0.24-zcode.1.tgz";
 
 /** 每个接入错误码对应一条用户可理解的文案（穷尽：新增错误码会在这里编译报错）。 */
 function setupErrorMessageId(code: RaftAgentSetupErrorCode): string {
@@ -225,10 +229,10 @@ export function AgentConnectWizardPage() {
               {intl.formatMessage({ id: "agentCenter.wizard.cliMissing.description" })}
             </p>
             <pre className="overflow-x-auto rounded-md border border-border bg-muted px-3 py-2 text-ui-sm text-foreground">
-              <code>{CLI_INSTALL_COMMAND_PLACEHOLDER}</code>
+              <code>{CLI_INSTALL_COMMAND}</code>
             </pre>
             <p className="text-ui-caption text-foreground-subtlest">
-              {intl.formatMessage({ id: "agentCenter.wizard.cliMissing.placeholderNote" })}
+              {intl.formatMessage({ id: "agentCenter.wizard.cliMissing.versionNote" })}
             </p>
             <div className="flex items-center gap-2">
               <Button type="button" variant="ghost" size="sm" onClick={goBack}>
