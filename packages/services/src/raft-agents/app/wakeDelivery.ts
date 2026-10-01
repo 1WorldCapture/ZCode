@@ -89,11 +89,11 @@ export function createRaftWakeDelivery(options: RaftWakeDeliveryOptions): WakeHa
         return { kind: "noSession" };
       }
 
-      const sendOnce = () =>
+      const sendOnce = (commandIdSuffix = "") =>
         options.sessions.sendQueuedText({
           workspacePath: target.workspacePath,
           sessionId: target.sessionId,
-          commandId: wakeCycleId(bindingId, wake.messageId),
+          commandId: `${wakeCycleId(bindingId, wake.messageId)}${commandIdSuffix}`,
           text: buildWakePrompt(wake),
         });
 
@@ -139,6 +139,15 @@ export function createRaftWakeDelivery(options: RaftWakeDeliveryOptions): WakeHa
         }
       }
 
+      if (!outcome.ok && outcome.code === "discardedOnRestart") {
+        // 该编号的输入在 CLI 重启时被丢弃，结果持久保存，同编号再发只会重复失败（冷启动曾重放约 21 次）。
+        // 唤醒不带正文，只是让 agent 去查收件箱，换新编号重发一次最坏多查一次，无需人工确认。
+        options.logger?.warn(undefined, "raft wake: input discarded on restart, resending with a fresh command id", {
+          bindingId,
+        });
+        outcome = await sendOnce(":r1");
+      }
+
       if (outcome.ok) {
         options.activity?.record(bindingId, "wake");
         if (!outcome.duplicate) options.feed?.noteWakeAccepted(bindingId);
@@ -165,7 +174,7 @@ export function createRaftWakeDelivery(options: RaftWakeDeliveryOptions): WakeHa
         });
         return { kind: "busy", retryAfterMs: busyRetryAfterMs };
       }
-      if (outcome.code === "transport") {
+      if (outcome.code === "transport" || outcome.code === "discardedOnRestart") {
         // 退避重试安全：commandId 确定性派生，若上次实际已接受，重试会得到 duplicate。
         options.logger?.warn(undefined, "raft wake: transport failure, suggest retry", {
           bindingId,

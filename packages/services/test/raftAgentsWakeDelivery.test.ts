@@ -209,6 +209,36 @@ function fakeTaskService(
 
 const MCP_REFS = [{} as unknown as import("@zcode/shared").ZCodeOfficialMcpServerRef];
 
+test("重启时输入被丢弃：同一编号再发只会重复失败，换新编号重发一次后成功", async () => {
+  const { port, sent } = fakeSessions([
+    { ok: false, code: "discardedOnRestart", detail: "fault.command.inputDiscardedOnRestart" },
+    { ok: true, duplicate: false },
+  ]);
+  const handler = createRaftWakeDelivery({ store: fakeStore([makeBinding()]), sessions: port });
+  const result = await handler.handleWake({ bindingId: BINDING_ID, wake: makeWake() });
+  assert.equal(result.kind, "accepted");
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1]?.commandId, `${sent[0]?.commandId}:r1`, "第二次是原编号加重启后缀");
+  assert.equal(sent[0]?.text, sent[1]?.text, "唤醒文本不变（无正文）");
+});
+
+test("重启时输入被丢弃：换新编号后仍被丢弃 → 按忙退避，不无限重发", async () => {
+  const discarded: RaftSessionSendOutcome = {
+    ok: false,
+    code: "discardedOnRestart",
+    detail: "fault.command.inputDiscardedOnRestart",
+  };
+  const { port, sent } = fakeSessions([discarded, discarded]);
+  const handler = createRaftWakeDelivery({
+    store: fakeStore([makeBinding()]),
+    sessions: port,
+    busyRetryAfterMs: 2_500,
+  });
+  const result = await handler.handleWake({ bindingId: BINDING_ID, wake: makeWake() });
+  assert.deepEqual(result, { kind: "busy", retryAfterMs: 2_500 });
+  assert.equal(sent.length, 2, "最多重发一次");
+});
+
 test("targetLost 自愈：绑定上下文 resume 一次 → 原幂等键重投成功", async () => {
   const { port, sent, resumes } = fakeSessions(
     [
@@ -333,6 +363,31 @@ test("zcodeSession 适配器：拒绝三态映射 + sendPrompt 参数形态（ta
   assert.equal(first.content, "t");
   // 每次投递显式 yolo：mode 固化进队列输入 intent，空草稿会话冷恢复后首个输入仍全自动。
   assert.equal(first.mode, "yolo");
+});
+
+test("zcodeSession 适配器：重启丢弃（inputDiscardedOnRestart）单列 discardedOnRestart，其余 failed 仍按 transport", async () => {
+  const service = fakeTaskService([
+    {
+      kind: "reject",
+      ack: ack("failed", {
+        reasonCode: "fault.command.inputDiscardedOnRestart",
+        message: "Input was discarded when the CLI restarted; confirm before resending.",
+      }),
+    },
+    { kind: "reject", ack: ack("failed", { reasonCode: "fault.runtime.dead" }) },
+  ]);
+  const port = createZcodeSessionPort(service);
+  const params = { workspacePath: "/tmp/wh", sessionId: "sess-7", commandId: "cmd", text: "t" };
+  assert.deepEqual(await port.sendQueuedText(params), {
+    ok: false,
+    code: "discardedOnRestart",
+    detail: "fault.command.inputDiscardedOnRestart",
+  });
+  assert.deepEqual(await port.sendQueuedText(params), {
+    ok: false,
+    code: "transport",
+    detail: "fault.runtime.dead",
+  });
 });
 
 test("zcodeSession 适配器：target 丢失单列 targetLost，其余门面异常按 transport", async () => {

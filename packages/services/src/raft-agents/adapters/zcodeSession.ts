@@ -99,6 +99,11 @@ function v4RejectionToOutcome(error: ZCodeV4CommandRejectedError): RaftSessionSe
   const ack = error.ack;
   if (ack.status === "stale") return { ok: false, code: "noSession", detail: ack.reasonCode };
   if (ack.status === "failed") {
+    // 重启时被丢弃的排队输入：结果随命令编号持久保存，同编号重发永远得到同一个失败，
+    // 单独成码，让唤醒链换新编号重发（R8）。
+    if (ack.reasonCode === "fault.command.inputDiscardedOnRestart") {
+      return { ok: false, code: "discardedOnRestart", detail: ack.reasonCode };
+    }
     // Keep both reasonCode and message: the gateway normalizes internal errors
     // to fault.command.executionFailed and the message carries the real cause.
     const detail = [ack.reasonCode, ack.message].filter(Boolean).join(": ");
