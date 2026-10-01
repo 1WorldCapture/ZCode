@@ -194,6 +194,25 @@ export const raftAgentListItemSchema = z
   .strict();
 export type RaftAgentListItem = z.infer<typeof raftAgentListItemSchema>;
 
+/**
+ * 绑定存储健康态（损坏定向提示）：list() 失败时界面用 getStorageHealth() 拿到
+ * 有形状的原因，不必解析异常文本。corrupt = fail-closed 已保全证据、原文件保留，
+ * 等待用户手动恢复（绝不清空重建）。
+ */
+export const raftAgentStorageHealthSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("ok") }).strict(),
+  z
+    .object({
+      status: z.literal("corrupt"),
+      /** 损坏的绑定记录文件路径（原样保留，未动）。 */
+      storePath: z.string().min(1),
+      /** 证据备份路径（内容寻址、幂等）；备份失败为 null——提示如实说明。 */
+      backupPath: z.string().min(1).nullable(),
+    })
+    .strict(),
+]);
+export type RaftAgentStorageHealth = z.infer<typeof raftAgentStorageHealthSchema>;
+
 // -----------------------------------------------
 // 二期 A1：管理动作 / 凭据预核验 / 记忆只读 / 凭据枚举
 // -----------------------------------------------

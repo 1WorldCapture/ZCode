@@ -21,6 +21,7 @@ import {
   type RaftAgentRemoveHomeOutcome,
   type RaftAgentRunState,
   type RaftAgentSetupResult,
+  type RaftAgentStorageHealth,
   type RaftAgentVerifyCredentialInput,
   type RaftAgentVerifyResult,
 } from "@zcode/shared";
@@ -28,6 +29,7 @@ import { createServiceLogger, type ServiceLogger } from "#src/logger/serviceLogg
 
 import type { IRaftAgentsService, RaftProvisioningStep } from "../contract.js";
 import { normalizeHomePathForCompare, normalizeRaftOrigin } from "../domain/binding.js";
+import { RaftBindingStoreCorruptError } from "../domain/bindingStoreError.js";
 import type { RaftActivityTracker } from "./activity.js";
 import { createRaftAgentBinding, defaultRaftAgentHomePath } from "./bindingCreate.js";
 import type { AgentHomePort } from "./agentHomePorts.js";
@@ -135,8 +137,21 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
       return (await store.readAll()).map(toListItem);
     },
 
-    async get(bindingId: string): Promise<RaftAgentBinding | null> {
-      return (await store.readAll()).find((b) => b.bindingId === bindingId) ?? null;
+    /**
+     * 存储健康态活探测：读一遍 store，corrupt 转形状、其他异常原样抛。
+     * list() 失败后界面改调这里（专用码 + 备份路径），不必解析异常文本。
+     * 备份内容寻址且排他创建，轮询重复探测不会堆积副本。
+     */
+    async getStorageHealth(): Promise<RaftAgentStorageHealth> {
+      try {
+        await store.readAll();
+        return { status: "ok" };
+      } catch (error) {
+        if (error instanceof RaftBindingStoreCorruptError) {
+          return { status: "corrupt", storePath: error.storePath, backupPath: error.backupPath ?? null };
+        }
+        throw error;
+      }
     },
 
     async createBinding(input: RaftAgentBindingInput): Promise<RaftAgentSetupResult> {

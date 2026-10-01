@@ -12,19 +12,11 @@ import { raftAgentsConfigFileSchema, type RaftAgentBinding } from "@zcode/shared
 import { withFileLock, atomicWritePrivateTextFile, backupCorruptFile } from "@zcode/shared/node";
 
 import type { RaftBindingStorePort } from "../app/ports.js";
+import { RaftBindingStoreCorruptError } from "../domain/bindingStoreError.js";
 
 const BINDINGS_FILE = "bindings.json";
 
-/** 绑定存储损坏（fail-closed）：证据已保全、原文件保留，等待用户手动恢复。 */
-export class RaftBindingStoreCorruptError extends Error {
-  constructor(
-    readonly storePath: string,
-    readonly backupPath?: string,
-  ) {
-    super(`raft bindings store is corrupt: ${storePath}`);
-    this.name = "RaftBindingStoreCorruptError";
-  }
-}
+export { RaftBindingStoreCorruptError };
 
 export function createRaftBindingStore(dataRootDir: string): RaftBindingStorePort {
   const filePath = join(dataRootDir, "raft", BINDINGS_FILE);
