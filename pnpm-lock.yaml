@@ -255,6 +255,9 @@ importers:
       '@zcode/formal-proof':
         specifier: workspace:*
         version: link:../../../../packages/formal-proof
+      tsx:
+        specifier: ^4.20.0
+        version: 4.21.0
       yazl:
         specifier: ^3.3.1
         version: 3.3.1
@@ -399,6 +402,9 @@ importers:
       '@types/node':
         specifier: ^24.0.0
         version: 24.12.2
+      tsx:
+        specifier: ^4.20.0
+        version: 4.21.0
 
   apps/zcode-cli/packages/debug:
     dependencies:
@@ -502,6 +508,34 @@ importers:
       esbuild:
         specifier: ^0.25.0
         version: 0.25.12
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+
+  apps/zcode-cli/packages/raft-agent-tools:
+    dependencies:
+      '@modelcontextprotocol/server':
+        specifier: 2.0.0
+        version: 2.0.0
+      '@zcode/shared':
+        specifier: workspace:*
+        version: link:../../../../packages/shared
+      zod:
+        specifier: ^4.4.3
+        version: 4.6.5
+    devDependencies:
+      '@modelcontextprotocol/client':
+        specifier: 2.0.0
+        version: 2.0.0
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.12.2
+      esbuild:
+        specifier: ^0.25.0
+        version: 0.25.12
+      tsx:
+        specifier: ^4.20.0
+        version: 4.21.0
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
@@ -16172,11 +16206,11 @@ snapshots:
 
   lodash.merge@4.6.2: {}
 
+  lodash.pickby@4.6.0: {}
+
   lodash.uniqby@4.7.0: {}
 
   lodash@4.18.1: {}
-
-  lodash.pickby@4.6.0: {}
 
   log-symbols@4.1.0:
     dependencies:

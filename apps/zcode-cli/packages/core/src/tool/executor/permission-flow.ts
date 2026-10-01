@@ -33,6 +33,7 @@ import type { ToolExecutorDeps } from "./types.js";
 import { summarizeInput } from "./utils.js";
 import { validateInput } from "./validation.js";
 import { applyMemoryFilePermission } from "./memory-file-permission.js";
+import { applyWorkspaceFileScopePermission } from "./workspace-file-scope.js";
 
 type ToolPermissionFlowResult =
   | { allowed: true; executionInput: unknown; permissionWaitMs?: number }
@@ -94,6 +95,16 @@ export async function resolveToolPermission(
     decision: permissionDecision,
     executionInput,
     memoryRoot: deps.getMemoryRoot?.(),
+    toolName: toolCall.name,
+    workingDirectory: deps.getWorkingDirectory(),
+    workspaceRoot: deps.getWorkspaceRoot(),
+  });
+  // 无人值守边界排在 memory 放行之后：memory root 位于 workspace 内，两道规则不会冲突；
+  // 越出 workspace 的目标在这里拒绝，deny 不可被后续 hook/审批改写为放行之外的状态。
+  permissionDecision = await applyWorkspaceFileScopePermission({
+    decision: permissionDecision,
+    enabled: deps.confineFileToolsToWorkspace,
+    executionInput,
     toolName: toolCall.name,
     workingDirectory: deps.getWorkingDirectory(),
     workspaceRoot: deps.getWorkspaceRoot(),

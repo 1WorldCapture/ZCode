@@ -8,6 +8,7 @@ export type ArmsRumEnv = "local" | "prod";
 // 非构建环境（如 e2e 测试的 mocha）下 define 不存在，用 typeof 检查 + fallback 避免 ReferenceError
 declare const __ZCODE_ENV__: string;
 declare const __ZCODE_PRODUCT_FLAVOR__: string;
+declare const __ZCODE_RAFT_BUILD__: string;
 
 export function normalizeZCodeEnv(value: string | undefined): ZCodeEnv {
   return value?.trim().toLowerCase() === "production" ? "production" : "test";
@@ -37,6 +38,16 @@ export const ZCODE_PRODUCT_FLAVOR = normalizeZCodeProductFlavor(
   typeof __ZCODE_PRODUCT_FLAVOR__ !== "undefined" ? __ZCODE_PRODUCT_FLAVOR__ : undefined,
   ZCODE_ENV,
 );
+
+/**
+ * Raft 集成构建标志（构建期 define，`ZCODE_RAFT_BUILD=1` 时烧录 "1"）：
+ * 为真时桌面主进程跳过官方 autoUpdater 与远端强制升级 gate——官方通道按 semver
+ * 比较，预发布号（如 3.14.3-raft.1 < 3.14.3）会被误拦或被官方包覆盖（D 系列复核
+ * 发现）。与 flavor 正交：Raft 构建保持 production 身份（沿用应用名与数据目录，
+ * 覆盖安装升级），只关更新通道。非 Raft 构建（官方 CI、web、CLI、测试）恒 false。
+ */
+export const ZCODE_RAFT_BUILD: boolean =
+  typeof __ZCODE_RAFT_BUILD__ !== "undefined" && __ZCODE_RAFT_BUILD__ === "1";
 export const ZCODE_APP_VERSION_ENV = "ZCODE_APP_VERSION" as const;
 export const ZCODE_BUILD_COMMIT_ID_ENV = "ZCODE_BUILD_COMMIT_ID" as const;
 

@@ -122,6 +122,14 @@ export type {
   CuaHelperInstallerOptions,
 } from "./cua-permission-broker/index.js";
 export { createBotsService } from "./bots/botsService.js";
+export { IRaftAgentsService, type RaftProvisioningStep } from "./raft-agents/contract.js";
+export {
+  createDefaultRaftAgentsService,
+  createDefaultRaftHostStack,
+  type DefaultRaftAgentsServiceOptions,
+  type RaftHostStack,
+} from "./raft-agents/compose.js";
+export { raftAgentsModule } from "./raft-agents/module.js";
 export { createFileWatcherService } from "./fileWatcher/fileWatcherService.js";
 export { createOAuthService } from "./oauth/oauthService.js";
 export { createOAuthProviderLogoutHandler } from "./oauth/oauthProviderLogout.js";
@@ -352,6 +360,9 @@ import { createZCodeTaskIndexSyncer } from "./zcode-agent/zcodeTaskIndexSyncer.j
 import { TaskIndexRepo } from "./session/taskIndexRepo.js";
 import { createBotsService } from "./bots/botsService.js";
 import { createBotRemoteWorkspaceService } from "./bots/botRemoteWorkspaceBridge.js";
+import { IRaftAgentsService } from "./raft-agents/contract.js";
+import { createDefaultRaftHostStack } from "./raft-agents/compose.js";
+import { createZcodeSessionPort } from "./raft-agents/adapters/zcodeSession.js";
 import type { SessionMessageSendRequested } from "#src/session/sessionMailbox.js";
 import { createFileWatcherService } from "./fileWatcher/fileWatcherService.js";
 import { createOAuthService } from "./oauth/oauthService.js";
@@ -2431,6 +2442,31 @@ export function createLocalServices(options: {
   // 注册链上的懒工厂（如 OffPeak）会各自创建 tasks-index sqlite repo；先收集到本数组，
   // services 集合建好后在 return 前统一登记进 sharedSqliteRepos 侧表
   const sqliteReposToClose: Array<{ close(): void }> = [];
+  // Raft 值守宿主栈（T3）：绑定服务 + wake server + bridge supervisor + 值守编排器
+  // 一次装配，共享存储写锁与官方 MCP 引用解析；关停面挂在 service 对象上随
+  // disposeServiceResources（AndWait）的通用服务列表收口，恢复在集合建成后异步
+  // 触发（spec §3 崩溃恢复；远端模式不自动拉起，见下方调用处注释）。
+  const raftStack = createDefaultRaftHostStack({
+    sessions: createZcodeSessionPort(zcodeTaskService),
+    // CLI/bridge 子进程与企业内网可达性：代理/自定义 CA 来自设置页（宿主 process.env
+    // 已被上游清洗，不能从 env 抄），与 agent spawn（resolveSpawnEnv）同一来源、
+    // 同一 buildAgentRuntimeEnv。spawn 时读取：改动后下次拉起 bridge/登录生效。
+    resolveProxyEnv: async () => {
+      const settings = await settingService.get();
+      const agentNetwork =
+        isDesktopAttachedRemote && options?.remoteAgentNetwork
+          ? options.remoteAgentNetwork
+          : { httpProxy: settings.httpProxy, noProxy: settings.httpProxyNoProxy };
+      return buildAgentRuntimeEnv({
+        httpProxy: agentNetwork.httpProxy,
+        noProxy: agentNetwork.noProxy,
+        caCertPath: settings.httpProxyCaCertPath,
+      });
+    },
+    // Without a logger the raft runtime (watchRuntime/supervisor/wakeServer) is
+    // silent in host logs — e2e debugging showed wake delivery is unobservable.
+    logger: createServiceLogger("raft-agents"),
+  });
   const services = new ServiceCollection()
     .register(IFileService, fileService)
     .register(IMediaPreviewService, mediaPreviewService)
@@ -2463,6 +2499,7 @@ export function createLocalServices(options: {
       }),
     )
     .register(IFileWatcherService, createFileWatcherService())
+    .register(IRaftAgentsService, raftStack.service)
     .register(IOAuthService, oauthService)
     .register(
       IUsageStatsService,
@@ -2653,6 +2690,14 @@ export function createLocalServices(options: {
   // 见 sharedSqliteRepos 声明处注释：登记全部 tasks-index sqlite 句柄，dispose 链统一关闭
   sqliteReposToClose.push(taskIndexRepo);
   sharedSqliteRepos.set(services, sqliteReposToClose);
+  // Raft 崩溃恢复（spec §3）：desiredState=Running 的绑定重走值守启动链
+  // （MEMORY 门 → 换代 → resume → bridge → drain）。异步触发不阻塞集合构建；
+  // 单绑定失败彼此独立（编排器内记日志），等 wake server 就绪后再开始。
+  // 远端模式（desktop-attached-remote）与 bots 的 runStartupBackgroundTasks 同口径
+  // 不自动拉起：bridge 应由桌面宿主侧的栈负责，双实例各自恢复会重复拉 bridge。
+  if (!isDesktopAttachedRemote) {
+    void raftStack.recoverAllDesiredRunning().catch(() => {});
+  }
   return services;
 }
 
@@ -2738,7 +2783,10 @@ export function disposeServiceResources(services: ServiceCollection): void {
   // host process 退出前以前没有统一遍历本地服务做资源回收，
   // terminal/task wrapper 这类会拉起子进程的服务只能等宿主进程自己结束，时序上可能留下短暂残留。
   // 这里集中调用各服务的本地 disposeAll 钩子，把“退出 app = 回收所有托管资源”落成机械动作。
+  // Raft 值守栈的 disposeAll（强杀 bridge + best-effort 停 wake server）排在最前，
+  // 切断关停期间的新唤醒注入（栈侧表已删，关停面挂在服务对象上随服务列表走）。
   const disposableServices = [
+    services.getOptional(IRaftAgentsService),
     services.getOptional(ITerminalService),
     services.getOptional(IZCodeTaskService),
     services.getOptional(IZCodeAgentService),
@@ -2772,7 +2820,10 @@ export function disposeServiceResources(services: ServiceCollection): void {
 export async function disposeServiceResourcesAndWait(services: ServiceCollection): Promise<void> {
   // app 关闭时 host 需要等 agent 进程树完成 graceful + force 清理。
   // 旧的同步 dispose 会在 host 退出时丢掉强杀 timer，导致 zcode-cli/app-server 变成孤儿进程。
+  // Raft 值守栈的 disposeAllAndWait（等全部 bridge 退出后停 wake server，宽限 2s <
+  // 阶段预算 3.5s）排在最前，切断关停期间的新唤醒注入（与同步路径同链）。
   const disposableServices = [
+    services.getOptional(IRaftAgentsService),
     services.getOptional(ITerminalService),
     services.getOptional(IZCodeTaskService),
     services.getOptional(IZCodeAgentService),

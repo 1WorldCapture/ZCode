@@ -14,6 +14,7 @@ import {
 import {
   Archive,
   Blocks,
+  Bot,
   CalendarClock,
   Clock3,
   Cloud,
@@ -363,6 +364,11 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   const activateTab = useTabStore((state) => state.activateTab);
   const closeTab = useTabStore((state) => state.closeTab);
   const openSettingsTab = useTabStore((state) => state.openSettingsTab);
+  const openAgentsTab = useTabStore((state) => state.openAgentsTab);
+  // Agents 是一级入口（与自动化、插件市场并排），当前激活的标签页是 Agents 时高亮。
+  const agentsActive = useTabStore(
+    (state) => state.tabs.find((tab) => tab.id === state.activeTabId)?.kind === "agents",
+  );
   const expandedWorkspacePaths = useTabStore((state) => state.expandedWorkspacePaths);
   const toggleWorkspaceExpanded = useTabStore((state) => state.toggleWorkspaceExpanded);
   const reorderWorkspaceTabs = useTabStore((state) => state.reorderWorkspaceTabs);
@@ -1345,6 +1351,21 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
             >
               <Blocks className="size-4" />
               {intl.formatMessage({ id: "workspace.openPluginsSettings" })}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={openAgentsTab}
+              data-icon="inline-start"
+              data-testid="sidebar-agents-open"
+              size="lg"
+              aria-pressed={agentsActive}
+              className={cn(
+                "w-full justify-start gap-2 text-foreground hover:bg-surface-hover hover:text-foreground",
+                agentsActive && "bg-selected text-foreground",
+              )}
+            >
+              <Bot className="size-4" />
+              {intl.formatMessage({ id: "agentCenter.title" })}
             </Button>
           </div>
 

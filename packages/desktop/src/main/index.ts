@@ -69,6 +69,7 @@ import {
   PlatformChannels,
   ZCODE_ENV,
   ZCODE_PRODUCT_FLAVOR,
+  ZCODE_RAFT_BUILD,
   DEFAULT_ZCODE_ENDPOINT_ORIGIN,
   DEFAULT_LOCALE,
   ZCODE_VERSION,
@@ -2011,9 +2012,11 @@ app.whenReady().then(async () => {
 
   // 启动自动更新检查（后台执行，不阻塞主界面）
   // Preview 身份无论连接哪个后端都不自动更新：stable feed 上只分发正式 ZCode 安装包，
-  // 不向 Preview 渠道提供更新。
+  // 不向 Preview 渠道提供更新。Raft 集成构建（ZCODE_RAFT_BUILD=1）同样关闭：官方
+  // feed 按 semver 比较，预发布号（3.14.3-raft.1 < 3.14.3）会把官方包当"更新"推给
+  // 用户、装上即覆盖掉 Raft 构建；Raft 分发走自己的渠道手动安装。
   void initAutoUpdater({
-    enabled: ZCODE_PRODUCT_FLAVOR === "production",
+    enabled: ZCODE_PRODUCT_FLAVOR === "production" && !ZCODE_RAFT_BUILD,
     onBeforeQuitAndInstall: async () => {
       notifyStabilityLifecycle("update_install");
       await prepareAppQuit("auto-update quitAndInstall", "update-install");
@@ -2255,8 +2258,11 @@ app.whenReady().then(async () => {
   // 是面向打包发布客户端的安全门，对未打包 dev 运行时无意义。打包版 app.isPackaged === true，
   // gate 照常生效，对真实用户零影响。
   const skipForceUpdateForLocalDevRuntime = !app.isPackaged;
+  // Raft 构建同样跳过强更 gate：官方 minimalVersion 一旦 ≥ 3.14.3，预发布号
+  // 3.14.3-raft.1 会被拦成"需要强制升级"而窗口都开不了（D 系列复核发现）。
+  const skipForceUpdateForRaftBuild = ZCODE_RAFT_BUILD;
   const forceUpdateGuardResult =
-    ZCODE_PRODUCT_FLAVOR === "production" && !skipForceUpdateForLocalDevRuntime
+    ZCODE_PRODUCT_FLAVOR === "production" && !skipForceUpdateForLocalDevRuntime && !skipForceUpdateForRaftBuild
       ? await maybeBlockStartupForForceUpdate({
           locale: currentApplicationLocale,
           logger,
@@ -2268,6 +2274,8 @@ app.whenReady().then(async () => {
       : { blocked: false };
   if (ZCODE_PRODUCT_FLAVOR !== "production") {
     logger.info("[force-update] Preview 跳过远端强制升级检查");
+  } else if (skipForceUpdateForRaftBuild) {
+    logger.info("[force-update] Raft 构建（关闭官方更新通道）跳过远端强制升级检查");
   } else if (skipForceUpdateForLocalDevRuntime) {
     logger.info("[force-update] 本地 dev 构建（未打包）跳过远端强制升级检查");
   }

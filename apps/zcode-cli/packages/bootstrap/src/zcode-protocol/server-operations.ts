@@ -111,6 +111,13 @@ import { createProtocolOffPeakPort } from "./offpeak-port.js";
 import { createProtocolBrowserControlBroker } from "./browser-control-broker.js";
 import { mapComputerUseOperationEvent } from "./computer-use-operation-event.js";
 import { protocolMcpServersToRuntimeMcpConfig } from "./protocol-mcp-config.js";
+import {
+  agentSessionConfigOf,
+  persistAgentSessionConfigEntry,
+  readAgentSessionConfig,
+  type AgentSessionConfigSnapshot,
+} from "./agent-session-config.js";
+import { OfficialMcpHostUnavailableError } from "../app/official-mcp-hosts.js";
 import { projectIdFromDirectory } from "../app/paths.js";
 import {
   collectSubagentChildSessionIds,
@@ -127,7 +134,7 @@ type ProtocolGoalTarget = NonNullable<
   Awaited<ReturnType<NonNullable<ZCodeProtocolSessionRecord["app"]["readTarget"]>>>
 >;
 
-type ZCodeSessionRecordParams = (
+export type ZCodeSessionRecordParams = (
   | ZCodeSessionCreateParams
   | (ZCodeSessionResumeParams & {
       mode?: ZCodeSessionCreateParams["mode"];
@@ -1458,30 +1465,71 @@ export async function activateSessionForResume(
     });
   let persistedMessages = await readPersistedSessionMessages(context, params.sessionId);
   const mode = derivePersistedSessionMode(persistedMessages);
+  // R5：v4 冷恢复（subscribe → resumePersistedSession）没有 host 参数通道，Agent
+  // 会话级配置从 session_entry 回填；宿主显式下发的字段以宿主为准（按字段合并）。
+  // 普通会话两侧都为空，行为不变。快照字段与协议参数同名，构建时直接展开注入。
+  const persistedAgentSessionConfig = await readAgentSessionConfig(context, params.sessionId);
+  const agentSessionConfig: AgentSessionConfigSnapshot | undefined = persistedAgentSessionConfig
+    ? { ...persistedAgentSessionConfig, ...agentSessionConfigOf(params) }
+    : agentSessionConfigOf(params);
+  const buildResumeParams = () => ({
+    ...params,
+    mode,
+    // 模型只由 App 的单向迁移/当前 entry 恢复，不能先用消息或调用方 hint 构造一次选择。
+    model: undefined,
+    ...(session.parentID ? { parentSessionId: String(session.parentID) } : {}),
+    // resume 曾丢掉持久化 taskType，createRecord 落回缺省
+    // "interactive"。于是被 resume 的 workflow_child / subagent_child 会话通过
+    // isTaskListSessionType 的筛，经 getSessionWorkspaceId 漏进 sessions-index，
+    // desktop 任务列表长出「workflow actor actor#N@k」假任务，任务索引同步器还会
+    // 反复对它们发 session/resume。fork 路径一直带着 taskType，这里必须同样带。
+    taskType: session.taskType,
+    workspace,
+    ...(agentSessionConfig ?? {}),
+  });
   // shell 设置变更只对新 session 生效；冷恢复必须使用创建时落库的
   // Bash shell 快照。runtime.resumeFromStore 会读取快照；这里只负责不把
   // resume 请求里携带的当前 settings 重新注入老 session。
-  const record = await materializeSessionRecord(
-    context,
-    {
-      ...params,
-      mode,
-      // 模型只由 App 的单向迁移/当前 entry 恢复，不能先用消息或调用方 hint 构造一次选择。
-      model: undefined,
-      ...(session.parentID ? { parentSessionId: String(session.parentID) } : {}),
-      // resume 曾丢掉持久化 taskType，createRecord 落回缺省
-      // "interactive"。于是被 resume 的 workflow_child / subagent_child 会话通过
-      // isTaskListSessionType 的筛，经 getSessionWorkspaceId 漏进 sessions-index，
-      // desktop 任务列表长出「workflow actor actor#N@k」假任务，任务索引同步器还会
-      // 反复对它们发 session/resume。fork 路径一直带着 taskType，这里必须同样带。
-      taskType: session.taskType,
-      workspace,
-    },
-    params.sessionId as SessionId,
-    true,
-    { kind: "host" },
-    session.traceID ? { traceId: session.traceID } : undefined,
-  );
+  let record: ZCodeProtocolSessionRecord;
+  try {
+    record = await materializeSessionRecord(
+      context,
+      buildResumeParams(),
+      params.sessionId as SessionId,
+      true,
+      { kind: "host" },
+      session.traceID ? { traceId: session.traceID } : undefined,
+    );
+  } catch (error) {
+    // 官方 MCP 具名引用解析失败（插件缺失/环境键不可用，create-app 内
+    // resolveRequestedOfficialMcpServers 抛出）：fail-closed 不挂载、不沿用旧路径，
+    // 但也不能让整个恢复失败把会话视图打断——去掉 MCP 引用重建一次，记忆/工具
+    // 约束照常恢复。entry 仍持久化原引用，插件恢复后下次冷启动可再挂载。
+    if (!(error instanceof OfficialMcpHostUnavailableError) || !agentSessionConfig?.officialMcpServers) {
+      throw error;
+    }
+    context.logger?.warn("ZCode Protocol session resume dropped unavailable official MCP hosts", {
+      event: "zcode_protocol.session.resume_official_mcp_dropped",
+      module: "bootstrap.zcode_protocol",
+      officialMcpServerNames: agentSessionConfig.officialMcpServers.map((ref) => ref.name),
+      sessionId: params.sessionId,
+    });
+    record = await materializeSessionRecord(
+      context,
+      { ...buildResumeParams(), officialMcpServers: undefined },
+      params.sessionId as SessionId,
+      true,
+      { kind: "host" },
+      session.traceID ? { traceId: session.traceID } : undefined,
+    );
+  }
+  // R5：恢复路径 session 行必然存在（getPersistedSession 命中），这里直接落/刷新
+  // 配置 entry（宿主再次下发的最新值覆盖持久化值），进程内标记让事件流钩子不再重复写。
+  if (agentSessionConfig) {
+    record.agentSessionConfig = agentSessionConfig;
+    record.agentSessionConfigEntryPersisted = true;
+    void persistAgentSessionConfigEntry(context, params.sessionId, agentSessionConfig);
+  }
   // createRecord 把 createdAt/updatedAt 写死为 Date.now()——resume 老会话
   // 会让 sessions-index 把它当"刚创建"的会话（配合 hydration 前的空标题，侧栏
   // 表现为原会话消失、冒出"新任务刚刚"）。恢复路径回填 store 的真实时间。
@@ -3045,6 +3093,22 @@ export function onSessionEvent(
     record.updatedAt = Date.now();
   }
   reconcileRecordPersistence(record);
+  // R5：Agent 会话级配置的持久化时机 = 行已落库（isSessionPersisted 翻真）。这覆盖
+  // immediate/deferred 两种创建与所有首发路径（v4 admission ensure、turn 首发、外部
+  // 活动）：runtime 落行后必发事件（SessionTitleUpdated seq 1），事件流是唯一可靠
+  // 汇合点。进程内标记防逐条事件重复写；持久化失败只告警（冷恢复退化为普通会话）。
+  if (
+    record.agentSessionConfig &&
+    !record.agentSessionConfigEntryPersisted &&
+    record.app.runtime?.isSessionPersisted?.() === true
+  ) {
+    record.agentSessionConfigEntryPersisted = true;
+    void persistAgentSessionConfigEntry(
+      context,
+      String(record.app.sessionId),
+      record.agentSessionConfig,
+    );
+  }
   // 调试旁路不依赖聊天订阅；放在 deliveryKind 判断之前，避免旧订阅退出后诊断再次断流。
   observeSessionDebug(record, event);
   // v4 通道：权威事件无条件喂给 v4 投影/发布器——v4 订阅不依赖旧协议的
@@ -3314,6 +3378,18 @@ async function createRecord(
       : undefined;
   const taskType = params.taskType ?? "interactive";
   const runtimeMcp = protocolMcpServersToRuntimeMcpConfig(params.mcpServers);
+  // R5：提取会话级 Agent 配置快照先 stash 到 record；行落库（isSessionPersisted
+  // 翻真）后由 onSessionEvent 持久化为 session_entry，供冷恢复回填。
+  const agentSessionConfig = agentSessionConfigOf(params);
+  // Raft Agent 记忆作用域：create 与 resume 都由宿主显式下发（CLI 不持久化）。
+  const agentMemory = "agentMemory" in params ? params.agentMemory : undefined;
+  const officialMcpServers =
+    "officialMcpServers" in params && params.officialMcpServers
+      ? params.officialMcpServers.map((ref) => ({
+          name: ref.name,
+          env: Object.fromEntries(ref.env.map(({ name, value }) => [name, value])),
+        }))
+      : undefined;
   context.logger?.info("ZCode Protocol createRecord MCP config", {
     event: "zcode_protocol.create_record.mcp_config",
     rootTraceId: traceContext.traceId,
@@ -3332,6 +3408,7 @@ async function createRecord(
     env: context.deps.env,
     eventStore,
     resume,
+    ...(officialMcpServers ? { officialMcpServers } : {}),
     runtimeConfig: {
       mode: "mode" in params ? params.mode : undefined,
       modelSelection: "model" in params ? toRuntimeModelSelection(initialModel) : undefined,
@@ -3349,11 +3426,26 @@ async function createRecord(
       // 不能只依赖 prompt 文本约束，否则内置工具和动态 MCP 工具仍可能越过调用面。
       toolAllowlist: "toolAllowlist" in params ? params.toolAllowlist : undefined,
       toolDisallowlist: "toolDenylist" in params ? params.toolDenylist : undefined,
+      // 同一安全边界的路径维度：无人值守会话的文件工具越出 workspaceRoot 即拒绝。
+      // create 与 resume 共用 createRecord，冷恢复由此保持同一约束。
+      confineFileToolsToWorkspace:
+        "confineFileToolsToWorkspace" in params ? params.confineFileToolsToWorkspace : undefined,
       nativeSearchEnhancementsEnabled: startupPreferences.nativeSearchEnhancementsEnabled,
       modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
       // Memory Settings 是现有 CLI features.memory/use 之外的总开关。只在关闭时
       // 写入 override，避免开启值反向覆盖用户已有的 CLI 禁用配置。
-      ...(startupPreferences.memoryEnabled ? {} : { memory: { enabled: false } }),
+      ...(agentMemory
+        ? {
+            // Raft Agent 记忆作用域：记忆根 = Agent Home，不受 Settings 项目记忆开关影响；
+            // 关闭项目记忆的自动抽取（Agent 按 raft-agent 规则显式维护 MEMORY/notes）。
+            memory: {
+              agent: { homeRoot: agentMemory.homeRoot, agentName: agentMemory.agentName },
+              extractionEnabled: false,
+            },
+          }
+        : startupPreferences.memoryEnabled
+          ? {}
+          : { memory: { enabled: false } }),
       // desktop-continuous session/create 由 UI 先解析 ~/.zcode/.agents 的 enabled MCP，
       // 但 protocol app-server 自己不会读取 UI/main 侧的 MCP store；之前 createRecord 没把
       // params.mcpServers 注入 runtimeConfig，导致日志里 runtimeHasMcpConfig=false，工具永远不启动。
@@ -3413,6 +3505,7 @@ async function createRecord(
     modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
     nativeSearchEnhancementsEnabled: startupPreferences.nativeSearchEnhancementsEnabled,
     ...(parentSessionId ? { parentSessionId } : {}),
+    ...(agentSessionConfig ? { agentSessionConfig } : {}),
     persistence: "persistence" in params ? (params.persistence ?? "immediate") : "immediate",
     protocolEventSequences: new Map(),
     protocolToolInputTransmissions: new Map(),

@@ -25,7 +25,8 @@ function resolveExistingPath(candidates: Array<string | null | undefined>): stri
   return null;
 }
 
-function resolveCommandOnPath(
+/** 在 PATH 上查找可执行文件（win32 走 PATHEXT）；未找到返回 null。 */
+export function resolveCommandOnPath(
   command: string,
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {

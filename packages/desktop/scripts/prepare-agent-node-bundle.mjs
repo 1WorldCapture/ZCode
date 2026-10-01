@@ -112,6 +112,16 @@ const officialPluginPackages = [
     runtimeBuildScript: "scripts/build.mjs",
     stagedPath: "packages/node-repl-host",
   },
+  {
+    // Raft Agent 工具宿主：raft-agents 服务按绑定注入的 stdio MCP 服务，同样必须随桌面包 seed，
+    // 否则接入的 Raft Agent 会话里没有 Raft 工具。
+    packageName: "@zcode/raft-agent-tools",
+    relativePath: "apps/zcode-cli/packages/raft-agent-tools",
+    requiresRuntime: true,
+    requiredRuntimePaths: ["dist/mcp/server.js"],
+    runtimeBuildScript: "scripts/build.mjs",
+    stagedPath: "packages/raft-agent-tools",
+  },
 ];
 // 随 CLI 内置的技能包（不是插件）：bootstrap 的 resolveBundledSkillRoots 沿官方插件同款候选目录
 // 在 zcode.cjs 旁找 packages/bundled-skills 并原地读取。漏 stage 它，桌面包的 /workflow 会展开成

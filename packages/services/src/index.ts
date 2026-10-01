@@ -198,6 +198,9 @@ export type {
 
 // Bots service — IBotsService is both a type (interface) and value (descriptor).
 export { IBotsService } from "./bots/bots.js";
+// Raft agents — 类型事实源在 @zcode/shared；浏览器安全入口只导出契约类型与描述符。
+export { IRaftAgentsService } from "./raft-agents/contract.js";
+export type { RaftProvisioningStep } from "./raft-agents/contract.js";
 export type {
   BotBindCodeResult,
   BotCreateBindCodeParams,

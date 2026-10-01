@@ -30,6 +30,16 @@ export const officialSeaPlugins = [
     version: "0.6.0",
   },
   {
+    // Raft Agent 工具宿主：同 node-repl-host，无 skill、无 listing，必须随发布物嵌入。
+    marketplace: "zcode-plugins-official",
+    name: "raft-agent-tools",
+    packageName: "@zcode/raft-agent-tools",
+    requiresRuntime: true,
+    requiredRuntimePaths: ["dist/mcp/server.js"],
+    rootPath: join("packages", "raft-agent-tools"),
+    version: "0.1.0",
+  },
+  {
 
     marketplace: "zcode-plugins-official",
     name: "browser-use",

@@ -637,6 +637,10 @@ function buildSessionCreateParams(
     ...(params.mcpServers !== undefined && !omittedFields.has("mcpServers")
       ? { mcpServers: params.mcpServers }
       : {}),
+    // Raft Agent 字段不进兼容降级集：旧 app-server 不认时宁可硬失败，也不能静默
+    // 建出一个退回项目记忆、没有 Raft 工具的 agent 会话（错误作用域比失败更糟）。
+    ...(params.agentMemory !== undefined ? { agentMemory: params.agentMemory } : {}),
+    ...(params.officialMcpServers !== undefined ? { officialMcpServers: params.officialMcpServers } : {}),
     // CUA 工具隔离字段是可降级的：旧 app-server 的 .strict() schema 若不认，兼容重试会把它们放进
     // omittedFields 省略后重试（而不是硬失败）。故这里必须同样受 omittedFields 门控。
     ...(params.toolAllowlist !== undefined && !omittedFields.has("toolAllowlist")
@@ -644,6 +648,11 @@ function buildSessionCreateParams(
       : {}),
     ...(params.toolDenylist !== undefined && !omittedFields.has("toolDenylist")
       ? { toolDenylist: params.toolDenylist }
+      : {}),
+    // Raft Agent 安全字段与 agentMemory 同类：不进兼容降级集——旧 app-server 不认时硬失败，
+    // 不能静默建出一个 yolo 全自动却全盘可读写文件的无人值守会话。
+    ...(params.confineFileToolsToWorkspace !== undefined
+      ? { confineFileToolsToWorkspace: params.confineFileToolsToWorkspace }
       : {}),
     // importedHistory 是导入历史的完整性边界，不能像 thoughtLevel/persistence
     // 那样在旧协议兼容重试里省略，否则会创建一个可切模型但没有历史内容的空 session。
@@ -677,6 +686,9 @@ function buildSessionResumeParams(
     ...(params.mcpServers !== undefined && !omittedFields.has("mcpServers")
       ? { mcpServers: params.mcpServers }
       : {}),
+    // Raft Agent 字段与 create 同语义：不进兼容降级集（缺了会退回项目记忆且无 Raft 工具）。
+    ...(params.agentMemory !== undefined ? { agentMemory: params.agentMemory } : {}),
+    ...(params.officialMcpServers !== undefined ? { officialMcpServers: params.officialMcpServers } : {}),
     // 工具面约束必须和 create 路径一致随 resume 下发，否则冷恢复重建 runtime 后会丢失 allow/deny
     // 隔离（CUA 会话会重新可见 Bash 等被禁工具）。旧 app-server 不认时经 omittedFields 降级。
     ...(params.toolAllowlist !== undefined && !omittedFields.has("toolAllowlist")
@@ -684,6 +696,10 @@ function buildSessionResumeParams(
       : {}),
     ...(params.toolDenylist !== undefined && !omittedFields.has("toolDenylist")
       ? { toolDenylist: params.toolDenylist }
+      : {}),
+    // Raft Agent 安全字段：不进兼容降级集，与 create 路径同一理由。
+    ...(params.confineFileToolsToWorkspace !== undefined
+      ? { confineFileToolsToWorkspace: params.confineFileToolsToWorkspace }
       : {}),
     // resume 不带该 flag 会让冷恢复丢 Off-Peak 工具面（与 toolAllowlist 同因）。
     ...(params.offPeakToolEnabled === true && !omittedFields.has("offPeakToolEnabled")

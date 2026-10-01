@@ -1,5 +1,6 @@
 import { memo, useEffect } from "react";
 import { App } from "@/App.js";
+import { AgentCenterLayer } from "@/agents/AgentCenterLayer.js";
 import { ScopedErrorBoundary } from "@/ErrorBoundary.js";
 import { ServiceProvider } from "@/hooks/useServices.js";
 import { logger } from "@/logger.js";
@@ -19,6 +20,10 @@ interface RootWorkspaceContentProps {
   workspaceRemoteSessionId?: string;
   activeWorkspacePath: string | null;
   isSettingsTabActive: boolean;
+  /** Settings / Agent 中心任一为激活的覆盖 tab；底层 workspace 壳层统一 inert。 */
+  isOverlayTabActive: boolean;
+  isAgentsTabActive: boolean;
+  onCloseAgentCenter: () => void;
   handleConnectRemote: AppProps["onConnectRemote"];
   handleSelectRemoteProject: AppProps["onSelectRemoteProject"];
   handleCancelRemoteProject: AppProps["onCancelRemoteProject"];
@@ -57,6 +62,9 @@ export function RootWorkspaceContent({
   workspaceRemoteSessionId,
   activeWorkspacePath,
   isSettingsTabActive,
+  isOverlayTabActive,
+  isAgentsTabActive,
+  onCloseAgentCenter,
   handleConnectRemote,
   handleSelectRemoteProject,
   handleCancelRemoteProject,
@@ -99,10 +107,10 @@ export function RootWorkspaceContent({
   return (
     <>
       <div
-        className={isSettingsTabActive ? "h-full opacity-0 pointer-events-none" : "h-full"}
-        aria-hidden={isSettingsTabActive}
-        data-root-workspace-surface={isSettingsTabActive ? "inert" : "interactive"}
-        inert={isSettingsTabActive ? true : undefined}
+        className={isOverlayTabActive ? "h-full opacity-0 pointer-events-none" : "h-full"}
+        aria-hidden={isOverlayTabActive}
+        data-root-workspace-surface={isOverlayTabActive ? "inert" : "interactive"}
+        inert={isOverlayTabActive ? true : undefined}
       >
         {/* 设置页之前通过条件分支直接替换整个 App，关闭设置时会把主界面整棵树卸载再重建，
             聊天区、终端等本地 UI 状态都会被当成一次“重新进入 workspace”。
@@ -123,7 +131,7 @@ export function RootWorkspaceContent({
             抢走设置表单焦点；设置页覆盖期间必须把整棵 workspace 标为 inert，等用户显式返回后再恢复交互。 */}
         <ConversationTelemetryWorkspaceAttachment
           enabled={isDesktop === true}
-          foregroundEnabled={!isSettingsTabActive}
+          foregroundEnabled={!isOverlayTabActive}
           services={workspaceScopedServices}
           workspacePath={workspaceShellPath}
           workspaceIdentity={workspaceIdentity}
@@ -167,7 +175,7 @@ export function RootWorkspaceContent({
                 allowOpenWorkspace={allowOpenWorkspace}
                 allowRemoteWorkspace={allowRemoteWorkspace}
                 remoteWorkspaceSessions={remoteWorkspaceSessions}
-                isWorkspaceVisible={!isSettingsTabActive}
+                isWorkspaceVisible={!isOverlayTabActive}
                 isDesktop={isDesktop}
                 isMacDesktop={isMacDesktop}
                 isWindowsDesktop={isWindowsDesktop}
@@ -177,6 +185,22 @@ export function RootWorkspaceContent({
           </ServiceProvider>
         </ConversationTelemetryWorkspaceAttachment>
       </div>
+
+      {isAgentsTabActive ? (
+        <ScopedErrorBoundary
+          scope="workspace-agent-center-layer"
+          resetKeys={[workspaceKey, isAgentsTabActive]}
+          variant="panel"
+          className="absolute inset-0 z-10"
+        >
+          <AgentCenterLayer
+            onClose={onCloseAgentCenter}
+            isDesktop={isDesktop}
+            isMacDesktop={isMacDesktop}
+            isWindowsDesktop={isWindowsDesktop}
+          />
+        </ScopedErrorBoundary>
+      ) : null}
 
       {isSettingsTabActive ? (
         <ScopedErrorBoundary

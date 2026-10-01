@@ -149,6 +149,14 @@ export interface AgentRuntimeConfig {
   toolAllowlist?: readonly string[];
   toolDisallowlist?: readonly string[];
   /**
+   * Unattended sessions (Raft Agent main sessions) confine file tools
+   * (Read/Write/Edit/Glob/Grep) to workspaceRoot at the executor permission
+   * boundary. Registered-tool allowlists cannot constrain where an already
+   * registered file tool points, and yolo mode allows before project rules —
+   * this flag is the one gate that survives both.
+   */
+  confineFileToolsToWorkspace?: boolean;
+  /**
    * Defaults to main. Explore child runtimes use the explore toolset to opt into
    * 只读探索工具白名单；是否包含 direct Glob/Grep 由 embedded search branch 决定。
    * 主模式下 allowlist 仅做直接交集过滤，explore 子运行时还会补齐默认只读白名单。
@@ -304,6 +312,11 @@ export interface MemoryRuntimeConfig {
   storageRoot?: string;
   use?: boolean;
   workspaceIdentity?: string;
+  /**
+   * Raft Agent 记忆作用域：记忆根 = homeRoot（其下 MEMORY.md 与 notes/），严格加载、
+   * 注入 raft-agent 记忆 section、关闭项目记忆自动抽取、不自动创建目录。缺省 = 项目记忆。
+   */
+  agent?: { agentName?: string; homeRoot: string };
 }
 
 export interface AgentRuntimeDeps {

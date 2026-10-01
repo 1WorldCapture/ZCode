@@ -36,6 +36,9 @@ export function scheduleProjectMemoryExtraction(
   if (runtime.shuttingDown) return;
   // 原因：headless 只关闭自动 Extraction，必须在读取快照或访问文件前返回，避免后台副作用。
   if (runtime.config.memory?.extractionEnabled === false) return;
+  // Raft Agent 主会话由 Agent 按 raft-agent 规则显式维护 MEMORY/notes，
+  // 项目记忆的自动抽取（另一套记录规则、另一个目录）不得对它运行。
+  if (runtime.config.memory?.agent) return;
   // Bash cd 只改变执行 cwd，project Memory 身份必须继续使用会话 workspace root。
   const memoryRoot = resolveEnabledProjectMemoryRoot(runtime.config, runtime.workspaceRoot);
   if (!memoryRoot) return;

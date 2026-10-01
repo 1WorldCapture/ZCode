@@ -1183,6 +1183,8 @@ export const zcodeTurnStartedEventPayloadSchema = z
     // runtime 会透传后台唤醒来源，strict schema 必须同步声明以免丢弃整条事件。
     backgroundSource: z.enum(["bash", "subagent"]).optional(),
     attachments: z.array(jsonObjectSchema).optional(),
+    // CLI 的 turn.started 带本地 TTFT 起点（performance 时间轴毫秒）；漏声明会让严格校验丢弃整条事件。
+    executionStartedAt: z.number().optional(),
   })
   .strict();
 const zcodeTurnSteerSourceSchema = z.enum(["plan_approval_feedback", "workflow_refine_feedback"]);
@@ -1334,12 +1336,20 @@ export const zcodeToolUpdatedEventPayloadSchema = z.discriminatedUnion("kind", [
       parallelGroupIndex: z.number().int().nonnegative().optional(),
       canRunParallel: z.boolean().optional(),
       schedule: jsonObjectSchema.optional(),
+      // CLI 调度事件可能带结果展示投影；漏声明会让严格校验丢弃整条事件。
+      display: jsonObjectSchema.optional(),
     })
     .strict(),
   zcodeToolCallBasePayloadSchema
     .extend({
       kind: z.literal("started"),
       startedAt: protocolInstantSchema,
+      // CLI 在动手前发出的解析后副作用能力与展示投影；漏声明会让严格校验丢弃整条事件。
+      display: jsonObjectSchema.optional(),
+      readOnly: z.boolean().optional(),
+      sideEffectScope: z
+        .enum(["none", "workspace", "git", "network", "system", "session", "userInteraction"])
+        .optional(),
     })
     .strict(),
   zcodeToolCallBasePayloadSchema
@@ -1556,6 +1566,35 @@ export const zcodeSessionSubagentsResultSchema = z
   })
   .strict();
 export type ZCodeSessionSubagentsResult = z.infer<typeof zcodeSessionSubagentsResultSchema>;
+/**
+ * Raft Agent 记忆作用域（宿主在 create/resume 边界下发，CLI 不持久化，与 mcpServers 同语义）。
+ * 记忆根 = Agent Home 目录（其下的 MEMORY.md 与 notes/），取代项目记忆；缺失/不可读时会话失败而不是静默当作无记忆。
+ */
+export const zcodeAgentMemorySchema = z
+  .object({
+    /** Agent Home 绝对路径。 */
+    homeRoot: nonEmptyString,
+    /** 提示词里的称呼（Raft 公开名称）；缺省用通用称呼。 */
+    agentName: nonEmptyString.optional(),
+  })
+  .strict();
+export type ZCodeAgentMemory = z.infer<typeof zcodeAgentMemorySchema>;
+
+/**
+ * 官方宿主型 MCP 服务的具名引用：宿主（如 raft-agents 服务）只给名字与环境变量，
+ * command/args/隔离/协议版本全部由 app-server 用自己的插件 rootPath 拼装并锁定。
+ * 原因：打包态的 execPath 与插件宿主前缀参数只在 app-server 进程里有意义；host 侧自己拼会在打包态断裂。
+ * name 是白名单（未知名字拒绝，不能借它执行任意命令）；env 只接受各服务约定的键前缀。
+ */
+export const ZCODE_OFFICIAL_MCP_HOST_NAMES = ["raft-agent-tools"] as const;
+export const zcodeOfficialMcpServerRefSchema = z
+  .object({
+    name: z.enum(ZCODE_OFFICIAL_MCP_HOST_NAMES),
+    env: z.array(zcodeProtocolMcpEntrySchema),
+  })
+  .strict();
+export type ZCodeOfficialMcpServerRef = z.infer<typeof zcodeOfficialMcpServerRefSchema>;
+
 export const zcodeSessionCreateParamsSchema = z
   .object({
     sessionId: nonEmptyString.optional(),
@@ -1567,8 +1606,17 @@ export const zcodeSessionCreateParamsSchema = z
     thoughtLevel: nonEmptyString.optional(),
     titleGenerationEnabled: z.boolean().optional(),
     mcpServers: z.array(zcodeProtocolMcpServerSchema).optional(),
+    // Raft Agent 会话的记忆作用域；缺省 = 普通项目记忆。
+    agentMemory: zcodeAgentMemorySchema.optional(),
+    // 官方宿主型 MCP 服务（具名引用，由 app-server 拼装 command/args）；缺省不注入。
+    officialMcpServers: z.array(zcodeOfficialMcpServerRefSchema).optional(),
     toolAllowlist: z.array(nonEmptyString).optional(),
     toolDenylist: z.array(nonEmptyString).optional(),
+    // 无人值守会话（Raft Agent）的文件工具边界：开启后 Read/Write/Edit/Glob/Grep 的
+    // 路径入参越出 workspaceRoot 直接拒绝。yolo 权限模式放行发生在项目规则之前，
+    // 工具面白名单也只管"注册了哪些工具"；两者都约束不了已注册文件工具指向哪里，
+    // 这一层是唯一压得住的执行期防线（排在其后判定）。
+    confineFileToolsToWorkspace: z.boolean().optional(),
     importedHistory: zcodeSessionImportHistorySchema.optional(),
     // host 只按本地服务装配/远程/端形态决定是否注册工具，不读取灰度；
     // 缺省不下发 = 不注册；灰度与套餐准入在实际创建的 Host handler 校验。
@@ -1587,9 +1635,15 @@ export const zcodeSessionResumeParamsSchema = z
     // 旧 session 尚无 runtime/model_selection entry 时，由同 task 的索引元数据提供迁移 hint。
     thoughtLevel: nonEmptyString.optional(),
     mcpServers: z.array(zcodeProtocolMcpServerSchema).optional(),
+    // 与 create 同语义；resume 不带会让冷恢复的 Agent 会话退回项目记忆，因此宿主恢复时必须再次下发。
+    agentMemory: zcodeAgentMemorySchema.optional(),
+    // 与 create 同语义；MCP 是 runtime 启动期配置，冷恢复必须由宿主再次下发。
+    officialMcpServers: z.array(zcodeOfficialMcpServerRefSchema).optional(),
     // 冷恢复重建 runtime 时必须沿用 create 的工具面约束（否则会绕过 allow/deny，尤其 CUA 会话）。
     toolAllowlist: z.array(nonEmptyString).optional(),
     toolDenylist: z.array(nonEmptyString).optional(),
+    // 与 create 同语义；resume 不带会让冷恢复的无人值守会话重新拿到全盘文件访问。
+    confineFileToolsToWorkspace: z.boolean().optional(),
     // 与 create 同语义；resume 不带会导致冷恢复丢 Off-Peak 工具面。
     offPeakToolEnabled: z.boolean().optional(),
     // 与 create 同语义；resume 不带会导致冷恢复丢工作流工具簇。

@@ -16,6 +16,7 @@ import {
   ICuaPermissionService,
   IConversationShareService,
   IBotsService,
+  IRaftAgentsService,
   IFileWatcherService,
   IOAuthService,
   IModelSelectionService,
@@ -68,6 +69,7 @@ export class RemoteServiceAccess implements IServiceAccessor {
   readonly cuaPermissionService: ICuaPermissionService;
   readonly conversationShareService: IConversationShareService;
   readonly botsService: IBotsService;
+  readonly raftAgentsService: IRaftAgentsService;
   readonly fileWatcherService: IFileWatcherService;
   readonly oauthService: IOAuthService;
   readonly providerSettingsService: IProviderSettingsService;
@@ -146,6 +148,9 @@ export class RemoteServiceAccess implements IServiceAccessor {
     );
     this.botsService = ProxyChannel.toService<IBotsService>(
       channelClient.getChannel(IBotsService.channelName),
+    );
+    this.raftAgentsService = ProxyChannel.toService<IRaftAgentsService>(
+      channelClient.getChannel(IRaftAgentsService.channelName),
     );
     this.fileWatcherService = ProxyChannel.toService<IFileWatcherService>(
       channelClient.getChannel(IFileWatcherService.channelName),

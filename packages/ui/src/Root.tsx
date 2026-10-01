@@ -37,7 +37,15 @@ import { StoreProvider, useZCodeStore } from "@/store/StoreProvider.js";
 import { setMcpStorePlatform } from "@/store/mcpStore.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import { TabStoreProvider, useTabStore, useTabStoreApi } from "@/store/TabStoreProvider.js";
-import { isSettingsTab, isWorkspaceTab, type WorkspaceTabState } from "@/store/tabStore.js";
+import {
+  AGENTS_TAB_ID,
+  isSettingsTab,
+  isWorkspaceTab,
+  isAgentsTab,
+  type WorkspaceTabState,
+} from "@/store/tabStore.js";
+import { AgentCenterLayer } from "@/agents/AgentCenterLayer.js";
+import { useAgentCenterStore } from "@/agents/agentCenterStore.js";
 import { logger } from "@/logger.js";
 import { RootShell } from "@/root/RootShell.js";
 import { RootWorkspaceContent } from "@/root/RootWorkspaceContent.js";
@@ -346,6 +354,9 @@ function RootInner({
   const activeTab = activeTabId ? (tabs.find((tab) => tab.id === activeTabId) ?? null) : null;
   const activeWorkspaceTab = activeTab && isWorkspaceTab(activeTab) ? activeTab : null;
   const isSettingsTabActive = activeTab ? isSettingsTab(activeTab) : false;
+  const isAgentsTabActive = activeTab ? isAgentsTab(activeTab) : false;
+  /** Agent 中心与 Settings 同为覆盖层：激活时底层 workspace 壳层要统一 inert。 */
+  const isOverlayTabActive = isSettingsTabActive || isAgentsTabActive;
   const {
     workspaceShellPath,
     workspaceIdentity: workspaceShellIdentity,
@@ -754,7 +765,7 @@ function RootInner({
   const canEnterNativeThemeSyncSurface = Boolean(
     !isStartupRenderBlocked &&
     !welcomeScreenOpenReason &&
-    (workspaceShellPath || isSettingsTabActive),
+    (workspaceShellPath || isSettingsTabActive || isAgentsTabActive),
   );
 
   useEffect(() => {
@@ -792,6 +803,7 @@ function RootInner({
       isStartupProviderLoginEntryOpen ||
       workspaceShellPath ||
       isSettingsTabActive ||
+      isAgentsTabActive ||
       !allowOpenWorkspace ||
       didRequestFallbackWorkspaceRef.current
     ) {
@@ -836,6 +848,7 @@ function RootInner({
   }, [
     allowOpenWorkspace,
     handleSelectConversationWorkspace,
+    isAgentsTabActive,
     isBootstrappingInitialWorkspace,
     isResolvingProviderStartupState,
     isResolvingStartupAuthState,
@@ -870,6 +883,12 @@ function RootInner({
   const handleOpenLoginEntry = () => {
     setWelcomeScreenOpenReason("manual-login");
   };
+  const handleCloseAgentCenter = useCallback(() => {
+    // 关闭 Agent 中心只关 tab，不触碰 Agent 值守状态（UI 生命周期与 Host 生命周期分离）。
+    // 视图复位到列表页：下次打开不落在上次的详情/向导中间态（R3 第 13 项评审结论）。
+    useAgentCenterStore.getState().backToList();
+    tabStoreApi.getState().closeTab(AGENTS_TAB_ID);
+  }, [tabStoreApi]);
   const handleWelcomeScreenComplete = useCallback(
     async (reason: LoginCompleteReason) => {
       await refreshAppSettings();
@@ -1014,7 +1033,7 @@ function RootInner({
       {directoryBrowserDialog}
       <OccupationOnboarding
         showWindowControls={Boolean(isWindowsDesktop || (isDesktop && !isMacDesktop))}
-        showChildrenWhileLoading={!workspaceShellPath && isSettingsTabActive}
+        showChildrenWhileLoading={!workspaceShellPath && (isSettingsTabActive || isAgentsTabActive)}
         isMacDesktop={isMacDesktop}
         isWindowsDesktop={isWindowsDesktop}
       >
@@ -1029,6 +1048,20 @@ function RootInner({
             >
               <SettingsPage {...settingsLayerProps} />
             </ScopedErrorBoundary>
+          ) : isAgentsTabActive ? (
+            <ScopedErrorBoundary
+              scope="agent-center-page"
+              resetKeys={["agent-center-root"]}
+              variant="panel"
+              className="h-full"
+            >
+              <AgentCenterLayer
+                onClose={handleCloseAgentCenter}
+                isDesktop={isDesktop}
+                isMacDesktop={isMacDesktop}
+                isWindowsDesktop={isWindowsDesktop}
+              />
+            </ScopedErrorBoundary>
           ) : null
         ) : (
           <RootWorkspaceContent
@@ -1039,6 +1072,9 @@ function RootInner({
             workspaceRemoteSessionId={workspaceShellRemoteSessionId}
             activeWorkspacePath={activeWorkspacePath}
             isSettingsTabActive={isSettingsTabActive}
+            isOverlayTabActive={isOverlayTabActive}
+            isAgentsTabActive={isAgentsTabActive}
+            onCloseAgentCenter={handleCloseAgentCenter}
             handleConnectRemote={handleConnectRemote}
             handleSelectRemoteProject={handleSelectRemoteProject}
             handleCancelRemoteProject={handleCancelRemoteProject}

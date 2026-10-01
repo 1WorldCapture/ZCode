@@ -91,6 +91,7 @@ import {
   type NodeReplBrowserBroker,
 } from "./node-repl-browser-broker.js";
 import { resolveBuiltInNodeReplMcpServers } from "./built-in-node-repl.js";
+import { resolveRequestedOfficialMcpServers } from "./official-mcp-hosts.js";
 import { resolveZCodeCustomCommandPrompt } from "../custom-command-prompt.js";
 import { resolveZCodeBuiltinPromptCommand } from "../builtin-prompt-command.js";
 import { collectDisabledPaths } from "../skill-command-overrides.js";
@@ -227,10 +228,18 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       modelSelectionOverrides: zcodeSubagentProfileOutcome.pluginAgentModelSelectionOverrides,
     }).profiles;
     const pluginRuntimeFeatures = resolvePluginRuntimeFeatures(pluginOutcome);
-    const builtInMcpServers = resolveBuiltInNodeReplMcpServers({
-      pluginOutcome,
-      workingDirectory,
-    });
+    const builtInMcpServers = {
+      ...resolveBuiltInNodeReplMcpServers({
+        pluginOutcome,
+        workingDirectory,
+      }),
+      // 宿主具名引用的官方 MCP 服务（如 raft-agent-tools）：缺插件时 fail-closed 抛错。
+      ...resolveRequestedOfficialMcpServers({
+        pluginOutcome,
+        requested: options.officialMcpServers,
+        workingDirectory,
+      }),
+    };
     // 用户目录已在 loader 前完成原地迁移；不能给项目/插件旧身份加内存兼容旁路。
     const subagentProfiles = [...zcodeSubagentProfiles, ...pluginSubagentProfiles];
     const ownsSessionStore = options.sessionStore === undefined;

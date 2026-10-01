@@ -132,6 +132,8 @@ export interface ToolExecutorOptions {
   setWorkingDirectory?: (cwd: string) => Promise<void> | void;
   getWorkspaceRoot?: () => string;
   getMemoryRoot?: () => string | undefined;
+  /** 无人值守会话文件工具边界开关；见 executor/workspace-file-scope.ts。 */
+  confineFileToolsToWorkspace?: boolean;
   traceContext?: TraceContext;
   mode?: CollaborationMode;
   getMode?: () => CollaborationMode;
@@ -234,6 +236,8 @@ export interface ToolExecutorDeps {
   clientMode?: "desktop-continuous" | "web-remote-replayable";
   deliveryKind?: "desktop-continuous" | "web-remote-replayable";
   getMemoryRoot?: () => string | undefined;
+  /** 无人值守会话文件工具边界开关；startup 期固定，无需 getter。 */
+  confineFileToolsToWorkspace?: boolean;
   runtimeScope: ToolRuntimeScope;
   traceContext?: TraceContext;
   getMode: () => CollaborationMode;

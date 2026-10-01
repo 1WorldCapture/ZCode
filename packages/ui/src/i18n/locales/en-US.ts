@@ -1,5 +1,173 @@
 /** English translations */
 const enUS: Record<string, string> = {
+  "agentCenter.title": "Agents",
+  "agentCenter.connect": "Connect Agent",
+  "agentCenter.backToList": "Back to list",
+  "agentCenter.emptyTitle": "No agents connected yet",
+  "agentCenter.emptyDescription": "Connect a Raft Agent to keep it on duty in ZCode.",
+  "agentCenter.agentCount": "{count} agents",
+  "agentCenter.start": "Start",
+  "agentCenter.pause": "Pause",
+  "agentCenter.openHome": "Open Home folder",
+  "agentCenter.homePath": "Home path",
+  "agentCenter.connection.credential_ok": "Connected",
+  "agentCenter.connection.credential_invalid": "Invalid credential",
+  "agentCenter.connection.unverified": "Unverified",
+  "agentCenter.state.readyStopped": "Stopped",
+  "agentCenter.state.starting": "Starting",
+  "agentCenter.state.running": "Running",
+  "agentCenter.state.stopping": "Stopping",
+  "agentCenter.state.errorPaused": "Paused (error)",
+  "agentCenter.reason.memory_unavailable": "Memory unreadable",
+  "agentCenter.reason.credential_invalid": "Invalid credential",
+  "agentCenter.reason.bridge_exit": "Bridge exited unexpectedly",
+  "agentCenter.reason.inbox_log_write_failed": "Inbox log write failed",
+  "agentCenter.reason.cli_unavailable": "Raft CLI unavailable",
+  "agentCenter.reason.mcp_unavailable": "Raft tools component unavailable",
+  "agentCenter.reason.session_unavailable": "Main session failed to resume",
+  "agentCenter.unavailable": "Connecting Raft Agents isn't supported in this environment",
+  "agentCenter.loadFailed": "Couldn't load the Agent list",
+  "agentCenter.refreshFailed": "Refresh failed; what's shown may be out of date",
+  "agentCenter.storageCorrupt.withBackup":
+    "The binding store file is corrupted. A backup was saved to {backupPath}; restore it and restart ZCode.",
+  "agentCenter.storageCorrupt.withoutBackup":
+    "The binding store file is corrupted. A backup could not be created; restore the file and restart ZCode.",
+  "agentCenter.actionFailed": "That didn't work. Please try again",
+  "agentCenter.form.saving": "Connecting…",
+  "agentCenter.form.error.CliMissing":
+    "The raft command-line tool wasn't found. Install version 0.0.24 or later",
+  "agentCenter.form.error.CliVersionUnsupported":
+    "The raft command-line tool is too old. Upgrade to 0.0.24 or later",
+  "agentCenter.form.error.OriginInvalid":
+    "The server address is invalid, or the Home path isn't absolute",
+  "agentCenter.form.error.AgentIdInvalid": "The Agent ID isn't valid (expected a UUID)",
+  "agentCenter.form.error.TokenInvalid": "The token is invalid. Check it and paste it again",
+  "agentCenter.form.error.IdentityMismatch":
+    "This token belongs to a different Agent or server. Check the Agent ID and server address",
+  "agentCenter.form.error.CredentialCheckFailed":
+    "Couldn't verify the credential right now (network or server unreachable). Try again later",
+  "agentCenter.form.error.PathConflict":
+    "This Home path conflicts with a connected Agent. Pick another folder ({detail})",
+  "agentCenter.form.error.SlugConflict": "Internal identifier conflict. Please retry ({detail})",
+  "agentCenter.form.error.HomeOverlapsCredentials":
+    "The Home path must not contain or fall inside the Raft credentials directory (raft/profiles). Choose another directory",
+  "agentCenter.form.error.AlreadyBound": "This Agent is already connected ({detail})",
+  "agentCenter.form.error.ProfileInUse": "This local credential is already used by another binding ({detail}). Pick another credential or paste a token",
+  "agentCenter.form.error.ProvisioningFailed": "Setup failed and can be retried (step: {detail})",
+  "agentCenter.form.error.StoreWriteFailed": "Couldn't save. Please retry",
+  "agentCenter.form.serverUrl": "Server URL",
+  "agentCenter.form.agentId": "Agent ID",
+  "agentCenter.form.token": "Agent Token",
+  "agentCenter.form.homePath": "Home path",
+  "agentCenter.form.homePathPlaceholder": "Leave empty to use the default directory",
+  "agentCenter.form.browse": "Browse…",
+  "agentCenter.detail.raftServer": "Raft server",
+  "agentCenter.detail.connectionState": "Connection state",
+  "agentCenter.detail.runState": "Run state",
+  "agentCenter.wizard.step1.label": "Server",
+  "agentCenter.wizard.step1.description":
+    "Enter the Raft server URL. The wizard checks the local CLI environment.",
+  "agentCenter.wizard.step2.label": "Identity & credential",
+  "agentCenter.wizard.step2.description":
+    "Enter the Agent ID and token, or reuse a credential already on this machine.",
+  "agentCenter.wizard.step3.label": "Home path",
+  "agentCenter.wizard.step3.description": "Set the Agent's Home workspace.",
+  "agentCenter.wizard.step3.hint":
+    "The Agent can only read and write files inside this directory; leave empty to use the default.",
+  "agentCenter.wizard.step4.label": "Confirm",
+  "agentCenter.wizard.step4.description":
+    "Review the information below. Connecting completes once the identity check passes.",
+  "agentCenter.wizard.step4.verifying": "Verifying the identity with the server…",
+  "agentCenter.wizard.step4.identityTitle": "Identity confirmed by the server",
+  "agentCenter.wizard.step4.confirm": "Connect",
+  "agentCenter.wizard.error.originRequired": "Enter the server URL",
+  "agentCenter.wizard.error.identityRequired":
+    "Enter the Agent ID and token, or pick a local credential",
+  "agentCenter.wizard.cliMissing.title": "Raft CLI not found",
+  "agentCenter.wizard.cliMissing.versionUnsupportedTitle": "Raft CLI version is too old",
+  "agentCenter.wizard.cliMissing.description":
+    "Connecting requires the Raft CLI installed on this machine. Run the following command in a terminal:",
+  "agentCenter.wizard.cliMissing.versionNote":
+    "The install URL changes with CLI releases; use the latest published one. Come back and retry once installed.",
+  "agentCenter.wizard.cliMissing.installCommand": "CLI install command",
+  "agentCenter.wizard.cliMissing.redetect": "Check again",
+  "agentCenter.wizard.cliMissing.detecting": "Checking the local environment…",
+  "agentCenter.wizard.cliMissing.versionUnsupportedDescription":
+    "The local Raft CLI is too old. Update it and retry (the same command installs the latest version):",
+  "agentCenter.wizard.reuse.title": "Reuse a local credential",
+  "agentCenter.wizard.reuse.occupied":
+    "This credential is already used by another connection and can't be reused",
+  "agentCenter.wizard.reuse.occupiedBy":
+    'This credential is already used by "{name}" and can\'t be reused',
+  "agentCenter.wizard.reuse.daemonHosted":
+    "This agent is hosted by the local Raft daemon; don't connect it again",
+  "agentCenter.wizard.reuse.sourceSlock": "From the Raft CLI",
+  "agentCenter.wizard.reuse.empty": "No reusable credentials on this machine",
+  "agentCenter.wizard.reuse.loadFailed":
+    "Couldn't load local credentials. You can still paste a token manually",
+  "agentCenter.wizard.reuse.switchToNew": "Enter a new token instead",
+  "agentCenter.wizard.reuse.credential": "Credential",
+  "agentCenter.wizard.reuse.credentialValue":
+    "Reuse a local credential (no token is transmitted)",
+  "agentCenter.memory.title": "Memory",
+  "agentCenter.memory.description": "The Agent's long-term memory files (read-only).",
+  "agentCenter.memory.empty": "No memory files yet",
+  "agentCenter.memory.loadFailed": "Couldn't load the memory file list",
+  "agentCenter.memory.truncated": "The file is large; only the beginning is shown",
+  "agentCenter.memory.error.NotFound": "File not found",
+  "agentCenter.memory.error.OutsideMemorySurface":
+    "This file is outside the memory surface",
+  "agentCenter.memory.error.Unreadable": "Couldn't read the file",
+  "agentCenter.manage.title": "Manage",
+  "agentCenter.manage.restart": "Restart",
+  "agentCenter.manage.reset": "Reset",
+  "agentCenter.manage.remove": "Delete",
+  "agentCenter.manage.restart.confirmTitle": "Restart this Agent?",
+  "agentCenter.manage.restart.confirmDescription":
+    "Work in progress will be interrupted. The Agent stops watching, creates a fresh main session and resumes watching; its memory is kept.",
+  "agentCenter.manage.restart.confirm": "Restart",
+  "agentCenter.manage.reset.confirmTitle": "Reset this Agent?",
+  "agentCenter.manage.reset.confirmDescription":
+    "Work in progress will be interrupted. The memory under Home (MEMORY.md, AGENTS.md, notes/) is cleared and rebuilt from the initial template; everything else in Home is untouched.",
+  "agentCenter.manage.reset.confirm": "Reset",
+  "agentCenter.manage.remove.confirmTitle": "Delete this Agent?",
+  "agentCenter.manage.remove.confirmDescription":
+    "This stops watching and deletes the binding and the local credential. The Home directory is deleted (including code under projects/); if it isn't a ZCode-owned directory, the directory is kept and only the memory files are cleared. This can't be undone. The token on the Raft server is NOT revoked — revoke it there too if you want a complete removal.",
+  "agentCenter.manage.remove.confirm": "Delete",
+  "agentCenter.manage.remove.doneDeleted": "Agent and its Home directory deleted",
+  "agentCenter.manage.remove.doneKept":
+    "Agent deleted; the Home directory was kept with only the memory files cleared",
+  "agentCenter.manage.remove.doneUntouched":
+    "Agent deleted; the Home directory was left untouched — please handle it manually",
+  "agentCenter.manage.remove.doneUntouchedNotRequested":
+    "Agent deleted; the Home directory was kept as you chose",
+  "agentCenter.manage.remove.doneFailed":
+    "Agent deleted; the Home directory may be partially deleted — please check it manually",
+  "agentCenter.activity.lastActivity": "Last activity",
+  "agentCenter.activity.none": "No activity yet",
+  "agentCenter.activity.memoryLoaded": "Memory",
+  "agentCenter.activity.memoryLoaded.yes": "Loaded",
+  "agentCenter.activity.memoryLoaded.no": "Not loaded",
+  "agentCenter.activity.kind.wake": "Wake",
+  "agentCenter.activity.kind.drain_submitted": "Processing submitted",
+  "agentCenter.activity.kind.message_sent": "Message sent",
+  "agentCenter.activity.kind.error": "Error",
+  "agentCenter.activity.phase.working": "Working",
+  "agentCenter.activity.currentItem": "Current item",
+  "agentCenter.activity.pendingCount": "{count} pending",
+  "agentCenter.activity.pendingApprovals.short": "{count} awaiting response",
+  "agentCenter.activity.pendingApprovals.title":
+    "{count} item(s) awaiting a response — the agent may be stuck",
+  "agentCenter.activity.pendingApprovals.body":
+    "Check the session (once B3 lands you can view it below) or try restarting the agent.",
+  "agentCenter.activity.lastError": "Last error",
+  "agentCenter.activity.lastError.noCode": "Last error · {time}",
+  "agentCenter.session.opening": "Opening agent session…",
+  "agentCenter.session.error.NotFound": "Binding not found or deleted — refresh the list",
+  "agentCenter.session.error.McpUnavailable":
+    "Raft tool service unavailable — cannot resume the session right now",
+  "agentCenter.session.error.SessionCreateFailed": "Failed to create the main session — try again later",
+  "agentCenter.session.error.SessionResumeFailed": "Failed to resume the main session — try again later",
   "startPlan.recommendation.subagentDescription":
     "Your Start Plan has quota available for {model}. Switch this subagent’s model to the Start Plan?",
   "startPlan.recommendation.preferenceSaveFailed":

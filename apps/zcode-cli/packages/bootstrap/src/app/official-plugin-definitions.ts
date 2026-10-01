@@ -31,6 +31,14 @@ export const OFFICIAL_BROWSER_USE_PLUGIN_ID = `${OFFICIAL_BROWSER_USE_PLUGIN_NAM
  */
 export const OFFICIAL_NODE_REPL_HOST_PLUGIN_NAME = "node-repl-host";
 export const OFFICIAL_NODE_REPL_HOST_PLUGIN_ID = `${OFFICIAL_NODE_REPL_HOST_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
+/**
+ * Raft Agent 工具宿主：每个 Raft 绑定的 session 隔离 stdio MCP 服务，封装白名单 Raft 操作
+ * （官方 raft CLI）并独占收件日志写入。与 node-repl-host 同形态：无 skill、无 listing、
+ * 不进市场，只携带 `dist/mcp/server.js`。宿主（raft-agents 服务）按绑定拉起它，
+ * 会话记录里只有 command/args/env，不含任何 token。
+ */
+export const OFFICIAL_RAFT_AGENT_TOOLS_PLUGIN_NAME = "raft-agent-tools";
+export const OFFICIAL_RAFT_AGENT_TOOLS_PLUGIN_ID = `${OFFICIAL_RAFT_AGENT_TOOLS_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
 const OFFICIAL_CUA_PLUGIN_NAME = "computer-use";
 export const OFFICIAL_CUA_PLUGIN_ID = `${OFFICIAL_CUA_PLUGIN_NAME}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}`;
 
@@ -58,6 +66,7 @@ const ZAI_AUTHOR = { name: "Z.ai", url: "https://z.ai" } as const;
 const OFFICIAL_PLUGIN_ASSETS_BASE_URL = "https://cdn-zcode.z.ai/zcode/official-plugin/assets";
 
 const OFFICIAL_NODE_REPL_HOST_REQUIRED_SEED_PATHS = ["dist/mcp/server.js"] as const;
+const OFFICIAL_RAFT_AGENT_TOOLS_REQUIRED_SEED_PATHS = ["dist/mcp/server.js"] as const;
 
 export const OFFICIAL_BROWSER_USE_REQUIRED_SEED_PATHS = [
   "docs/api.json",
@@ -104,6 +113,20 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       "../../../node-repl-host",
     ],
     version: "0.6.0",
+  },
+  {
+    // 无 listing：与 node-repl-host 同理，不进市场、不对用户露出。必须始终可用，因为
+    // raft-agents 服务按绑定注入 mcpServers 时要在已发现的插件里解析它的 rootPath。
+    defaultEnabled: true,
+    name: OFFICIAL_RAFT_AGENT_TOOLS_PLUGIN_NAME,
+    requiredSeedPaths: OFFICIAL_RAFT_AGENT_TOOLS_REQUIRED_SEED_PATHS,
+    rootCandidates: [
+      "packages/raft-agent-tools",
+      "../raft-agent-tools",
+      "../../raft-agent-tools",
+      "../../../raft-agent-tools",
+    ],
+    version: "0.1.0",
   },
   {
     listing: {

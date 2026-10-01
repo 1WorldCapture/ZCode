@@ -809,6 +809,14 @@ export const SESSION_ENTRY_USER_INPUT_AUTO_RESOLUTION =
 export const SESSION_ENTRY_WORKSPACE_CHECKPOINT = "runtime/workspace_checkpoint" as const;
 export const SESSION_ENTRY_WORKSPACE_FILE_REWIND = "runtime/workspace_file_rewind" as const;
 
+/**
+ * Agent 会话级配置快照（记忆作用域 / 官方 MCP 引用 / 工具 allow/deny / 文件限
+ * workspace）。v4 冷恢复（subscribe → resumePersistedSession）没有 host 参数通道，
+ * 创建/宿主恢复时把这些"重建 runtime 必须原样带上"的字段落一条 entry，冷恢复
+ * 统一读取（与 bash shell 快照、taskType 同款先例）。data 只含路径与标识。
+ */
+export const SESSION_ENTRY_AGENT_SESSION_CONFIG = "runtime/agent_session_config" as const;
+
 export const SESSION_ENTRY_TYPES = [
   SESSION_ENTRY_TARGET_COMPLETION_VERIFICATION,
   SESSION_ENTRY_BASH_SHELL_SELECTION,
@@ -817,6 +825,7 @@ export const SESSION_ENTRY_TYPES = [
   SESSION_ENTRY_USER_INPUT_AUTO_RESOLUTION,
   SESSION_ENTRY_WORKSPACE_CHECKPOINT,
   SESSION_ENTRY_WORKSPACE_FILE_REWIND,
+  SESSION_ENTRY_AGENT_SESSION_CONFIG,
 ] as const;
 
 export type SessionEntryType = (typeof SESSION_ENTRY_TYPES)[number];

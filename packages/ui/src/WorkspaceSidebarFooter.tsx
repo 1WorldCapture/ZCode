@@ -108,6 +108,7 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
   onLocaleChange: (value: string) => void;
   onThemeChange: (value: string) => void;
   onSettingsButtonClick?: () => void;
+  /** Agent 中心入口；未提供时不渲染（Settings 复用 footer 的场景没有 Agent 上下文）。 */
   onUsageClick?: () => void;
   onUpgradeClick?: Parameters<
     typeof WorkspaceSidebarFooterUsageSummaryContent

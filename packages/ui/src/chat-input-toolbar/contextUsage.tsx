@@ -23,7 +23,7 @@ import {
 import { cn } from "@/components/lib/utils.js";
 import { Progress } from "@/components/ui/progress.js";
 import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
-import { isSettingsTab } from "@/store/tabStore.js";
+import { isAgentsTab, isSettingsTab } from "@/store/tabStore.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { resolveCodingPlanUsageRemainingState } from "@/CodingPlanUsageRemainingPanel.js";
 import { CodingPlanQuotaResetStatusContent } from "@/components/coding-plan-quota-reset/CodingPlanQuotaResetStatus.js";
@@ -255,7 +255,10 @@ export function ChatContextUsage({
   compressionDisabled?: boolean;
 }) {
   const isWorkspaceVisible = useOptionalTabStore(
-    (state) => !state.tabs.some((tab) => tab.id === state.activeTabId && isSettingsTab(tab)),
+    (state) =>
+      !state.tabs.some(
+        (tab) => tab.id === state.activeTabId && (isSettingsTab(tab) || isAgentsTab(tab)),
+      ),
   );
   const [contextOpen, setContextOpen] = useState(false);
   const [contextAccessRefreshing, setContextAccessRefreshing] = useState(false);

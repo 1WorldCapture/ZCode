@@ -41,6 +41,16 @@ const terminalStatuses = "'completed','failed','cancelled'";
 const activePredicate = `session_id IS NOT NULL AND status NOT IN (${terminalStatuses})`;
 const boundIndex = `CREATE UNIQUE INDEX IF NOT EXISTS idx_off_peak_bound_active ON off_peak_tasks(workspace_key,session_id) WHERE ${activePredicate}`;
 
+// Raft 绑定归属的索引投影（照 cron_automation_id 的模式，二期 R4）：
+// 历史迁移 0001 的 checksum 已冻结，新列只能走新迁移；账本保证恰好执行一次，
+// 无需 PRAGMA 幂等守卫。历史会话行不回填——R4 前创建的会话本就无绑定身份，
+// 重启恢复时 resumeTask 的补写会顺手盖章并投影到本列。
+const RAFT_BINDING_PROJECTION_MIGRATION_SQL = `
+  ALTER TABLE tasks ADD COLUMN raft_binding_id TEXT;
+  CREATE INDEX IF NOT EXISTS idx_tasks_raft_binding ON tasks(raft_binding_id, updated_at DESC)
+    WHERE raft_binding_id IS NOT NULL AND deleted=0;
+`;
+
 // 与 Agent 同样是库级串行事务，但不跨域依赖其具体 adapter。TS 转换使用冻结语义版本，
 // 禁用 function.toString 哈希：Electron/SEA 打包会改变函数文本而非迁移语义。
 const definitions = [
@@ -63,6 +73,10 @@ const definitions = [
   {
     id: "0003_official_glm_selection",
     checksumInput: [OFFICIAL_GLM_SELECTION_MIGRATION_SQL],
+  },
+  {
+    id: "0004_raft_binding_projection",
+    checksumInput: [RAFT_BINDING_PROJECTION_MIGRATION_SQL],
   },
 ] as const;
 
@@ -113,7 +127,9 @@ export function runTasksDatabaseMigrations(
       options.onProgress?.("migrating", { ...migrationFacts });
       if (migration.id === "0001_adopt_task_schema") adoptSchema(db);
       else if (migration.id === "0002_provider_selection") importLegacyAutomationSelections(db);
-      else db.exec(OFFICIAL_GLM_SELECTION_MIGRATION_SQL);
+      else if (migration.id === "0003_official_glm_selection")
+        db.exec(OFFICIAL_GLM_SELECTION_MIGRATION_SQL);
+      else db.exec(RAFT_BINDING_PROJECTION_MIGRATION_SQL);
       migrationFacts.executedCount++;
       db.prepare("INSERT INTO tasks_schema_migration VALUES(?,?,?)").run(
         migration.id,
