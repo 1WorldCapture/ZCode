@@ -133,10 +133,10 @@ const zhCN: Record<string, string> = {
   "agentCenter.activity.phase.working": "处理中",
   "agentCenter.activity.currentItem": "当前事项",
   "agentCenter.activity.pendingCount": "待处理 {count} 项",
-  "agentCenter.activity.pendingApprovals.short": "等审批 {count} 项",
-  "agentCenter.activity.pendingApprovals.title": "有 {count} 项操作等待审批",
+  "agentCenter.activity.pendingApprovals.short": "等回应 {count} 项",
+  "agentCenter.activity.pendingApprovals.title": "有 {count} 项操作在等待回应，Agent 可能已卡住",
   "agentCenter.activity.pendingApprovals.body":
-    "Agent 在等待你在 Raft 服务端审批这些操作，审批前对应工作不会继续。",
+    "请查看会话（B3 完成后可直接在下方查看），或尝试重启 Agent。",
   "agentCenter.activity.lastError": "最近错误",
   "agentCenter.activity.lastError.noCode": "最近错误 · {time}",
   "startPlan.recommendation.subagentDescription":

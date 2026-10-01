@@ -126,17 +126,19 @@ export function AgentDetailPage({ bindingId }: { bindingId: string }) {
       ) : null}
       <div className="min-w-0 flex-1 overflow-y-auto">
         {item.activity && item.activity.pendingApprovals > 0 ? (
-          <Alert variant="warning" className="mx-6 mt-4">
-            <AlertTitle>
-              {intl.formatMessage(
-                { id: "agentCenter.activity.pendingApprovals.title" },
-                { count: item.activity.pendingApprovals },
-              )}
-            </AlertTitle>
-            <AlertDescription>
-              {intl.formatMessage({ id: "agentCenter.activity.pendingApprovals.body" })}
-            </AlertDescription>
-          </Alert>
+          <div className="px-6 pt-4">
+            <Alert variant="warning">
+              <AlertTitle>
+                {intl.formatMessage(
+                  { id: "agentCenter.activity.pendingApprovals.title" },
+                  { count: item.activity.pendingApprovals },
+                )}
+              </AlertTitle>
+              <AlertDescription>
+                {intl.formatMessage({ id: "agentCenter.activity.pendingApprovals.body" })}
+              </AlertDescription>
+            </Alert>
+          </div>
         ) : null}
         <dl className="flex flex-col gap-3 border-b border-border px-6 py-4">
           <div className="flex min-w-0 flex-col gap-0.5">

@@ -146,10 +146,11 @@ const enUS: Record<string, string> = {
   "agentCenter.activity.phase.working": "Working",
   "agentCenter.activity.currentItem": "Current item",
   "agentCenter.activity.pendingCount": "{count} pending",
-  "agentCenter.activity.pendingApprovals.short": "{count} awaiting approval",
-  "agentCenter.activity.pendingApprovals.title": "{count} item(s) awaiting approval",
+  "agentCenter.activity.pendingApprovals.short": "{count} awaiting response",
+  "agentCenter.activity.pendingApprovals.title":
+    "{count} item(s) awaiting a response — the agent may be stuck",
   "agentCenter.activity.pendingApprovals.body":
-    "The agent is waiting for your approval on the Raft server; the affected work will not proceed until approved.",
+    "Check the session (once B3 lands you can view it below) or try restarting the agent.",
   "agentCenter.activity.lastError": "Last error",
   "agentCenter.activity.lastError.noCode": "Last error · {time}",
   "startPlan.recommendation.subagentDescription":
