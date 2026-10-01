@@ -26,6 +26,7 @@ import { useRaftAgentsService } from "@/agents/useAgentCenterSync.js";
 import type { RaftAgentSetupErrorCode } from "@/agents/types.js";
 import {
   buildConnectInput,
+  buildOccupiedBindingNames,
   draftErrorId,
   resolveEffectiveHomePath,
   setupErrorMessageId,
@@ -64,6 +65,9 @@ export function AgentConnectWizardPage() {
   const [reuseSlug, setReuseSlug] = useState<string | null>(null);
   const [credentials, setCredentials] = useState<CredentialItem[] | null>(null);
   const [credentialsFailed, setCredentialsFailed] = useState(false);
+  // 占用者名字（bindingId → displayName，R7）：复用列表的置灰条目显示"被谁占用"。
+  // list() 失败不阻塞凭据列表——名字缺失时条目回退到通用"已被占用"文案。
+  const [occupiedNames, setOccupiedNames] = useState<Map<string, string>>(new Map());
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [cliMissing, setCliMissing] = useState(false);
   // 第 4 步：核验状态与结果。
@@ -73,7 +77,8 @@ export function AgentConnectWizardPage() {
   // 核验成功返回的实际生效 Home 路径（输入了回显输入，留空是服务端预派发默认）。
   const [verifiedHomePath, setVerifiedHomePath] = useState<string | null>(null);
 
-  // 进入第 2 步时拉取本机凭据列表（复用选择器数据源，A1 接口）。
+  // 进入第 2 步时拉取本机凭据列表（复用选择器数据源，A1 接口）；并行拉 list()
+  // 投影算占用者名字（R7）——同一份绑定记录，UI 侧 join，服务层零改动。
   useEffect(() => {
     if (step !== 1 || !service || credentials !== null || credentialsFailed) return;
     let cancelled = false;
@@ -85,6 +90,15 @@ export function AgentConnectWizardPage() {
       .catch((error) => {
         logger.warn("[AgentCenter] 本机凭据列表加载失败", { error });
         if (!cancelled) setCredentialsFailed(true);
+      });
+    service
+      .list()
+      .then((items) => {
+        if (!cancelled) setOccupiedNames(buildOccupiedBindingNames(items));
+      })
+      .catch((error) => {
+        // 名字只是增强展示：失败留在空 Map，置灰条目回退通用文案。
+        logger.warn("[AgentCenter] 占用者名字加载失败", { error });
       });
     return () => {
       cancelled = true;
@@ -270,6 +284,7 @@ export function AgentConnectWizardPage() {
               reuseSlug={reuseSlug}
               credentials={credentials}
               credentialsFailed={credentialsFailed}
+              occupiedNames={occupiedNames}
               onRaftAgentIdChange={setRaftAgentId}
               onTokenChange={setToken}
               onSelectCredential={selectCredential}

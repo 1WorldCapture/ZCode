@@ -45,13 +45,14 @@ export function StepServerForm({
   );
 }
 
-/** 第 2 步：身份与凭据——新 token 直传或复用本机凭据（被占用者置灰）。 */
+/** 第 2 步：身份与凭据——新 token 直传或复用本机凭据（被占用者置灰并显示占用者）。 */
 export function StepIdentityForm({
   raftAgentId,
   token,
   reuseSlug,
   credentials,
   credentialsFailed,
+  occupiedNames,
   onRaftAgentIdChange,
   onTokenChange,
   onSelectCredential,
@@ -62,6 +63,8 @@ export function StepIdentityForm({
   reuseSlug: string | null;
   credentials: CredentialItem[] | null;
   credentialsFailed: boolean;
+  /** bindingId → displayName（R7）：置灰条目显示"被谁占用"；缺名字回退通用文案。 */
+  occupiedNames: Map<string, string>;
   onRaftAgentIdChange: (value: string) => void;
   onTokenChange: (value: string) => void;
   onSelectCredential: (credential: CredentialItem) => void;
@@ -82,6 +85,10 @@ export function StepIdentityForm({
           {credentials.map((credential) => {
             const occupied = credential.boundBindingId !== null;
             const selected = reuseSlug === credential.profileSlug;
+            // R7：置灰条目点名占用者（来自 list() 投影 join）；名字缺失回退通用文案。
+            const occupier = occupied
+              ? occupiedNames.get(credential.boundBindingId ?? "")
+              : undefined;
             return (
               <button
                 key={credential.profileSlug}
@@ -109,7 +116,12 @@ export function StepIdentityForm({
                 </span>
                 {occupied ? (
                   <span className="text-ui-caption text-foreground-subtlest">
-                    {intl.formatMessage({ id: "agentCenter.wizard.reuse.occupied" })}
+                    {intl.formatMessage(
+                      occupier
+                        ? { id: "agentCenter.wizard.reuse.occupiedBy" }
+                        : { id: "agentCenter.wizard.reuse.occupied" },
+                      occupier ? { name: occupier } : undefined,
+                    )}
                   </span>
                 ) : null}
               </button>

@@ -95,3 +95,16 @@ export function setupErrorMessageId(code: RaftAgentSetupErrorCode): string {
       return `agentCenter.form.error.${code}`;
   }
 }
+
+/**
+ * Occupier names for the credential reuse list (R7): bindingId → displayName
+ * from the same list() projection the Agent center already shows. The wizard
+ * joins this with a credential's boundBindingId so a disabled entry can say
+ * WHO occupies it instead of a generic "already used" line. Missing names
+ * (list failed) fall back to the generic copy at the call site.
+ */
+export function buildOccupiedBindingNames(
+  items: ReadonlyArray<{ bindingId: string; displayName: string }>,
+): Map<string, string> {
+  return new Map(items.map((item) => [item.bindingId, item.displayName]));
+}

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildConnectInput,
+  buildOccupiedBindingNames,
   draftErrorId,
   resolveEffectiveHomePath,
   WIZARD_STEP_COUNT,
@@ -95,4 +96,16 @@ test("错误码翻译：全部 setup 错误码都映射到 i18n 文案，不允�
     assert.equal(id, `agentCenter.form.error.${code}`);
     assert.ok(!id.includes("TokenInvalid") || code === "TokenInvalid");
   }
+});
+
+test("占用者名字映射（R7）：bindingId → displayName，供置灰条目点名占用者", () => {
+  assert.equal(buildOccupiedBindingNames([]).size, 0);
+
+  const names = buildOccupiedBindingNames([
+    { bindingId: "b-1", displayName: "TestAgent-1" },
+    { bindingId: "b-2", displayName: "TestAgent-4" },
+  ]);
+  assert.equal(names.get("b-1"), "TestAgent-1");
+  assert.equal(names.get("b-2"), "TestAgent-4");
+  assert.equal(names.get("b-missing"), undefined);
 });

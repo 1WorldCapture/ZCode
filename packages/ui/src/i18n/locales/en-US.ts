@@ -92,6 +92,8 @@ const enUS: Record<string, string> = {
   "agentCenter.wizard.reuse.title": "Reuse a local credential",
   "agentCenter.wizard.reuse.occupied":
     "This credential is already used by another connection and can't be reused",
+  "agentCenter.wizard.reuse.occupiedBy":
+    'This credential is already used by "{name}" and can\'t be reused',
   "agentCenter.wizard.reuse.empty": "No reusable credentials on this machine",
   "agentCenter.wizard.reuse.loadFailed":
     "Couldn't load local credentials. You can still paste a token manually",
