@@ -118,7 +118,14 @@ export function createDefaultRaftHostStack(options: {
   // 共享绑定变化 emitter：service 的 onBindingsChanged 与换会话写入（懒建/重建/
   // 重启/重置/打开会话兜底/换代 +1）经同一只广播，renderer 可纯事件驱动。
   const bindingsChanged = new Emitter<RaftAgentBinding[]>();
-  const emitBindingsChanged = (next: RaftAgentBinding[]): void => bindingsChanged.fire(next);
+  const emitBindingsChanged = (next: RaftAgentBinding[]): void => {
+    try {
+      bindingsChanged.fire(next);
+    } catch (error) {
+      // 监听器异常不应冒充换会话失败：此刻新会话已建、改绑已落盘（复核意见）。
+      logger?.warn(undefined, "raft bindings-changed listener failed (tolerated)", { error: String(error) });
+    }
+  };
   const cli = createRaftCliAdapter({ resolveProxyEnv: options.resolveProxyEnv });
   const lock = createRaftStoreWriteLock();
   const store = createRaftBindingStore(dataRootDir);
