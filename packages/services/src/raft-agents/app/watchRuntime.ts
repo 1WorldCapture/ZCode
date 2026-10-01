@@ -10,6 +10,8 @@
  * stop 经同一 in-flight 链每绑定线性化（并发重复 start 合并）；顺序红线——MEMORY
  * 门与会话恢复都完成之前绝不启动 bridge。bridge 意外退出置 ErrorPaused(bridge_exit)
  * 并触发 D6 封顶退避重拉（runtimeRecovery，spec §9）；requested 主动停不是故障。
+ * D8：bridge 首次启动的故障失败（EarlyExit 含 BRIDGE_ALREADY_RUNNING 孤儿锁、
+ * SpawnFailed、EndpointUnavailable）同链路封顶重拉——进程没起来不会再有 onExit。
  */
 import type { RaftAgentBinding, RaftAgentRunState, ZCodeOfficialMcpServerRef } from "@zcode/shared";
 
@@ -265,6 +267,10 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
         code: started.code,
         detail: started.detail,
       });
+      // D8：首启故障（EarlyExit 含 BRIDGE_ALREADY_RUNNING 孤儿锁等暂态）同样进入
+      // 封顶退避重拉——进程没起来不会再有 onExit；NotOwner/LockHeld 是多窗口
+      // 路由结果（上面已 defer），不属本机故障，不走这里。
+      recovery.noteStartFailure(bindingId);
       return { ok: false, code: "BridgeStartFailed", detail: started.detail ?? started.code };
     }
 
