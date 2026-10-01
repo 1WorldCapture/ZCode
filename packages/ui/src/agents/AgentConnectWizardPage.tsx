@@ -97,20 +97,10 @@ export function AgentConnectWizardPage() {
 
   const reuseMode = reuseSlug !== null;
 
-  // 第 4 步展示的身份：新凭据模式取 verifyCredential 返回，复用模式取所选凭据
-  // （身份沿原凭据，SPEC「二期 A2」）。两者形状一致（agentId/agentName?/serverUrl）。
-  const selectedCredential =
-    reuseSlug !== null
-      ? (credentials ?? []).find((credential) => credential.profileSlug === reuseSlug)
-      : undefined;
-  const displayIdentity: VerifyIdentity | null = reuseMode
-    ? (selectedCredential ?? null)
-    : identity;
-  // 确认页显示并提交的 Home：新凭据模式用核验返回的实际值（核验前/失败退回输入）；
-  // 复用模式 UI 无 token 不能预核验，只能用用户输入（留空时占位文案 + 服务端默认）。
-  const effectiveHomePath = reuseMode
-    ? homeWorkspacePath.trim()
-    : resolveEffectiveHomePath(homeWorkspacePath, verifiedHomePath);
+  // 第 4 步展示的身份与 Home：两种凭据模式都先走 verifyCredential（复用模式由服务侧
+  // 读凭据、读完即弃，界面拿不到也不需要 token），统一显示核验出的身份与实际生效路径。
+  const displayIdentity: VerifyIdentity | null = identity;
+  const effectiveHomePath = resolveEffectiveHomePath(homeWorkspacePath, verifiedHomePath);
 
   const goBack = () => {
     setFieldError(null);
@@ -131,10 +121,10 @@ export function AgentConnectWizardPage() {
       return;
     }
     if (step === 2) {
-      // 进入确认页：新凭据模式先调 verifyCredential 核验；复用模式的核验由
-      // createBinding 内部的 login → whoami 承担（UI 手里没有 token，无法预核验）。
+      // 进入确认页：先 verifyCredential 只核验不保存（直传 token，或复用凭据由
+      // 服务侧读出——确认页统一显示核验出的身份与实际生效 Home 路径）。
       setStep(3);
-      if (!reuseMode) void runVerify();
+      void runVerify();
       return;
     }
     setStep((current) => (current + 1) as WizardStep);
@@ -146,10 +136,12 @@ export function AgentConnectWizardPage() {
     setIdentity(null);
     setVerifiedHomePath(null);
     try {
+      // 凭据来源二选一（与服务端 schema 的 refine 同规则）：直传 token，或复用
+      // 已有凭据的 slug（服务侧读出、读完即弃）。
       const result = await service.verifyCredential({
         raftOrigin: raftOrigin.trim(),
         raftAgentId: raftAgentId.trim(),
-        token,
+        ...(reuseMode && reuseSlug ? { existingProfileSlug: reuseSlug } : { token }),
         // 带 Home 输入一起核验：留空时服务端返回预派发默认路径（确认页据此显示）。
         homeWorkspacePath: homeWorkspacePath.trim() || undefined,
       });
@@ -180,7 +172,7 @@ export function AgentConnectWizardPage() {
       token,
       homeWorkspacePath,
       reuseSlug,
-      effectiveHomePath: reuseMode ? homeWorkspacePath : effectiveHomePath,
+      effectiveHomePath,
     });
     // 无论成功失败都立即清掉输入框里的 token，重试需要重新粘贴。
     setToken("");

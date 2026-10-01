@@ -333,12 +333,22 @@ interface IRaftAgentsService {
 - **第 1 步 服务与 CLI**：Raft 服务地址输入 + CLI 检测；`CliMissing` 时只显示安装命令提示（fork 构建的 CLI 经 fork 仓库 Release 发布，真实命令已给出（A3，v0.0.24-zcode.1）；版本升级时 UI 常量同步更换），不自动执行安装。
 - **第 2 步 身份与凭据**：Agent ID + token（密码框）；复用本机已有凭据选择器（`listLocalCredentials`），被占用凭据（`boundBindingId` 非空）置灰并标注其已接入的绑定，实现"复用凭据只沿原身份"。
 - **第 3 步 Home 路径**：默认值 + 说明文案（agent 的工作区边界，文件工具只限 Home）。
-- **第 4 步 确认**：先调 `verifyCredential` 只核验不保存，展示服务端返回的 agent 名称/ID 供用户确认，确认后才 `createBinding`；14 个错误码（含 `HomeOverlapsCredentials` 与复用模式的 `ProfileInUse`）各配中英文案；成功后清空向导状态回列表。
+- **第 4 步 确认**：先调 `verifyCredential` 只核验不保存，展示服务端返回的 agent 名称/ID 供用户确认，确认后才 `createBinding`；14 个错误码（含 `HomeOverlapsCredentials` 与复用模式的 `ProfileInUse`）各配中英文案；成功后清空向导状态回列表。**确认页统一显示核验结果（PM 定稿 2026-10-01，bbb29be1 线程）**：Home 路径显示核验返回的实际生效值（`homePath`——输入了则回显核验后的值，留空则显示服务端预派发默认路径），身份两种凭据模式都来自核验（复用凭据不留占位），保存时把显示的路径作为 `homeWorkspacePath` 显式提交；退回前面步骤或切换凭据模式即作废已核验结果，重新核验。
 - **详情页「记忆」只读块**：`listMemoryFiles` + `readMemoryFile`，树形展示 `MEMORY.md` / `AGENTS.md` / `notes/`，只读渲染；单文件 512KB 截断时显示 truncated 提示。
 
 ### 接口对接（A1 形状，a517415a 线程为准）
 
 `verifyCredential` / `listLocalCredentials` / `listMemoryFiles` / `readMemoryFile` 按 Dev-developer 的 A1 形状对接（schema 与服务端实现随 A1 落地）。
+
+`verifyCredential` 扩展（复用模式统一核验，PM 定稿；实现 ae37975 / 4e47fe8）：
+
+```ts
+// 凭据来源与 createBinding 同规则二选一；复用模式服务侧读凭据、读完即弃。
+verifyCredential(input: { raftOrigin, raftAgentId, homeWorkspacePath? }
+  & ({ token: string } | { existingProfileSlug: string }))
+// 成功：{ ok: true, identity: { agentId, agentName?, serverUrl, serverId }, homePath }
+// homePath 是实际生效路径（含服务端派生/预派发默认）；失败码含复用模式的 ProfileInUse。
+```
 
 `createBinding` 复用模式输入扩展（a517415a 线程已确认，Dev-developer 2026-10-01）：
 
@@ -396,6 +406,7 @@ createBinding(input: { raftOrigin, raftAgentId, homePath }
 
 - **向导核验错误码走翻译**：`verifyCredential` 失败的错误码原先以原始字符串（如 `TokenInvalid`）直接上屏；统一经 `setupErrorMessageId` 映射为 i18n 文案（与提交错误同一映射表，穷尽枚举）。
 - **记忆面板快速切换防串文件**：`AgentMemoryPanel` 连续点击不同文件时，慢请求可能后至覆盖新选择的内容；加请求序号保护——响应到达时序号不是最新即丢弃，并兜底复位 reading 态。
+- **绑定记录文件损坏的定向提示**：`list()` 抛错后调 `getStorageHealth()` 探测；损坏时按 PM 定稿文案提示「绑定记录文件损坏，已备份到 {backupPath}，请恢复后重启 ZCode」，`backupPath` 为 null（备份创建失败）时如实改说「未能创建备份」。不解析异常文本，非损坏错误仍是笼统的加载失败。用户手动恢复文件后探测自动回到 ok（界面随之正常）。
 
 ### 复用替换（审核第 14–22 项）
 
