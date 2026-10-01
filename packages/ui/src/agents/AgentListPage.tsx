@@ -5,6 +5,7 @@
  * 空状态显示"接入 Agent"引导；每行区分用户暂停与异常暂停（带原因）。
  */
 import { Bot, Play, Plus, Square } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert.js";
 import { Button } from "@/components/ui/button.js";
 import { Spinner } from "@/components/ui/spinner.js";
 import { StatusDot } from "@/settings/StatusDot.js";
@@ -47,8 +48,10 @@ export function AgentListPage() {
   if (!loaded) {
     if (corruptStorage) {
       return (
-        <div className="flex h-full items-center justify-center px-6 text-center">
-          <CorruptStorageNotice backupPath={corruptStorage.backupPath} />
+        <div className="flex h-full items-center justify-center px-6">
+          <div className="w-full max-w-lg">
+            <CorruptStorageNotice backupPath={corruptStorage.backupPath} />
+          </div>
         </div>
       );
     }
@@ -184,11 +187,13 @@ export function AgentListPage() {
 function CorruptStorageNotice({ backupPath }: { backupPath: string | null }) {
   const { intl } = useZCodeIntl();
   return (
-    <p className="max-w-md text-ui-caption text-destructive" role="alert">
-      {intl.formatMessage(
-        { id: backupPath ? "agentCenter.storageCorrupt.withBackup" : "agentCenter.storageCorrupt.withoutBackup" },
-        backupPath ? { backupPath } : undefined,
-      )}
-    </p>
+    <Alert variant="destructive">
+      <AlertDescription>
+        {intl.formatMessage(
+          { id: backupPath ? "agentCenter.storageCorrupt.withBackup" : "agentCenter.storageCorrupt.withoutBackup" },
+          backupPath ? { backupPath } : undefined,
+        )}
+      </AlertDescription>
+    </Alert>
   );
 }
