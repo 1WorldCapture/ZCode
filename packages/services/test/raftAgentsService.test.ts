@@ -369,9 +369,7 @@ test("removeBinding 与 setDesiredState 更新存储并广播", async () => {
     service.onBindingsChanged(() => events.push(1));
 
     await service.setDesiredState(bindingId, "Running");
-    const afterSet = await service.get(bindingId);
-    assert.equal(afterSet?.desiredState, "Running");
-    // T1 无运行时源：Running 意图投影为 Starting（等待 T2/T3）。
+    // T1 无运行时源：Running 意图投影为 Starting（desiredState 已持久化的证词）。
     assert.equal((await service.list())[0].runState, "Starting");
 
     await service.removeBinding(bindingId, { deleteHome: false });
@@ -392,10 +390,23 @@ test("绑定存储损坏：报错且不自动清空（fail-closed，审核 D3）
     const service = await makeService(fakeCli({}), dataRoot);
     // 读取报错（不再按空集继续），上层据此提示用户恢复。
     await assert.rejects(service.list(), /corrupt/);
+    // 健康探测给出有形状的损坏态（专用码 + 备份路径），界面不必解析异常文本。
+    const health = await service.getStorageHealth();
+    assert.equal(health.status, "corrupt");
+    if (health.status === "corrupt") {
+      assert.equal(health.storePath, bindingsPath);
+      assert.ok(health.backupPath, "带备份路径");
+      const { stat } = await import("node:fs/promises");
+      assert.ok((await stat(health.backupPath)).isFile(), "备份文件真实存在");
+    }
     // 原文件原样保留（不自动清空），且留有内容寻址的证据备份。
     assert.equal(await readFile(bindingsPath, "utf8"), "{ not json");
     const dirEntries = await (await import("node:fs/promises")).readdir(join(dataRoot, "raft"));
     assert.ok(dirEntries.some((name) => name.startsWith("bindings.json.corrupt-")), "存在证据备份");
+    // 用户手工恢复后：探测回到 ok，list 恢复可用（备份副本不参与读取）。
+    await writeFile(bindingsPath, JSON.stringify({ version: 1, bindings: [] }), "utf8");
+    assert.deepEqual(await service.getStorageHealth(), { status: "ok" });
+    assert.equal((await service.list()).length, 0);
   } finally {
     await rm(dataRoot, { recursive: true, force: true });
   }
@@ -470,9 +481,10 @@ test("onDesiredStateChanged：落盘成功后锁外回调；绑定不存在不�
     assert.equal(calls.length, 0);
 
     // 回调同步抛错不影响 setDesiredState 的结果（状态已落盘）。
+    const throwingStore = createRaftBindingStore(dataRoot);
     const throwing = createRaftAgentsService({
       cli: fakeCli({}),
-      store: createRaftBindingStore(dataRoot),
+      store: throwingStore,
       clock: fixedClock,
       dataRootDir: dataRoot,
       onDesiredStateChanged: () => {
@@ -480,7 +492,7 @@ test("onDesiredStateChanged：落盘成功后锁外回调；绑定不存在不�
       },
     });
     await throwing.setDesiredState(created.binding.bindingId, "ReadyStopped");
-    const stored = await throwing.get(created.binding.bindingId);
+    const stored = (await throwingStore.readAll()).find((b) => b.bindingId === created.binding.bindingId);
     assert.equal(stored?.desiredState, "ReadyStopped");
   } finally {
     await rm(dataRoot, { recursive: true, force: true });

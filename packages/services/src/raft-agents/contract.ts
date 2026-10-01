@@ -19,6 +19,7 @@ import {
   type RaftAgentOpenSessionResult,
   type RaftAgentRemoveHomeOutcome,
   type RaftAgentSetupResult,
+  type RaftAgentStorageHealth,
   type RaftAgentVerifyCredentialInput,
   type RaftAgentVerifyResult,
 } from "@zcode/shared";
@@ -36,6 +37,7 @@ export type {
   RaftAgentOpenSessionResult,
   RaftAgentRemoveHomeOutcome,
   RaftAgentSetupResult,
+  RaftAgentStorageHealth,
   RaftAgentVerifyCredentialInput,
   RaftAgentVerifyResult,
 } from "@zcode/shared";
@@ -49,7 +51,11 @@ export type {
 export interface IRaftAgentsService {
   /** 列表投影（绑定记录 + 运行状态派生）。 */
   list(): Promise<RaftAgentListItem[]>;
-  get(bindingId: string): Promise<RaftAgentBinding | null>;
+  /**
+   * 绑定存储健康态探测：list() 抛错时界面改调这里拿有形状的原因（corrupt 带
+   * storePath/backupPath），不必解析异常文本。健康时为 {status:"ok"}。
+   */
+  getStorageHealth(): Promise<RaftAgentStorageHealth>;
   /**
    * 单表单接入：CLI 检测 → 登录（stdin token）→ 身份核验 → 唯一性校验 → 持久化。
    * 各步幂等；失败保留已完成步骤，返回错误码供表单展示。全程不启动 bridge、
