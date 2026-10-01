@@ -108,11 +108,16 @@ export function StepIdentityForm({
                   selected
                     ? "border-accent bg-accent/10"
                     : reason !== null
-                      ? "cursor-not-allowed opacity-50"
+                      ? "cursor-not-allowed border-border opacity-60"
                       : "border-border hover:bg-muted"
                 }`}
               >
-                <span className="flex min-w-0 items-center gap-1.5 text-ui-sm text-foreground">
+                {/* 禁用条目整体压暗（PM 验收反馈）：名字行降到 subtlest，避免边框/文字抢亮。 */}
+                <span
+                  className={`flex min-w-0 items-center gap-1.5 text-ui-sm ${
+                    reason !== null ? "text-foreground-subtlest" : "text-foreground"
+                  }`}
+                >
                   <KeyRound className="size-3.5 shrink-0" aria-hidden="true" />
                   <span className="truncate">
                     {credential.agentName ?? credential.agentId}
