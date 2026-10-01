@@ -63,6 +63,7 @@ function buildAgentMemoryContent(memoryRoot: string, agentName: string): string 
     "如果发现 `MEMORY.md` 缺失、不可读或明显被截断，不要假装自己是全新的 agent 继续工作。先说明情况并等待人来恢复；系统也可能已经因此暂停了你。",
     "",
     "## 与 Raft 协作的提醒",
+    "- 收发 Raft 消息和操作任务一律用 raft_* 工具，不要在命令行里直接调用 raft 命令（命令行读收件箱会绕过收件日志直接确认，消息可能丢失）。",
     "- 回复只通过 Raft 的发送工具发出，并明确目标；发送前如果提示有你没读过的新消息，先阅读，再决定发原稿、改稿还是不发。",
     "- 完成任务后置为 in_review，等待人验收。",
   ].join("\n");
