@@ -137,6 +137,11 @@ export function createDefaultRaftHostStack(options: {
     store,
     sessions: options.sessions,
     activity,
+    // targetLost 自愈（R4 评审定稿）：MCP 引用与值守/管理同一来源；恢复失败经
+    // 值守层覆盖层置 ErrorPaused(session_unavailable)。runtime 在下方才创建，
+    // 回调用箭头惰性引用（唤醒发生时必已初始化）。
+    resolveOfficialMcpServers,
+    onSessionUnrecoverable: (bindingId) => runtime.markSessionUnavailable(bindingId),
     logger,
   });
   const wakeServer = createWakeServer({ handler: wakeHandler, port: options.wakePort });

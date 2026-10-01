@@ -67,6 +67,7 @@ interface TaskIndexRow {
   forked_from_task_id: string | null;
   cron_automation_id: string | null;
   off_peak_task_id: string | null;
+  raft_binding_id: string | null;
   created_at: number;
   updated_at: number;
   unread_at: number | null;
@@ -222,6 +223,8 @@ function rowToMeta(row: TaskIndexRow): ZCodeTaskMeta {
         cronAutomationId: parsed.data.cronAutomationId ?? row.cron_automation_id ?? undefined,
         // off-peak 身份同款策略：meta_json 为准、列兜底——存量迁移只写列即可生效。
         offPeakTaskId: parsed.data.offPeakTaskId ?? row.off_peak_task_id ?? undefined,
+        // Raft 绑定身份同款策略：meta_json 为准、列兜底。
+        raftBindingId: parsed.data.raftBindingId ?? row.raft_binding_id ?? undefined,
         titleOverridden: row.title_overridden === 1,
       };
     }
@@ -250,12 +253,13 @@ function rowToMeta(row: TaskIndexRow): ZCodeTaskMeta {
     forkedFromTaskId: row.forked_from_task_id ?? undefined,
     cronAutomationId: row.cron_automation_id ?? undefined,
     offPeakTaskId: row.off_peak_task_id ?? undefined,
+    raftBindingId: row.raft_binding_id ?? undefined,
     unreadAt: row.unread_at ?? undefined,
     status: (row.task_status as ZCodeTaskMeta["status"]) ?? undefined,
   };
 }
 
-/** 序列化 meta 到 meta_json。cron 身份随 meta 一起写入（单一来源），另在 writeRecord 投影到 cron_automation_id 索引列。 */
+/** 序列化 meta 到 meta_json。cron/off-peak/Raft 绑定身份随 meta 一起写入（单一来源），另在 writeRecord 投影到各自索引列。 */
 function serializeMetaJson(meta: ZCodeTaskMeta): string {
   return JSON.stringify(meta);
 }
@@ -699,6 +703,7 @@ export class TaskIndexRepo {
           forked_from_task_id,
           cron_automation_id,
           off_peak_task_id,
+          raft_binding_id,
           created_at,
           updated_at,
           unread_at,
@@ -907,6 +912,7 @@ export class TaskIndexRepo {
           forked_from_task_id,
           cron_automation_id,
           off_peak_task_id,
+          raft_binding_id,
           created_at,
           updated_at,
           unread_at,
@@ -1169,6 +1175,7 @@ export class TaskIndexRepo {
           forked_from_task_id,
           cron_automation_id,
           off_peak_task_id,
+          raft_binding_id,
           created_at,
           updated_at,
           unread_at,
@@ -1193,6 +1200,7 @@ export class TaskIndexRepo {
           @forked_from_task_id,
           @cron_automation_id,
           @off_peak_task_id,
+          @raft_binding_id,
           @created_at,
           @updated_at,
           @unread_at,
@@ -1216,6 +1224,7 @@ export class TaskIndexRepo {
           forked_from_task_id = excluded.forked_from_task_id,
           cron_automation_id = excluded.cron_automation_id,
           off_peak_task_id = excluded.off_peak_task_id,
+          raft_binding_id = excluded.raft_binding_id,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
           unread_at = CASE
@@ -1250,6 +1259,8 @@ export class TaskIndexRepo {
         cron_automation_id: record.meta.cronAutomationId ?? null,
         // off-peak 身份同款投影。
         off_peak_task_id: record.meta.offPeakTaskId ?? null,
+        // Raft 绑定身份同款投影。
+        raft_binding_id: record.meta.raftBindingId ?? null,
         created_at: record.meta.createdAt,
         updated_at: record.meta.updatedAt,
         unread_at: record.meta.unreadAt ?? null,
@@ -1348,6 +1359,9 @@ export class TaskIndexRepo {
           cronAutomationId: params.meta.cronAutomationId ?? existingMeta?.cronAutomationId,
           // off-peak 身份同款兜底：快照不带标记时保全既有归属。
           offPeakTaskId: params.meta.offPeakTaskId ?? existingMeta?.offPeakTaskId,
+          // Raft 绑定身份同款兜底：运行态快照不带标记，不同步已存值会把归属冲掉
+          //（状态重同步 / getTaskSnapshot / 无参 resumeTask 都走这里），B2/B3 随即失联。
+          raftBindingId: params.meta.raftBindingId ?? existingMeta?.raftBindingId,
           updatedAt,
           unreadAt: params.meta.unreadAt ?? existingMeta?.unreadAt,
         };
@@ -1698,6 +1712,7 @@ export class TaskIndexRepo {
           forked_from_task_id,
           cron_automation_id,
           off_peak_task_id,
+          raft_binding_id,
           created_at,
           updated_at,
           unread_at,
@@ -1780,6 +1795,7 @@ export class TaskIndexRepo {
           forked_from_task_id,
           cron_automation_id,
           off_peak_task_id,
+          raft_binding_id,
           created_at,
           updated_at,
           unread_at,
@@ -1795,6 +1811,47 @@ export class TaskIndexRepo {
         ORDER BY created_at DESC, task_id DESC`,
       )
       .all({ automation_id: automationId }) as unknown as TaskIndexRow[];
+    return rows.map(rowToMeta);
+  }
+
+  /**
+   * 列出某条 Raft 绑定产生的所有值守会话（B2 活动摘要 / B3 嵌入会话视图按绑定归组）。
+   * 走 raft_binding_id 索引列，只返回未删除的 session，按创建时间倒序。
+   */
+  async listSessionsByRaftBinding(raftBindingId: string): Promise<ZCodeTaskMeta[]> {
+    await this.ensureReady();
+    const rows = this.getDatabase()
+      .prepare(
+        `SELECT
+          workspace_key,
+          workspace_path,
+          workspace_identity,
+          task_id,
+          title,
+          task_status,
+          provider,
+          mode,
+          model,
+          migration_source,
+          forked_from_task_id,
+          cron_automation_id,
+          off_peak_task_id,
+          raft_binding_id,
+          created_at,
+          updated_at,
+          unread_at,
+          pinned,
+          archived,
+          deleted,
+          title_overridden,
+          searchable_text,
+          meta_json
+        FROM tasks
+        WHERE raft_binding_id = @raft_binding_id
+          AND deleted = 0
+        ORDER BY created_at DESC, task_id DESC`,
+      )
+      .all({ raft_binding_id: raftBindingId }) as unknown as TaskIndexRow[];
     return rows.map(rowToMeta);
   }
 
@@ -1862,6 +1919,7 @@ export class TaskIndexRepo {
           forked_from_task_id,
           cron_automation_id,
           off_peak_task_id,
+          raft_binding_id,
           created_at,
           updated_at,
           unread_at,

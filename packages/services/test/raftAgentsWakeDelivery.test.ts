@@ -1,6 +1,6 @@
 /**
  * 唤醒投递（wakeDelivery + zcodeSession 适配器）测试。
- * 覆盖：会话就绪判定、commandId 确定性（幂等键）、drain 文本来源头、
+ * 覆盖：会话就绪判定、commandId 确定性（幂等键）、targetLost 自愈（resume 一次/失败置暂停/最小装配回退）、drain 文本来源头、
  * 拒绝三态映射（经任务门面）、退避建议（busy）与 noSession/injectionFailed 分支。
  */
 import assert from "node:assert/strict";
@@ -71,9 +71,16 @@ interface SentCall {
   text: string;
 }
 
-/** 可编程 sessions 端口：记录调用并按脚本返回（create/resume 非本文件路径，抛错守卫）。 */
-function fakeSessions(scripts: RaftSessionSendOutcome[] = [{ ok: true, duplicate: false }]) {
+/**
+ * 可编程 sessions 端口：记录调用并按脚本返回；resume 走 targetLost 自愈路径，
+ * 由测试注入结果（缺省抛错 = 该测试不应触自愈）。
+ */
+function fakeSessions(
+  scripts: RaftSessionSendOutcome[] = [{ ok: true, duplicate: false }],
+  resume?: { ok: true } | { ok: false; detail?: string },
+) {
   const sent: SentCall[] = [];
+  const resumes: unknown[] = [];
   let i = 0;
   const port: RaftSessionPort = {
     async sendQueuedText(params) {
@@ -85,11 +92,14 @@ function fakeSessions(scripts: RaftSessionSendOutcome[] = [{ ok: true, duplicate
     async createAgentSession() {
       throw new Error("唤醒投递不建会话");
     },
-    async resumeAgentSession() {
-      throw new Error("唤醒投递不恢复会话");
+    async resumeAgentSession(params) {
+      resumes.push(params);
+      if (!resume) throw new Error("本测试未配置自愈 resume");
+      if (resume.ok) return { ok: true as const };
+      return { ok: false as const, code: "failed" as const, detail: resume.detail };
     },
   };
-  return { port, sent };
+  return { port, sent, resumes };
 }
 
 test("accepted：runtimeSession 为代次标识，参数含 queue 文本与确定性 commandId", async () => {
@@ -197,6 +207,95 @@ function fakeTaskService(
   };
 }
 
+const MCP_REFS = [{} as unknown as import("@zcode/shared").ZCodeOfficialMcpServerRef];
+
+test("targetLost 自愈：绑定上下文 resume 一次 → 原幂等键重投成功", async () => {
+  const { port, sent, resumes } = fakeSessions(
+    [
+      { ok: false, code: "targetLost", detail: "ZCODE_SESSION_TARGET_NOT_FOUND" },
+      { ok: true, duplicate: false },
+    ],
+    { ok: true },
+  );
+  const paused: string[] = [];
+  const handler = createRaftWakeDelivery({
+    store: fakeStore([makeBinding()]),
+    sessions: port,
+    resolveOfficialMcpServers: async () => MCP_REFS,
+    onSessionUnrecoverable: (bindingId) => paused.push(bindingId),
+  });
+  const delivery = await handler.handleWake({ bindingId: BINDING_ID, wake: makeWake() });
+  assert.deepEqual(delivery, { kind: "accepted", runtimeSession: "3" });
+  // resume 参数按绑定派生：记忆作用域 = Home + 显示名，官方 MCP 引用原样，归属盖章。
+  assert.equal(resumes.length, 1);
+  const resumed = resumes[0] as {
+    workspacePath: string;
+    sessionId: string;
+    agentMemory: { homeRoot: string; agentName: string };
+    officialMcpServers: unknown[];
+    raftBindingId: string;
+  };
+  assert.equal(resumed.workspacePath, "/tmp/raft-homes/agent-a");
+  assert.equal(resumed.sessionId, "sess-7");
+  assert.deepEqual(resumed.agentMemory, { homeRoot: "/tmp/raft-homes/agent-a", agentName: "t0-test-agent" });
+  assert.equal(resumed.officialMcpServers, MCP_REFS);
+  assert.equal(resumed.raftBindingId, BINDING_ID);
+  // 重投复用同一确定性幂等键（丢失前那次若实际已接受，此处判 duplicate 仍成功）。
+  assert.equal(sent.length, 2);
+  assert.equal(sent[0].commandId, sent[1].commandId);
+  assert.deepEqual(paused, [], "自愈成功不置暂停");
+});
+
+test("targetLost 自愈失败：置异常暂停回调并按 noSession 退避", async () => {
+  const { port, sent } = fakeSessions(
+    [{ ok: false, code: "targetLost", detail: "ZCODE_SESSION_TARGET_NOT_FOUND" }],
+    { ok: false, detail: "session row gone" },
+  );
+  const paused: string[] = [];
+  const handler = createRaftWakeDelivery({
+    store: fakeStore([makeBinding()]),
+    sessions: port,
+    resolveOfficialMcpServers: async () => MCP_REFS,
+    onSessionUnrecoverable: (bindingId) => paused.push(bindingId),
+  });
+  const delivery = await handler.handleWake({ bindingId: BINDING_ID, wake: makeWake() });
+  assert.deepEqual(delivery, { kind: "noSession" });
+  assert.deepEqual(paused, [BINDING_ID], "恢复失败必须置暂停让界面可见");
+  assert.equal(sent.length, 1, "恢复失败不重投");
+});
+
+test("targetLost 官方 MCP 引用不可用：fail-closed 按不可恢复处理", async () => {
+  const { port, resumes } = fakeSessions(
+    [{ ok: false, code: "targetLost", detail: "ZCODE_SESSION_TARGET_NOT_FOUND" }],
+    { ok: true },
+  );
+  const paused: string[] = [];
+  const handler = createRaftWakeDelivery({
+    store: fakeStore([makeBinding()]),
+    sessions: port,
+    resolveOfficialMcpServers: async () => undefined,
+    onSessionUnrecoverable: (bindingId) => paused.push(bindingId),
+  });
+  const delivery = await handler.handleWake({ bindingId: BINDING_ID, wake: makeWake() });
+  assert.deepEqual(delivery, { kind: "noSession" });
+  assert.deepEqual(paused, [BINDING_ID]);
+  assert.equal(resumes.length, 0, "不降级成无 MCP 的 resume");
+});
+
+test("targetLost 未接线自愈依赖（最小装配）：按 busy 退避保持旧行为", async () => {
+  const { port, resumes } = fakeSessions([
+    { ok: false, code: "targetLost", detail: "ZCODE_SESSION_TARGET_NOT_FOUND" },
+  ]);
+  const handler = createRaftWakeDelivery({
+    store: fakeStore([makeBinding()]),
+    sessions: port,
+    busyRetryAfterMs: 1_500,
+  });
+  const delivery = await handler.handleWake({ bindingId: BINDING_ID, wake: makeWake() });
+  assert.deepEqual(delivery, { kind: "busy", retryAfterMs: 1_500 });
+  assert.equal(resumes.length, 0);
+});
+
 test("zcodeSession 适配器：拒绝三态映射 + sendPrompt 参数形态（taskId/traceId/mode）", async () => {
   const service = fakeTaskService([
     { kind: "ok" },
@@ -236,22 +335,21 @@ test("zcodeSession 适配器：拒绝三态映射 + sendPrompt 参数形态（ta
   assert.equal(first.mode, "yolo");
 });
 
-test("zcodeSession 适配器：门面异常按 transport（可退避重试）", async () => {
+test("zcodeSession 适配器：target 丢失单列 targetLost，其余门面异常按 transport", async () => {
   const port = createZcodeSessionPort(
     fakeTaskService([
       { kind: "throw", error: Object.assign(new Error("target is not loaded: sess-1"), { code: "ZCODE_SESSION_TARGET_NOT_FOUND" }) },
       { kind: "throw", error: new Error("connection closed") },
     ]),
   );
-  // 重启后 target 映射丢失：映射 transport，值守恢复链 resume 重建 target 后重试成功。
+  // 重启后 target 映射丢失：单列 targetLost 供唤醒链自愈（适配器层自愈会丢绑定上下文）。
   const lost = await port.sendQueuedText({
     workspacePath: "/tmp/wh",
     sessionId: "s",
     commandId: "c",
     text: "t",
   });
-  assert.equal(lost.ok, false);
-  assert.equal(lost.ok === false && lost.code, "transport");
+  assert.deepEqual(lost, { ok: false, code: "targetLost", detail: "ZCODE_SESSION_TARGET_NOT_FOUND" });
   const crashed = await port.sendQueuedText({
     workspacePath: "/tmp/wh",
     sessionId: "s",

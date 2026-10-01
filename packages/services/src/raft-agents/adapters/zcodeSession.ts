@@ -5,7 +5,8 @@
  * 行为映射：
  * - sendQueuedText → sendPrompt（commandId 即 traceId，幂等键等价；门面内部
  *   assertV4CommandAckOk 已把 accepted/duplicate/noop 收为成功，stale/rejected/
- *   failed 抛 ZCodeV4CommandRejectedError，此处映射回 noSession/rejected/transport。
+ *   failed 抛 ZCodeV4CommandRejectedError，此处映射回 noSession/rejected/transport；
+ *   target 表丢失（重启后未恢复）单列 targetLost 供唤醒链自愈。
  *   duplicate 无法从门面回传——上游本就只用于日志，按 false 报告）。
  * - createAgentSession → createTask(deferPersistenceUntilFirstPrompt)：空壳会话的
  *   session 行由首个输入的统一持久化边界写入，session_input 外键随之成立（e2e S4）。
@@ -75,9 +76,13 @@ export function createZcodeSessionPort(service: ZcodeTaskSessionService): RaftSe
         if (error instanceof ZCodeV4CommandRejectedError) {
           return v4RejectionToOutcome(error);
         }
-        // 重启后 target 映射丢失（ZCODE_SESSION_TARGET_NOT_FOUND）：值守编排器的
-        // 恢复链会 resume 并重建 target，映射 transport 让唤醒侧按 busy 退避重试；
-        // 其余 RPC/连接层异常同走 transport（退避重试由调用方决定）。
+        // 重启后 target 映射丢失（ZCODE_SESSION_TARGET_NOT_FOUND）：单列 targetLost，
+        // 供唤醒链按绑定上下文 resume 自愈（PM 指定）；适配器层自愈会丢
+        // agentMemory/officialMcpServers（resume 静默退回项目记忆），故只做识别。
+        if ((error as NodeJS.ErrnoException).code === "ZCODE_SESSION_TARGET_NOT_FOUND") {
+          return { ok: false, code: "targetLost", detail: "ZCODE_SESSION_TARGET_NOT_FOUND" };
+        }
+        // 其余 RPC/连接层异常走 transport（退避重试由调用方决定）。
         return { ok: false, code: "transport", detail: String(error) };
       }
     },

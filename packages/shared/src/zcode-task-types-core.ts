@@ -325,8 +325,9 @@ export interface ZCodeTaskMeta {
   offPeakTaskId?: string;
   /**
    * Raft 绑定身份标记：该 session 属于哪条 raft agent 绑定（无人值守会话）。
-   * 与 cron/off-peak 同款持久化策略——meta_json 单一来源；B2 活动摘要与 B3
-   * 嵌入会话视图按此归组（暂不设索引投影列，按 workspace 即可反查）。
+   * 与 cron/off-peak 同款持久化策略——meta_json 单一来源 + tasks 表
+   * raft_binding_id 索引投影列；B2 活动摘要与 B3 嵌入会话视图按此归组
+   *（listSessionsByRaftBinding 走索引列查询）。
    */
   raftBindingId?: string;
   /** fork 产物保留来源 taskId，供 UI 做本地化标题兜底和后续追溯。 */

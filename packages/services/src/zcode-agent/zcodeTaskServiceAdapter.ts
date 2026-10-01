@@ -2377,6 +2377,13 @@ export function createZCodeTaskServiceAdapter(
       return tasks.map(rememberIndexedTaskMeta);
     },
 
+    async listSessionsByRaftBinding(params): Promise<ZCodeTaskMeta[]> {
+      // 同 listTasks 走 rememberIndexedTaskMeta：列表结果顺手注册 target 映射，
+      // B2/B3 列出后会话即恢复可用（resume/sendPrompt 不再 targetLost）。
+      const tasks = await taskIndexRepo.listSessionsByRaftBinding(params.raftBindingId);
+      return tasks.map(rememberIndexedTaskMeta);
+    },
+
     async listPinnedTaskIds(): Promise<string[]> {
       const tasks = await taskIndexRepo.listTaskMetas({
         provider: GLM_PROVIDER,

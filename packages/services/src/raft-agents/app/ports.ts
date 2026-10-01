@@ -94,9 +94,11 @@ export type RaftSessionSendOutcome =
       ok: false;
       /**
        * noSession = 会话目标已失效（stale / 未建会话）；rejected = 命令被拒（不可重试）；
-       * transport = 传递层失败或执行失败（可退避重试，commandId 幂等保护重复提交）。
+       * transport = 传递层失败或执行失败（可退避重试，commandId 幂等保护重复提交）；
+       * targetLost = 宿主内存 target 表未加载该会话（重启后未恢复 / 被外途归档），
+       * 会话本身未必失效——唤醒链可按绑定上下文 resume 一次自愈后重投。
        */
-      code: "noSession" | "rejected" | "transport";
+      code: "noSession" | "rejected" | "transport" | "targetLost";
       detail?: string;
     };
 

@@ -249,7 +249,8 @@ export interface IZCodeTaskService {
     /** 无人值守会话的文件工具边界（锁死 workspace 内）。 */
     confineFileToolsToWorkspace?: boolean;
     /**
-     * Raft 值守会话在创建时即盖章绑定归属（meta_json 单一来源；v4Create 路径未建模）。
+     * Raft 值守会话在创建时即盖章绑定归属（meta_json 单一来源 + raft_binding_id
+     * 索引投影列；v4Create 路径未建模）。
      */
     raftBindingId?: string;
   }): Promise<ZCodeTaskCreateResult>;
@@ -404,6 +405,13 @@ export interface IZCodeTaskService {
     workspacePath: string;
     workspaceIdentity?: string;
   }): Promise<ZCodeTaskMeta[]>;
+
+  /**
+   * 列出某条 Raft 绑定产生的所有值守会话（走 raft_binding_id 索引列，
+   * 只返回未删除、按创建时间倒序）。B2 活动摘要 / B3 嵌入会话视图按绑定归组用，
+   * 不在内存里全量过滤。
+   */
+  listSessionsByRaftBinding(params: { raftBindingId: string }): Promise<ZCodeTaskMeta[]>;
 
   /** 读取全局 pinned task id 列表，真相源为 tasks-index.sqlite */
   listPinnedTaskIds(): Promise<string[]>;
