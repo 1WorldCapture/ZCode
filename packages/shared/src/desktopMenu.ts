@@ -1,4 +1,15 @@
 import { DEFAULT_LOCALE, type Locale } from "./protocol.js";
+import { PRODUCT_IDENTITY } from "./productIdentity.js";
+
+// Brand placeholder resolver for the {appName} placeholder in menu messages.
+// The desktop main process overrides this with Electron's app.name at startup
+// so menu branding follows the packaged identity; elsewhere (web, tests) the
+// compile-time product identity is used directly.
+let appNameResolver: () => string = () => PRODUCT_IDENTITY.appName;
+
+export function setDesktopMenuAppNameResolver(resolver: () => string): void {
+  appNameResolver = resolver;
+}
 
 export const desktopMenuMessageIds = {
   file: "titleBar.menu.file",
@@ -87,13 +98,13 @@ export const desktopMenuMessages: Record<Locale, DesktopMenuLocaleMessages> = {
     "titleBar.menu.app.hideOthers": "隐藏其他",
     "titleBar.menu.app.showAll": "全部显示",
     "titleBar.menu.app.quit": "退出 {appName}",
-    "titleBar.menu.help.about": "关于 ZCode",
+    "titleBar.menu.help.about": "关于 {appName}",
     "titleBar.menu.help.whatsNew": "更新日志",
     "titleBar.menu.help.checkForUpdates": "检查更新",
     "titleBar.menu.help.toggleDevTools": "切换开发者工具",
     "titleBar.menu.help.resourceManager": "资源管理器",
     "titleBar.menu.help.toggleZCodeStdioTap": "抓取 Agent stdio 通信",
-    "titleBar.menu.help.zcodeEndpoint": "ZCode Endpoint",
+    "titleBar.menu.help.zcodeEndpoint": "{appName} Endpoint",
     "titleBar.menu.help.zcodeEndpoint.production": "Production（默认）",
     "titleBar.menu.help.zcodeEndpoint.test": "Test",
     "titleBar.menu.help.zcodeEndpoint.custom": "自定义...",
@@ -107,8 +118,8 @@ export const desktopMenuMessages: Record<Locale, DesktopMenuLocaleMessages> = {
     "desktopMenu.help.downloadingUpdateProgress": "正在下载更新... {progress}",
     "desktopMenu.help.restartToUpdate": "重启以更新（{version}）",
     "dock.menu.showCurrentWindow": "显示当前窗口",
-    "tray.tooltip": "ZCode",
-    "tray.menu.openZCode": "打开 ZCode",
+    "tray.tooltip": "{appName}",
+    "tray.menu.openZCode": "打开 {appName}",
     "tray.menu.quit": "退出",
   },
   "en-US": {
@@ -139,13 +150,13 @@ export const desktopMenuMessages: Record<Locale, DesktopMenuLocaleMessages> = {
     "titleBar.menu.app.hideOthers": "Hide others",
     "titleBar.menu.app.showAll": "Show all",
     "titleBar.menu.app.quit": "Quit {appName}",
-    "titleBar.menu.help.about": "About ZCode",
+    "titleBar.menu.help.about": "About {appName}",
     "titleBar.menu.help.whatsNew": "What's new",
     "titleBar.menu.help.checkForUpdates": "Check for updates",
     "titleBar.menu.help.toggleDevTools": "Toggle developer tools",
     "titleBar.menu.help.resourceManager": "Resource manager",
     "titleBar.menu.help.toggleZCodeStdioTap": "Capture agent stdio traffic",
-    "titleBar.menu.help.zcodeEndpoint": "ZCode Endpoint",
+    "titleBar.menu.help.zcodeEndpoint": "{appName} Endpoint",
     "titleBar.menu.help.zcodeEndpoint.production": "Production (default)",
     "titleBar.menu.help.zcodeEndpoint.test": "Test",
     "titleBar.menu.help.zcodeEndpoint.custom": "Custom...",
@@ -159,15 +170,15 @@ export const desktopMenuMessages: Record<Locale, DesktopMenuLocaleMessages> = {
     "desktopMenu.help.downloadingUpdateProgress": "Downloading update... {progress}",
     "desktopMenu.help.restartToUpdate": "Restart to update ({version})",
     "dock.menu.showCurrentWindow": "Show current window",
-    "tray.tooltip": "ZCode",
-    "tray.menu.openZCode": "Open ZCode",
+    "tray.tooltip": "{appName}",
+    "tray.menu.openZCode": "Open {appName}",
     "tray.menu.quit": "Quit",
   },
 };
 
 export function getDesktopMenuMessage(locale: Locale, id: DesktopMenuMessageId): string {
   const messages = desktopMenuMessages[locale] ?? desktopMenuMessages[DEFAULT_LOCALE];
-  return messages[id];
+  return messages[id].replaceAll("{appName}", appNameResolver());
 }
 
 export function formatDesktopMenuMessage(

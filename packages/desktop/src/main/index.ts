@@ -81,8 +81,13 @@ import {
   type UpdateStatePayload,
   type TelemetryEventPayload,
   HostMessageTypes,
+  setDesktopMenuAppNameResolver,
 } from "@zcode/shared";
 import { logger } from "./logger.js";
+
+// Menu/tray branding follows the packaged app identity (Electron app.name);
+// the shared default falls back to the compile-time product identity.
+setDesktopMenuAppNameResolver(() => app.name);
 import { markMainLaunchAppReady } from "./desktopLaunchMarks.js";
 import { createCuaPipFocusRouter, resolveCuaPipWindowKey } from "./cuaPipFocusRouter.js";
 import { createDesktopTelemetryFetch } from "./desktopTelemetryFetch.js";
