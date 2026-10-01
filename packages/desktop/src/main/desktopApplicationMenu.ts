@@ -92,10 +92,10 @@ function buildApplicationMenuTemplate(options: {
   /** 快捷键设置页录制态：true 时摘掉全部可配置 accelerator */
   disableShortcutAccelerators?: boolean;
 }): Electron.MenuItemConstructorOptions[] {
+  // {appName} in menu labels is resolved centrally by getDesktopMenuMessage
+  // (injected with app.name at startup); no per-call substitution needed.
   const getLabel = (id: (typeof desktopMenuMessageIds)[keyof typeof desktopMenuMessageIds]) =>
     getDesktopMenuLabel(options.currentApplicationLocale, id);
-  const getAppLabel = (id: (typeof desktopMenuMessageIds)[keyof typeof desktopMenuMessageIds]) =>
-    getLabel(id).replaceAll("{appName}", app.name);
   const stdioTapState = readZCodeStdioTapDevState();
   const isLocalDevelopmentRuntime = !app.isPackaged;
   const currentZoomLevel = clampDesktopZoomLevel(options.currentZoomLevel ?? 0);
@@ -135,7 +135,7 @@ function buildApplicationMenuTemplate(options: {
               },
               { type: "separator" as const },
               {
-                label: getAppLabel(desktopMenuMessageIds.appHide),
+                label: getLabel(desktopMenuMessageIds.appHide),
                 role: "hide" as const,
               },
               {
@@ -148,7 +148,7 @@ function buildApplicationMenuTemplate(options: {
               },
               { type: "separator" as const },
               {
-                label: getAppLabel(desktopMenuMessageIds.appQuit),
+                label: getLabel(desktopMenuMessageIds.appQuit),
                 role: "quit" as const,
               },
             ],

@@ -73,6 +73,11 @@ export {
   normalizeZCodeEnv,
   normalizeZCodeProductFlavor,
 } from "./env.js";
+export {
+  PRODUCT_IDENTITY,
+  resolveProductIdentity,
+} from "./productIdentity.js";
+export type { ProductIdentity } from "./productIdentity.js";
 export * from "./errors.js";
 export type { SessionCreateSource } from "./sessionCreateSource.js";
 export { resolveSafeEndpointHostname } from "./endpointHostname.js";

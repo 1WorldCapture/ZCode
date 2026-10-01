@@ -1,7 +1,7 @@
 import { Component } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import type { Locale } from "@zcode/shared";
-import { DEFAULT_LOCALE } from "@zcode/shared";
+import { DEFAULT_LOCALE, PRODUCT_IDENTITY } from "@zcode/shared";
 import { DesktopWindowFrame } from "@/DesktopWindowFrame.js";
 import zhCN from "@/i18n/locales/zh-CN.js";
 import enUS from "@/i18n/locales/en-US.js";
@@ -86,7 +86,9 @@ function resolveBoundaryLocale(): Locale {
 function formatBoundaryMessage(id: string): string {
   const locale = resolveBoundaryLocale();
   const messages = locale === "en-US" ? enUS : zhCN;
-  return messages[id] ?? id;
+  // Same brand injection as IntlProvider.formatMessage; the error boundary
+  // renders before/outside the intl context so it resolves the name itself.
+  return (messages[id] ?? id).replaceAll("{appName}", PRODUCT_IDENTITY.appName);
 }
 
 function haveResetKeysChanged(

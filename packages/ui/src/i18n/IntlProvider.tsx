@@ -9,7 +9,7 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import type { Locale, LocalePreference } from "@zcode/shared";
-import { DEFAULT_LOCALE } from "@zcode/shared";
+import { DEFAULT_LOCALE, PRODUCT_IDENTITY } from "@zcode/shared";
 import type { BroadcastMessage, IBroadcastService, ISettingService } from "@zcode/services";
 import {
   readNavigatorLanguage,
@@ -116,6 +116,9 @@ function createIntl(locale: Locale): IntlInstance {
   return {
     formatMessage({ id }, values) {
       let msg = messages[id] ?? id;
+      // Brand placeholder is resolved globally so locale files stay single-source
+      // across product flavors; call sites never pass appName explicitly.
+      msg = msg.replaceAll("{appName}", PRODUCT_IDENTITY.appName);
       if (values) {
         for (const [key, val] of Object.entries(values)) {
           msg = msg.replaceAll(`{${key}}`, String(val));
