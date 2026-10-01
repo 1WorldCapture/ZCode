@@ -1421,7 +1421,7 @@
     "packages/rpc/src/serialization.ts": "e949418e1cd17cc863c147fc8d1ff15237e1b5f0cb8e3344fd2a9ccfae9d54e7",
     "packages/server/package.json": "0a6119239c88af79bc766e3c023eb4437105a0d35b03ecca1137d1e688e60a90",
     "packages/services/package.json": "71fef5a81918526e8cdda4d3309ef3528353d0a526a9418c306ec9f95641ad50",
-    "packages/shared/package.json": "e2a1f48e43458bff4b101c8f75880defd0abe119815fa3d21a5518a848ea9c55",
+    "packages/shared/package.json": "e51c1a62ad3ac03e88b96f6598def3edcb8d220e98f991d74c5cd96162c79257",
     "packages/shared/src/zcode-protocol-v4/wire-codec.ts": "ac2494a3acc795c809c94ee9393f50271a9c2a0fd33813459e5ab93842ceef75",
     "packages/ui/package.json": "220e916077604008bb6ffea19d6bdf7148c4b09472bea251248a230ba3c69bf5",
     "packages/ui/src/components/ai-elements/agent.tsx": "830e7ea9e927de1524851337f1d35bda0e5690e3e4fa307fff854b60006b16c7",

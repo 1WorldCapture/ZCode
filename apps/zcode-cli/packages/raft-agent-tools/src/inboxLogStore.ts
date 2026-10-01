@@ -7,21 +7,16 @@
  * - 文件名里的时间戳用于保留期清理，不依赖 mtime。
  */
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
+
+import { atomicWritePrivateTextFile } from "@zcode/shared/node/private-file";
 
 import type { InboxLogEntry, InboxLogPort } from "./ports.js";
 
 // bindingId 只允许 uuid 形态字符，防止路径穿越。
 const SAFE_BINDING_ID = /^[A-Za-z0-9-]{1,64}$/;
 const FILE_NAME_PATTERN = /^(\d{13})-[0-9a-f]{8}\.json$/;
-
-/** 私有原子写：先写 0600 临时文件再 rename，崩溃只会留下临时文件而不会留下半截日志。 */
-async function writePrivateFileAtomically(path: string, content: string): Promise<void> {
-  const temp = `${path}.${process.pid}.tmp`;
-  await writeFile(temp, content, { mode: 0o600 });
-  await rename(temp, path);
-}
 
 export function createInboxLogStore(
   dataRootDir: string,
@@ -53,7 +48,8 @@ export function createInboxLogStore(
       const dir = dirOf(bindingId);
       await mkdir(dir, { recursive: true, mode: 0o700 });
       const name = `${String(nowMs()).padStart(13, "0")}-${randomUUID().replace(/-/g, "").slice(0, 8)}.json`;
-      await writePrivateFileAtomically(join(dir, name), `${JSON.stringify(entry)}\n`);
+      // 0600 原子写（ZCode 共享库）：临时文件 + rename，失败时清理临时文件。
+      await atomicWritePrivateTextFile(join(dir, name), `${JSON.stringify(entry)}\n`);
     },
 
     async list(bindingId, opts) {

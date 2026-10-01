@@ -10,10 +10,12 @@
  *   ZCODE_RAFT_CLI_PATH     官方 raft CLI 入口（宿主已校验版本）
  *   ZCODE_RAFT_INBOX_RETENTION_DAYS 可选，收件日志保留天数（受上限约束）
  */
-import { realpath } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import {
+  installStdioProcessGuards,
+  installStdioShutdownTriggers,
+  isDirectMcpEntrypoint,
+} from "@zcode/shared/node/stdio-process-lifecycle";
 
 import { createCliToolAdapter } from "./cliToolAdapter.js";
 import { createInboxLogStore } from "./inboxLogStore.js";
@@ -26,24 +28,6 @@ function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`缺少环境变量 ${name}`);
   return value;
-}
-
-// 直跑判定（与 node-repl-host 的 isDirectMcpEntrypoint 同款）：realpath 两侧比较，
-// 兼容 macOS /var → /private/var 一类别名导致的 file URL 误判。
-async function isDirectMcpEntrypoint(
-  importMetaUrl: string,
-  argvPath: string | undefined,
-): Promise<boolean> {
-  if (!argvPath) return false;
-  try {
-    const [modulePath, executablePath] = await Promise.all([
-      realpath(fileURLToPath(importMetaUrl)),
-      realpath(argvPath),
-    ]);
-    return modulePath === executablePath;
-  } catch {
-    return false;
-  }
 }
 
 // 官方插件宿主（plugin-host-command.ts）import 本模块后调用导出的 main()：main 必须
@@ -92,15 +76,14 @@ export async function main(): Promise<void> {
       .catch(() => undefined)
       .finally(() => process.exit(0));
   };
-  // MCP SDK 的 stdio transport 不监听 stdin 结束；父进程退出后必须自行收尾，避免孤儿进程。
-  process.stdin.once("end", shutdown);
-  process.stdin.once("close", shutdown);
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
-  // 输出管道关闭表示 MCP client 已不可达：直接收尾，不再写诊断。
-  process.on("uncaughtException", (error) => {
-    if ((error as NodeJS.ErrnoException).code === "EPIPE") return shutdown();
-    process.stderr.write(`raft_agent_tools uncaughtException: ${error.stack ?? error.message}\n`);
+  // 进程守护与 node-repl-host 共用（@zcode/shared）：stdin 结束/信号即收尾防孤儿；
+  // 异步错误降级为 stderr 诊断，输出管道关闭（EPIPE/EIO/…）直接收尾不再写诊断。
+  installStdioShutdownTriggers({ process, shutdown, stdin: process.stdin });
+  installStdioProcessGuards({
+    label: "raft_agent_tools",
+    onOutputClosed: shutdown,
+    process,
+    writeStderr: (text) => process.stderr.write(text),
   });
 }
 

@@ -15,6 +15,8 @@
     "./config-schema": "./src/config-schema.ts",
     "./node": "./src/node.ts",
     "./node/cli-process": "./src/node/cliProcess.ts",
+    "./node/private-file": "./src/node/privateFilePersistence.ts",
+    "./node/stdio-process-lifecycle": "./src/node/stdioProcessLifecycle.ts",
     "./zcodeEndpoint": "./src/zcodeEndpoint.ts",
     "./workspaceFileSearch": "./src/workspaceFileSearch.ts",
     "./workspaceFileEntriesCodec": "./src/workspaceFileEntriesCodec.ts",
