@@ -32,6 +32,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 const dir = dirname(fileURLToPath(import.meta.url));
 const mode = JSON.parse(readFileSync(join(dir, "mode.json"), "utf8"));
+// 能力探测（--version）恒报第一期官方版本：这些用例只覆盖旧命令行路径。
+if (process.argv.includes("--version")) { process.stdout.write("Raft CLI: 0.0.24\\n"); process.exit(0); }
 let stdin = "";
 process.stdin.on("data", (c) => (stdin += c));
 process.stdin.on("end", () => {

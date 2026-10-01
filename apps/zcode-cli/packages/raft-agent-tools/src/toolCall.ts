@@ -166,3 +166,55 @@ export function parseCheckedMessages(text: string): { messageIds: string[]; targ
   }
   return { messageIds, targets: [...targets] };
 }
+
+/** fork 命令行 `message claim` 末尾的确认凭据行（固定前缀、单行）。 */
+export const CLAIM_ACK_LINE = /^Claim-Ack: [A-Za-z0-9_-]+$/;
+
+export interface ClaimedText {
+  /** 确认凭据行（整行，含前缀）；没有消息时为 undefined。 */
+  ackLine?: string;
+  /** 逐条消息块：以 `[target=` 行起头，续行（多行正文）归入同一块。 */
+  blocks: { target: string; messageId: string; text: string }[];
+  /** 服务端还有更多待取消息。 */
+  hasMore: boolean;
+}
+
+/**
+ * 拆解 `message claim` 的规范文本：剥除 `Claim-Ack:` 行与状态行，按消息切块。
+ * 只用于确认与去重；交给模型的文本由 `renderClaimedText` 重新拼出。
+ */
+export function parseClaimedText(text: string): ClaimedText {
+  let ackLine: string | undefined;
+  let hasMore = false;
+  const blocks: ClaimedText["blocks"] = [];
+  for (const line of text.split("\n")) {
+    if (CLAIM_ACK_LINE.test(line.trim())) {
+      ackLine = line.trim();
+      continue;
+    }
+    if (line.startsWith("More messages are pending.")) {
+      hasMore = true;
+      continue;
+    }
+    if (/^No (?:more )?new inbox messages\.$/.test(line.trim())) continue;
+    const header = /^\[target=(\S+)\s+msg=(\S+)/.exec(line);
+    if (header?.[1] && header[2]) {
+      blocks.push({ target: header[1], messageId: header[2], text: line });
+      continue;
+    }
+    const last = blocks[blocks.length - 1];
+    if (last) last.text += `\n${line}`;
+  }
+  for (const block of blocks) block.text = block.text.replace(/\n+$/, "");
+  return { ackLine, blocks, hasMore };
+}
+
+/** 交给模型的文本：只含新消息块与状态行，不含确认凭据。 */
+export function renderClaimedText(blocks: ClaimedText["blocks"], hasMore: boolean): string {
+  const status = hasMore
+    ? "More messages are pending. Call raft_message_check again."
+    : blocks.length > 0
+      ? "No more new inbox messages."
+      : "No new inbox messages.";
+  return blocks.length > 0 ? `${blocks.map((b) => b.text).join("\n")}\n\n${status}\n` : `${status}\n`;
+}

@@ -277,3 +277,44 @@ interface IRaftAgentsService {
 ### 验收（A1 部分）
 
 单测覆盖：重启/重置的改绑与代次重置（含 Running 态自动恢复）、重置只清记忆面三处（projects/ 保留）、删除的停值守→关会话→清理顺序与失败中断、懒建（createBinding 无会话副作用、首启创建）、记忆只读的边界（越界路径/符号链接/大小上限）、凭据枚举不含 apiKey、openAgentSession 恢复入口带记忆与 MCP 配置、activity 投影字段。
+
+## 二期 A3：处理后再确认、发送去重与回执（task #13）
+
+上游依据：二期需求线程（#zcode-raft-integration:a517415a）；设计线程 #zcode-raft-integration:59b3e306。服务端与命令行补丁在 fork `1WorldCapture/raft-source` 分支 `feat/agent-api-claim-ack`，命令行版本 `0.0.24-zcode.1`。本节只描述 ZCode 工具适配器（`apps/zcode-cli/packages/raft-agent-tools`）的切换；T4 不变量 4、6 在新命令行下被本节取代，旧命令行下照旧。
+
+### 命令行能力（fork 新增，旧命令不变）
+
+- `raft message claim`：输出与 `message check` 相同的规范文本，**不确认**；有消息时末尾一行固定前缀 `Claim-Ack: <token>`（token 是本批确认 id 的 base64url，不含秘密）。确认前再次 claim 返回同一批（服务重启后也是），语义"至少一次"。
+- `raft message ack`：token（或整行 `Claim-Ack: ...`）从 **stdin** 读入，可重复调用。
+- `raft message send --idempotency-key=<key>`：同一个键已提交过 → 返回原消息，成功行与普通发送完全相同（不过新鲜度门、不再插入）。
+- `raft message receipt <key> --json`：`{"status":"sent","message_id":...}` 或 `{"status":"not_found"}`（未提交，可用同一个键安全重试）。
+
+### 能力探测
+
+适配器首次调用时执行一次 `raft --version`（同样固定 `--profile` 前缀与净化环境），版本串含 `-zcode.N`（N≥1）即启用新流程，结果缓存到进程结束；探测失败或旧版本 → 第一期行为（`message check`、发送不带键），不报错。若命令行是新的但服务端尚未部署补丁（claim 返回"路由未登记"），本进程回落第一期路径。
+
+### 行为
+
+**message_check（claim → 落盘 → ack）**
+1. `message claim` 取一批；按行精确剥除 `Claim-Ack:` 行，该行**不进**模型输出、收件日志、应用日志。
+2. 按消息切块（以 `[target=` 开头的行起一条），用 `(target, msg)` 去重：已记入收件日志的消息不再交给模型（但照样 ack）。已投递集合 = 进程内集合 + 首次调用时从收件日志近 7 天条目载入。
+3. 新消息先写收件日志（有限重试，同 T4）。**写成功才 ack**；写失败 → 不 ack、照常把消息交给模型并上报（下次 claim 会再给，宁重复不丢）。
+4. ack 失败只记告警（不含 token），结果照常返回；下次 claim 重复给到的消息由第 2 步去重。
+5. 本批全是重复 → 返回"没有新消息"；`has_more` 提示改写为"请再次调用 raft_message_check"。
+
+**message_send（键 + 回执 + 一次安全重试）**
+1. 每次工具调用生成一个键 `zcode:<bindingId>:<uuid>`，随 `--idempotency-key=` 发送（`sendDraft` 同样带键）。
+2. 结果不确定（超时被杀且无成功行、`UNKNOWN`/`CANNOT_CONFIRM`）→ `message receipt <key> --json`：`sent` → 按成功返回（附 messageId）；`not_found` → 用**同一个键**原样重试一次（服务端去重保证不会发出两条）；重试仍不确定或回执查询失败 → unknown（同 T4，不再自动重发）。
+3. 被扣成草稿（`SEND_HELD_AS_DRAFT`）不变：交还模型决定，不自动重试。
+
+### 不变量
+
+1. token 与 ack 凭据都不出现在 argv、模型可见输出、收件日志、应用日志；ack 凭据只经 stdin。
+2. 收件日志仍是唯一的"已交给模型"记录；ack 永远晚于成功落盘。
+3. 一次工具调用最多两次发送请求，且共用一个键。
+4. 旧命令行（无 `-zcode.N`）行为与第一期逐字节一致。
+
+### 验收（A3 部分）
+
+单测（假 CLI）：claim 后先落盘再 ack、ack 走 stdin 且 argv 无 token；`Claim-Ack:` 行不进返回文本与日志；落盘失败不 ack；重复 claim 的同批消息第二次不交给模型但仍 ack；发送带键、不确定时查回执（sent 不重发 / not_found 同键重试一次）；旧版本回落第一期行为。
+真机（服务端部署后）：claim 不 ack 再 claim 拿到同一批；去重重发不产生第二条；回执 sent/not_found。
