@@ -287,3 +287,57 @@ test("deleteHome：归属成立（标记匹配或默认位置）整删；不成�
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("deleteHome：默认位置整删顺带清空壳 agents/<id>/；非默认/非空父目录不动", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "raft-home-shell-"));
+  try {
+    const adapter = createAgentHomeAdapter();
+    const dataRoot = join(dir, "data-root");
+
+    // 默认位置整删：agents/<b-9>/ 空壳一并移除（收尾缺陷：残留空目录）。
+    const home = join(dataRoot, "agents", "b-9", "workspace");
+    await mkdir(home, { recursive: true });
+    await writeFile(join(home, "MEMORY.md"), "# legacy\n");
+    const deleted = await adapter.deleteHome({
+      homeWorkspacePath: home,
+      dataRootDir: dataRoot,
+      bindingId: "b-9",
+    });
+    assert.deepEqual(deleted, { ok: true, home: "deleted" });
+    await assert.rejects(stat(join(dataRoot, "agents", "b-9")), "空壳 agents/<id>/ 不再残留");
+    assert.ok((await stat(join(dataRoot, "agents"))).isDirectory(), "agents/ 容器保留（不向上递归）");
+
+    // 默认位置但父目录非空（workspace 之外还有内容）→ 只删 workspace，壳保留。
+    const busy = join(dataRoot, "agents", "b-8", "workspace");
+    await mkdir(busy, { recursive: true });
+    await mkdir(join(dataRoot, "agents", "b-8", "logs"), { recursive: true });
+    await writeFile(join(dataRoot, "agents", "b-8", "logs", "x.log"), "keep");
+    const busyResult = await adapter.deleteHome({
+      homeWorkspacePath: busy,
+      dataRootDir: dataRoot,
+      bindingId: "b-8",
+    });
+    assert.deepEqual(busyResult, { ok: true, home: "deleted" });
+    await assert.rejects(stat(busy));
+    assert.equal(
+      await readFile(join(dataRoot, "agents", "b-8", "logs", "x.log"), "utf8"),
+      "keep",
+      "父目录有他物时壳与其内容保留",
+    );
+
+    // 非默认位置（自选路径 + 标记匹配）：只整删 Home 本身，不碰其上层目录结构。
+    const claimedParent = join(dir, "my-homes");
+    const claimed = join(claimedParent, "agent-x");
+    await adapter.claimHomeOwnership({ homeWorkspacePath: claimed, bindingId: "b-7" });
+    const claimedResult = await adapter.deleteHome({
+      homeWorkspacePath: claimed,
+      dataRootDir: dataRoot,
+      bindingId: "b-7",
+    });
+    assert.deepEqual(claimedResult, { ok: true, home: "deleted" });
+    await assert.rejects(stat(claimed));
+    assert.ok((await stat(claimedParent)).isDirectory(), "非默认派生的父目录不在清理范围");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -12,7 +12,7 @@
  *    AGENTS.md 与 notes/**。删除整 Home 以归属标记（`.zcode-agent-home`，内容 bindingId）
  *    或默认位置派生为准；传入路径本身是符号链接即拒绝（评审定稿，线程 cb4426cd）。
  */
-import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, rm, rmdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, sep } from "node:path";
 
@@ -326,6 +326,17 @@ export function createAgentHomeAdapter(): AgentHomePort {
       }
       try {
         await rm(homeReal, { recursive: true, force: true });
+        // 默认位置派生壳清理（收尾缺陷：agents/<id>/ 空目录残留）：父目录严格匹配
+        // <dataRoot>/agents/<bindingId> 时用 rmdir 移除——rmdir 只删空目录，天然不误删；
+        // 非空（并发写入/他物）或已不存在则保留，且不向上递归（agents/、dataRoot 不动）。
+        // 壳清理失败不影响删除结果（Home 已删，终态达标）。
+        if (dataRootReal !== undefined && dirname(homeReal) === join(dataRootReal, "agents", input.bindingId)) {
+          try {
+            await rmdir(dirname(homeReal));
+          } catch {
+            /* ENOTEMPTY / ENOENT：非空或已被清理，保留 */
+          }
+        }
         return { ok: true, home: "deleted" as const };
       } catch (error) {
         return { ok: false, code: "Failed" as const, detail: String(error) };
