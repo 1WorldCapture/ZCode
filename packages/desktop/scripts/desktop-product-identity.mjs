@@ -5,6 +5,14 @@
  */
 export const ZCODE_PREVIEW_IDENTITY_ENV = "ZCODE_PREVIEW_IDENTITY";
 
+/**
+ * 构建期开关：为真时 Raft 集成构建跳过官方更新通道（autoUpdater 与远端强制升级
+ * gate）。这些通道以官方 semver 序比较版本，`3.14.3-raft.1` 这类预发布号低于
+ * `3.14.3`，会在启动时被强制升级拦截、或被官方包当"更新"覆盖掉 Raft 构建。
+ * 分发走 Raft 自己的渠道（GitHub Release 手动安装）；官方 CI 不带此变量，零影响。
+ */
+export const ZCODE_RAFT_BUILD_ENV = "ZCODE_RAFT_BUILD";
+
 const PRODUCTION_IDENTITY = Object.freeze({
   flavor: "production",
   appId: "dev.zcode.app",
@@ -47,6 +55,24 @@ export function isPreviewIdentityRequested(env = process.env) {
   }
   throw new Error(
     `invalid ${ZCODE_PREVIEW_IDENTITY_ENV}=${env[ZCODE_PREVIEW_IDENTITY_ENV]}; expected 1 or 0`,
+  );
+}
+
+/**
+ * 与 isPreviewIdentityRequested 同一套 fail-safe 拼写规则：只认 `1` 开启
+ * （`0` / 空 = 关闭），其它拼写构建期直接失败——避免 `true` 之类在脚本层被
+ * 当成开启，把未关更新通道的包发出去。
+ */
+export function isRaftBuildRequested(env = process.env) {
+  const value = env[ZCODE_RAFT_BUILD_ENV]?.trim() ?? "";
+  if (value === "1") {
+    return true;
+  }
+  if (value === "" || value === "0") {
+    return false;
+  }
+  throw new Error(
+    `invalid ${ZCODE_RAFT_BUILD_ENV}=${env[ZCODE_RAFT_BUILD_ENV]}; expected 1 or 0`,
   );
 }
 
