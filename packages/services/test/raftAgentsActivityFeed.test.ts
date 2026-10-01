@@ -281,3 +281,25 @@ test("drain 端点返回缓冲事件并遵守 max；token 校验不变", async (
     await server.stop();
   }
 });
+
+test("待处理：回合结束清零（drain 型注入被在跑回合吸收时不会一直虚高）", () => {
+  const sessions = fakeSessions();
+  const feed = createRaftActivityFeed({ sessions });
+  feed.attach(BINDING, { workspacePath: "/h", sessionId: "s1" });
+  const emit = sessions.listeners.get("s1");
+  assert.ok(emit);
+  // 三次注入、只开一轮回合：旧口径 3−1=2 一直挂着。
+  feed.noteWakeAccepted(BINDING);
+  feed.noteWakeAccepted(BINDING);
+  feed.noteWakeAccepted(BINDING);
+  emit({ kind: "turnStarted", at: 1 });
+  assert.equal(feed.resolveLive(BINDING)?.pendingCount, 2);
+  emit({ kind: "turnCompleted", at: 2 });
+  assert.equal(feed.resolveLive(BINDING)?.pendingCount, 0);
+  // 失败结束同样清零；清零后下一轮开始不会减成负数。
+  feed.noteWakeAccepted(BINDING);
+  emit({ kind: "turnFailed", at: 3, errorCode: "E_X" });
+  assert.equal(feed.resolveLive(BINDING)?.pendingCount, 0);
+  emit({ kind: "turnStarted", at: 4 });
+  assert.equal(feed.resolveLive(BINDING)?.pendingCount, 0);
+});
