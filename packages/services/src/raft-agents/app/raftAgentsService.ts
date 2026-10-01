@@ -7,11 +7,9 @@
  * T1 边界：createBinding 完成到 ReadyStopped 为止；不启动 bridge、不读收件箱、
  * 不发任何消息。接入管线实体在 bindingCreate.ts（规模拆分），此处只做装配与委托。
  */
-import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { Emitter, type Event } from "@zcode/rpc";
 import {
-  raftAgentIdSchema,
   type RaftAgentBinding,
   type RaftAgentBindingInput,
   type RaftAgentCliHealth,
@@ -30,15 +28,15 @@ import {
 import { createServiceLogger, type ServiceLogger } from "#src/logger/serviceLogger.js";
 
 import type { IRaftAgentsService, RaftProvisioningStep } from "../contract.js";
-import { normalizeHomePathForCompare, normalizeRaftOrigin } from "../domain/binding.js";
+import { normalizeRaftOrigin } from "../domain/binding.js";
 import { RaftBindingStoreCorruptError } from "../domain/bindingStoreError.js";
 import type { RaftActivityTracker } from "./activity.js";
 import type { RaftActivityFeed } from "./activityFeed.js";
-import { createRaftAgentBinding, defaultRaftAgentHomePath } from "./bindingCreate.js";
-import { resolveCredentialToken } from "./credentialToken.js";
+import { createRaftAgentBinding } from "./bindingCreate.js";
+import { toListItem } from "./listProjection.js";
+import { verifyRaftCredential } from "./verifyCredential.js";
 import type { AgentHomePort } from "./agentHomePorts.js";
 import type { RaftAgentManagement } from "./management.js";
-import { loginAndVerifyIdentity } from "./loginVerify.js";
 import { cleanupProfileQuietly } from "./profileCleanup.js";
 import type {
   ClockPort,
@@ -124,54 +122,12 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
     emitBindingsChanged: (next: RaftAgentBinding[]) => bindingsChanged.fire(next),
   };
 
-  /** 编排层追踪（唤醒/drain/出错、记忆门）+ 会话活动实时投影（B2）合成 list 的 activity。 */
-  function mergeActivity(
-    tracked: RaftAgentListItem["activity"] | undefined,
-    live: ReturnType<RaftActivityFeed["resolveLive"]>,
-  ): RaftAgentListItem["activity"] | undefined {
-    if (!live) return tracked;
-    const base = tracked ?? {
-      lastActivityAt: null,
-      lastActivityKind: null,
-      memoryLoaded: false,
-      pendingApprovals: 0,
-    };
-    const candidates = [base.lastActivityAt, live.lastSessionActivityAt].filter(
-      (value): value is string => value !== null,
-    );
-    return {
-      ...base,
-      lastActivityAt: candidates.length > 0 ? candidates.sort().at(-1) ?? null : null,
-      pendingApprovals: live.pendingApprovals,
-      phase: live.phase,
-      currentItem: live.currentItem,
-      pendingCount: live.pendingCount,
-      lastError: live.lastError,
-    };
-  }
-
-  function toListItem(binding: RaftAgentBinding): RaftAgentListItem {
-    // 运行态优先取值守编排器覆盖层（ErrorPaused/Running，T3）；无运行时源时按意图
-    // 推导（Running 意图 → Starting，等编排器接管；ReadyStopped 如实投影）。
-    const runState: RaftAgentRunState =
-      binding.desiredState === "Running" ? (options.resolveRunState?.(binding) ?? "Starting") : "ReadyStopped";
-    const activity = mergeActivity(
-      options.activity?.resolveActivity(binding.bindingId),
-      options.feed?.resolveLive(binding.bindingId),
-    );
-    return {
-      bindingId: binding.bindingId,
-      displayName: binding.displayName,
-      raftOrigin: binding.raftOrigin,
-      connectionState: "credential_ok",
-      runState,
-      homePath: binding.homeWorkspacePath,
-      // B3 嵌入会话视图：列表直达主会话编号；null = 懒建未发生，
-      // 冷恢复统一走 openAgentSession（绑定派生记忆 + MCP 的恢复/重建入口）。
-      mainSessionId: binding.mainSessionRef?.sessionId ?? null,
-      ...(activity ? { activity } : {}),
-    };
-  }
+  const toItem = (binding: RaftAgentBinding): RaftAgentListItem =>
+    toListItem(binding, {
+      resolveRunState: options.resolveRunState,
+      activity: options.activity?.resolveActivity(binding.bindingId),
+      live: options.feed?.resolveLive(binding.bindingId),
+    });
 
   async function probeStorageHealth(): Promise<RaftAgentStorageHealth> {
     try {
@@ -201,7 +157,7 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
 
   return {
     async list(): Promise<RaftAgentListItem[]> {
-      return (await store.readAll()).map(toListItem);
+      return (await store.readAll()).map(toItem);
     },
 
     /**
@@ -310,70 +266,11 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
       return bindingsChanged.event;
     },
 
-    async verifyCredential(input: RaftAgentVerifyCredentialInput): Promise<RaftAgentVerifyResult> {
-      // 与 createBinding 同族的本地前置校验（无副作用、不打网络）。
-      const origin = normalizeRaftOrigin(input.raftOrigin);
-      if (origin === undefined) return { ok: false, code: "OriginInvalid" };
-      const agentId = input.raftAgentId.trim();
-      if (!raftAgentIdSchema.safeParse(agentId).success) {
-        return { ok: false, code: "AgentIdInvalid" };
-      }
-      // 凭据来源二选一：与 createBinding 共用 resolveCredentialToken（同一条规则，
-      // 不各改各的）。核验统一走临时 verify- profile 链，用户 profile 不被触碰
-      // ——两种接入模式的确认页都能先核验身份再显示（线程 bbb29be1）。
-      const credential = await resolveCredentialToken(
-        { store, profilesCatalog: options.profilesCatalog },
+    verifyCredential(input: RaftAgentVerifyCredentialInput): Promise<RaftAgentVerifyResult> {
+      return verifyRaftCredential(
+        { cli, store, profilesCatalog: options.profilesCatalog, dataRootDir: options.dataRootDir, logger: log },
         input,
       );
-      if (!credential.ok) {
-        return { ok: false, code: credential.code, detail: credential.detail };
-      }
-      const token = credential.token;
-      // 实际生效 Home（评审线程 a517415a，B1/A2 验收）：输入给了就按创建同款规则
-      // 校验后回显；留空给预派发默认——绑定 UUID 创建时才生成，这里先派发一个
-      // 具体路径，向导保存时作为显式输入回传（与创建共用 defaultRaftAgentHomePath）。
-      let homePath: string;
-      if (input.homeWorkspacePath !== undefined) {
-        if (normalizeHomePathForCompare(input.homeWorkspacePath, { win32 }) === undefined) {
-          return {
-            ok: false,
-            code: "OriginInvalid",
-            detail: "homeWorkspacePath must be an absolute path",
-          };
-        }
-        homePath = input.homeWorkspacePath;
-      } else {
-        homePath = defaultRaftAgentHomePath(options.dataRootDir, randomUUID());
-      }
-      const resolution = await cli.resolve();
-      if (!resolution.ok) {
-        return { ok: false, code: resolution.code, detail: resolution.detail };
-      }
-      // 临时 profile：verify- 前缀不进 listLocalCredentials 枚举；任何出口都即毁，
-      // 无持久残留。登录→whoami→身份核验与 createBinding 共用一条链（复用审核 #11）。
-      const profileSlug = `verify-${randomUUID().slice(0, 8)}`;
-      const outcome = await loginAndVerifyIdentity(
-        { cli, dataRootDir: options.dataRootDir, logger: log },
-        {
-          origin,
-          expectedAgentId: agentId,
-          profileSlug,
-          profileDir: join(options.dataRootDir, "raft", "profiles", profileSlug),
-          token,
-          keepProfileOnSuccess: false,
-        },
-      );
-      if (!outcome.ok) return outcome;
-      return {
-        ok: true,
-        homePath,
-        identity: {
-          agentId: outcome.agentId,
-          ...(outcome.agentName ? { agentName: outcome.agentName } : {}),
-          serverUrl: outcome.serverUrl,
-          serverId: outcome.serverId,
-        },
-      };
     },
 
     async restartBinding(bindingId: string) {
@@ -418,10 +315,16 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
         options.profilesCatalog.list(),
         store.readAll(),
       ]);
-      // boundBindingId 与 createBinding 的 ProfileInUse 兜底同判据（profileSlug 引用）。
+      // boundBindingId 与 createBinding 的 ProfileInUse 兜底同判据：ZCode 自有凭据按
+      // profileSlug 引用；Raft 命令行凭据（slock 来源）无 ZCode slug，按同源同 agent 判。
       return entries.map((entry) => ({
         ...entry,
-        boundBindingId: bindings.find((b) => b.profileSlug === entry.profileSlug)?.bindingId ?? null,
+        boundBindingId:
+          bindings.find((b) =>
+            entry.source === "slock"
+              ? b.raftAgentId === entry.agentId && b.raftOrigin === normalizeRaftOrigin(entry.serverUrl)
+              : b.profileSlug === entry.profileSlug,
+          )?.bindingId ?? null,
       }));
     },
   };

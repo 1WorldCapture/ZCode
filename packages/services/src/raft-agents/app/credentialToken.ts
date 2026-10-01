@@ -39,6 +39,10 @@ export async function resolveCredentialToken(
     }
     const resolved = await deps.profilesCatalog.resolveProfileToken({ profileSlug: slug });
     if (!resolved.ok) {
+      if (resolved.code === "HostedByRaftDaemon") {
+        // 该身份正由本机 Raft daemon 托管：与"已占用"同处理，避免同一 agent 两处同时值守。
+        return { ok: false, code: "ProfileInUse", detail: "raft_daemon" };
+      }
       return { ok: false, code: "CredentialCheckFailed", detail: resolved.code };
     }
     token = resolved.token.trim();
