@@ -1,9 +1,8 @@
 /**
- * Agent 详情页 —— 身份与状态 + Home 入口 + 主会话视图占位。
+ * Agent 详情页 —— 身份与状态 + Home 入口 + 嵌入主会话视图（二期 B3）。
  *
- * 会话区域：第一期不嵌入会话视图（已拍板）。现有会话视图长在 StableWorkspaceApp 里，
- * 绑定当前工作区；且若从普通入口把 Home 当工作区冷恢复，会丢 agentMemory 与 Raft 工具、
- * 退回项目记忆。因此这里只放说明，Agent 的对话在 Raft 里看；复用 V4 会话视图留到二期。
+ * 会话区域经 AgentHomeSessionView 嵌入（openAgentSession 先恢复后订阅，
+ * V4PaneConversationProvider 与工作区共享注册表连接、refCount 单订阅）。
  * 关闭本页不等于停止 Agent（UI 生命周期与 Host 生命周期分离）。
  */
 import { useEffect } from "react";
@@ -15,6 +14,7 @@ import { usePlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import { useAgentCenterStore } from "@/agents/agentCenterStore.js";
+import { AgentHomeSessionView } from "@/agents/AgentHomeSessionView.js";
 import { AgentManageSection } from "@/agents/AgentManageSection.js";
 import { AgentMemoryPanel } from "@/agents/AgentMemoryPanel.js";
 import { pauseAgent, startAgent } from "@/agents/agentCenterActions.js";
@@ -252,11 +252,7 @@ export function AgentDetailPage({ bindingId }: { bindingId: string }) {
         </dl>
         <AgentMemoryPanel bindingId={item.bindingId} />
         <AgentManageSection bindingId={item.bindingId} />
-        <div className="flex h-64 items-center justify-center px-6">
-          <p className="max-w-80 text-center text-ui-caption text-foreground-subtlest">
-            {intl.formatMessage({ id: "agentCenter.detail.sessionPlaceholder" })}
-          </p>
-        </div>
+        <AgentHomeSessionView bindingId={item.bindingId} />
       </div>
     </div>
   );

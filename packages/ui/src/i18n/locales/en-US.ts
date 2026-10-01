@@ -64,7 +64,6 @@ const enUS: Record<string, string> = {
   "agentCenter.detail.raftServer": "Raft server",
   "agentCenter.detail.connectionState": "Connection state",
   "agentCenter.detail.runState": "Run state",
-  "agentCenter.detail.sessionPlaceholder": "View this Agent's conversations in Raft; an in-app session view will come in a later version.",
   "agentCenter.wizard.step1.label": "Server",
   "agentCenter.wizard.step1.description":
     "Enter the Raft server URL. The wizard checks the local CLI environment.",
@@ -153,6 +152,12 @@ const enUS: Record<string, string> = {
     "Check the session (once B3 lands you can view it below) or try restarting the agent.",
   "agentCenter.activity.lastError": "Last error",
   "agentCenter.activity.lastError.noCode": "Last error · {time}",
+  "agentCenter.session.opening": "Opening agent session…",
+  "agentCenter.session.error.NotFound": "Binding not found or deleted — refresh the list",
+  "agentCenter.session.error.McpUnavailable":
+    "Raft tool service unavailable — cannot resume the session right now",
+  "agentCenter.session.error.SessionCreateFailed": "Failed to create the main session — try again later",
+  "agentCenter.session.error.SessionResumeFailed": "Failed to resume the main session — try again later",
   "startPlan.recommendation.subagentDescription":
     "Your Start Plan has quota available for {model}. Switch this subagent’s model to the Start Plan?",
   "startPlan.recommendation.preferenceSaveFailed":

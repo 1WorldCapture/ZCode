@@ -419,6 +419,26 @@ createBinding(input: { raftOrigin, raftAgentId, homePath }
 1. 订阅失败只影响活动展示，不影响值守。
 2. 转发缓冲只是中转：宿主重启丢失未转发的少量事件可接受（会话本身完整保存）。
 3. 活动摘要只做展示，不改变任何任务状态。
+
+## 二期 B3：详情页嵌入会话视图（task #15）
+
+上游依据：二期需求（详情页嵌入主会话）；可行性报告（workspace/b3-session-view-feasibility.md，task #15 线程）；PM 指示（不新造恢复入口，用 A1 的 `openAgentSession`）；grokbot 约束（不与工作区会话视图抢同一会话订阅）。
+
+### 接口对接（已定形状）
+
+`openAgentSession(bindingId)`：确保主会话存在（懒建）→ `resumeAgentSession`（带 `agentMemory`/`officialMcpServers`，防退回项目记忆）→ 返回 `{ok:true, sessionId, workspacePath}`；失败码 `NotFound / McpUnavailable / SessionCreateFailed / SessionResumeFailed` 各配中英文案。列表投影 `mainSessionId` 为 null 表示懒建未发生（冷态）——界面**不自行 resume**，一律走 `openAgentSession` 冷恢复。
+
+### 范围
+
+- 详情页会话占位区换成嵌入的会话视图：`AgentHomeSessionView` 薄封装（V4ConversationProvider + SessionPane，可行性报告路线 a 的最小骨架）。
+- 打开时机：详情页挂载即调 `openAgentSession`（先恢复后订阅——拿到坐标才挂会话视图）；恢复中显示加载态，失败显示定向错误与重试。
+- 订阅隔离（已定稿，按代码调研）：数据面走 `V4PaneConversationProvider`——它经 `workspaceConnectionRegistry` 按 (endpoint, workspaceKey) 租连接，与工作区 workbench 的 pane 共用同一注册表桶；同一会话被工作区与本视图同时打开时，`SessionDataLayer` 的 refCount 收口为一条订阅、一份投影 store（多视图单订阅，既有机制，不新造守卫）。**不可用** `V4ConversationProvider`/`V4ChatPane`：自建 transport 与 workbench 共享同一 `zcodeAgentService`（同一 connectionId），同 topic 二次 subscribe 会按 ownership key 顶掉工作区路由，造成订阅拉锯。
+- 覆盖层限制：`focused=false`（全局快捷键不灌进 Agent 中心）、`telemetryVisible=false`（覆盖层在 workspace telemetry attachment 之外）；`onOpen*` 系列回调依赖 app-shell 容器（code viewer / 副屏 tab），一期不下发——点子代理、文件链接等在嵌入视图内无跳转，后续按需补宿主能力。
+
+### 验收（B3 部分）
+
+人工：值守未开始（mainSessionId null）点开详情页 → 自动冷恢复并显示会话；恢复失败显示定向文案；与工作区同时打开同一 Agent 会话时不互相打断。
+
 ## 二期 R3：界面审核修复（task #21）
 
 背景：grokbot「重复造轮子」审核（zcode-reuse-audit.md，feat/raft-agent-binding @ 03f9792）。本节覆盖界面侧（packages/ui/src/agents）的缺陷修复与复用替换；第 13 项（Agent 中心挂载方式）按 PM 要求先出方案、评审通过后再改。
