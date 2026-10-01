@@ -166,3 +166,13 @@ Frontend 补拍截图：两种删除结果提示、未装命令行提示。
 - **R6.1 命令行识别 — 通过（2026-10-01 16:41）**：lyonliang 用 GitHub Release tgz 安装 fork CLI（`npm install -g …botiverse-raft-0.0.24-zcode.1.tgz` → `/opt/homebrew/bin/raft`），**未设 `ZCODE_RAFT_CLI`**，重开打包版 ZCode → 三个绑定（TestAgent-1/2/3，desiredState 均 Running）恢复运行中。证据：ps 三条 bridge 进程 16:41 均以 `node /opt/homebrew/bin/raft` 拉起（argv 含 `--expected-agent`/`--adapter-instance`/wake+activity endpoint，无凭据形态）；服务端 grokbot 核对 3× `events/claim` 200 + 含消息批次紧跟 `events/ack` 200、空批次不确认——新"领取→确认"接口已启用且成对出现。
   - 顺带验证（安装前）：打包版对三个 Running 绑定如实显示"异常暂停 · Raft CLI 不可用"（CliMissing 预期降级，lyonliang 截图 d9b2de04），与手动暂停可区分——覆盖 6.2"未装命令行"的列表态表现（向导内提示另验）。
 
+### 6.12 收尾修复集（task #27；Dev-developer / Dev-Backend-grokbot / Dev-Frontend-mac 并行）
+
+- **D6 bridge 意外退出自动恢复 — 代码级通过（0bc725c，单测 5 条；真机批 F 待新包）**：requested=false 意外退出 → ErrorPaused(bridge_exit) + 封顶退避重拉 10s/30s/60s×3，连败放弃后终态与旧实现一致（界面可见原因）。单测覆盖：重拉成功清零再崩从头计 / 连败 3 次封顶停 ErrorPaused / requested 主动停零重拉 / 意图已变（desiredState 非 Running）一次即停 / stopWatch 取消与 dispose 后 no-op。真机验证（批 F：kill -9 → relaunch scheduled → ~10s 恢复；三连败封顶 → 错误态 → 手动恢复）排在新包安装后，方案 PM 已批（b0219703）。
+- **架构压行 — 通过（0bc725c + 922c542）**：watchRuntime.ts 417→368（runtimeLane/runtimeRecovery/sessionSwap 按职责拆）；raftAgentsService.ts 429→331（listProjection/verifyCredential 拆出）；架构检查 0 违规。
+- **R8 唤醒重放 + 协议漂移字段 — 合入（0015829 ← 0c96eb5，grokbot task #25）**：重启丢弃单列失败码、`:r1` 新编号重发一次；turn.started/tool.updated/scheduled 漂移字段入 schema（.strict() 不再丢）。
+- **agents/<id>/ 空壳清理 — 通过（3e3ec82，单测 +1）**：默认位置整删后空父目录 rmdir（只删空目录、不向上递归、非默认/非空不动）。
+- **AlreadyBound 预核验 — 通过（03b2f25，单测 +2）**：登录前同源同 agent + 登录后同 serverId+agentId 两层拦截，确认页直接显示占用者（UI 复用既有文案零改动）。
+- **复用凭据来源扩展 ~/.slock/profiles — 合入（922c542 → 1bc4e1f，grokbot）**：只读元数据、`slock:` 前缀、daemon 托管条目置灰 + 服务侧拒读兜底（ProfileInUse/raft_daemon）、token 不进日志/返回值；UI 置灰与来源标注（1172864/f4c3a89 → 49a4bf4，stub+CDP 截图已交 PM）。
+- 批 D（处理途中强杀不重复回复）/ 批 E（bindings.json 损坏 fail-closed）/ 批 F（D6 真机）排在新包装好、lyonliang 安装复看后执行。
+
