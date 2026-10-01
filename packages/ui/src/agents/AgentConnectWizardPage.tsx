@@ -30,6 +30,7 @@ import {
   buildConnectInput,
   buildOccupiedBindingNames,
   cliMissingDescriptionId,
+  credentialUnavailableReason,
   draftErrorId,
   resolveEffectiveHomePath,
   setupErrorMessageId,
@@ -241,7 +242,9 @@ export function AgentConnectWizardPage() {
   };
 
   const selectCredential = (credential: CredentialItem) => {
-    if (credential.boundBindingId) return; // 已被占用：置灰不可选（只沿原身份）。
+    // 与列表置灰同一判定：被 ZCode 占用或被本机 Raft daemon 托管的条目不可选。
+    // 可选条目（含 slock 来源）的 slug 原样回传，服务端按前缀区分凭据来源。
+    if (credentialUnavailableReason(credential) !== null) return;
     setReuseSlug(credential.profileSlug);
     setRaftOrigin(credential.serverUrl);
     setRaftAgentId(credential.agentId);

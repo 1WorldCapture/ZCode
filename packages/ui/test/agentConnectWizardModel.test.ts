@@ -4,6 +4,7 @@ import {
   buildConnectInput,
   buildOccupiedBindingNames,
   cliMissingDescriptionId,
+  credentialUnavailableReason,
   draftErrorId,
   resolveEffectiveHomePath,
   WIZARD_STEP_COUNT,
@@ -127,5 +128,24 @@ test("环境预检测页面决策（R6）：ok 留在向导，缺失/版本过�
   assert.equal(
     cliMissingDescriptionId("CliVersionUnsupported"),
     "agentCenter.wizard.cliMissing.versionUnsupportedDescription",
+  );
+});
+
+test("复用凭据不可选判定（#24）：ZCode 占用优先于 Raft 托管，slock 来源不改变可选性", () => {
+  // 未占用、未托管：可选（slock 来源条目照常可选，slug 原样回传由调用方保证）。
+  assert.equal(credentialUnavailableReason({ boundBindingId: null }), null);
+  assert.equal(
+    credentialUnavailableReason({ boundBindingId: null, hostedByRaftDaemon: false }),
+    null,
+  );
+  assert.equal(
+    credentialUnavailableReason({ boundBindingId: null, hostedByRaftDaemon: true }),
+    "daemon",
+  );
+  // 已被 ZCode 绑定占用优先：即使同时被托管也按"占用"说明。
+  assert.equal(credentialUnavailableReason({ boundBindingId: "b-1" }), "binding");
+  assert.equal(
+    credentialUnavailableReason({ boundBindingId: "b-1", hostedByRaftDaemon: true }),
+    "binding",
   );
 });

@@ -98,6 +98,9 @@ const enUS: Record<string, string> = {
     "This credential is already used by another connection and can't be reused",
   "agentCenter.wizard.reuse.occupiedBy":
     'This credential is already used by "{name}" and can\'t be reused',
+  "agentCenter.wizard.reuse.daemonHosted":
+    "This agent is hosted by the local Raft daemon; don't connect it again",
+  "agentCenter.wizard.reuse.sourceSlock": "From the Raft CLI",
   "agentCenter.wizard.reuse.empty": "No reusable credentials on this machine",
   "agentCenter.wizard.reuse.loadFailed":
     "Couldn't load local credentials. You can still paste a token manually",

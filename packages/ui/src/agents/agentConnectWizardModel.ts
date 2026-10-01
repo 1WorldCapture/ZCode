@@ -110,6 +110,24 @@ export function buildOccupiedBindingNames(
 }
 
 /**
+ * Why a reuse credential row is not selectable (task #24): "binding" = already
+ * bound to a ZCode binding, "daemon" = the agent is hosted by the local Raft
+ * daemon (reusing it would mean the same identity is watched from two places).
+ * Binding takes precedence; null = selectable. `source === "slock"` entries
+ * stay selectable when neither applies — the slug is passed back verbatim.
+ */
+export function credentialUnavailableReason(
+  credential: {
+    readonly boundBindingId: string | null;
+    readonly hostedByRaftDaemon?: boolean;
+  },
+): "binding" | "daemon" | null {
+  if (credential.boundBindingId !== null) return "binding";
+  if (credential.hostedByRaftDaemon === true) return "daemon";
+  return null;
+}
+
+/**
  * Wizard environment page states (R6, SPEC 9f51d48): when the host CLI probe
  * comes back not-ok the wizard switches to the install/update hint page while
  * keeping every filled field. Structural mirror of the CLI health status in

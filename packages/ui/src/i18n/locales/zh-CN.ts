@@ -89,6 +89,8 @@ const zhCN: Record<string, string> = {
   "agentCenter.wizard.reuse.title": "复用本机已有凭据",
   "agentCenter.wizard.reuse.occupied": "该凭据已被其他接入占用，不可重复接入",
   "agentCenter.wizard.reuse.occupiedBy": "该凭据已被「{name}」占用，不可重复接入",
+  "agentCenter.wizard.reuse.daemonHosted": "该 agent 正由本机 Raft 托管，请勿重复接入",
+  "agentCenter.wizard.reuse.sourceSlock": "来自 Raft 命令行",
   "agentCenter.wizard.reuse.empty": "本机暂无可复用的凭据",
   "agentCenter.wizard.reuse.loadFailed": "本机凭据列表加载失败，仍可手动输入 Token",
   "agentCenter.wizard.reuse.switchToNew": "改为输入新 Token",
