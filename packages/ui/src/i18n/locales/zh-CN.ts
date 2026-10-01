@@ -28,6 +28,10 @@ const zhCN: Record<string, string> = {
   "agentCenter.unavailable": "当前环境不支持接入 Raft Agent",
   "agentCenter.loadFailed": "无法加载 Agent 列表",
   "agentCenter.refreshFailed": "刷新失败，显示的可能不是最新状态",
+  "agentCenter.storageCorrupt.withBackup":
+    "绑定记录文件损坏，已备份到 {backupPath}，请恢复后重启 ZCode。",
+  "agentCenter.storageCorrupt.withoutBackup":
+    "绑定记录文件损坏，未能创建备份，请恢复后重启 ZCode。",
   "agentCenter.actionFailed": "操作失败，请稍后重试",
   "agentCenter.form.saving": "正在接入…",
   "agentCenter.form.error.CliMissing":

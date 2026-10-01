@@ -26,6 +26,11 @@ interface AgentCenterState {
   loaded: boolean;
   /** 最近一次刷新失败（服务不可用/RPC 异常）；成功后清除。 */
   loadFailed: boolean;
+  /**
+   * 绑定记录文件损坏（getStorageHealth 有形状结果；fail-closed：原文件保留等待手动恢复）。
+   * backupPath 为 null 表示备份创建失败，提示须如实说明。与 loadFailed 互斥显示。
+   */
+  corruptStorage: { backupPath: string | null } | null;
   view: AgentCenterView;
   /** 接入表单提交中（provisioning 可能要几秒）。 */
   submitting: boolean;
@@ -37,6 +42,7 @@ interface AgentCenterState {
   backToList: () => void;
   setItems: (items: RaftAgentListItem[]) => void;
   setLoadFailed: (failed: boolean) => void;
+  setCorruptStorage: (corrupt: { backupPath: string | null } | null) => void;
   setSubmitting: (submitting: boolean) => void;
   setSubmitError: (error: AgentSubmitError | null) => void;
   setActionFailed: (failed: boolean) => void;
@@ -46,6 +52,7 @@ export const useAgentCenterStore = create<AgentCenterState>()((set) => ({
   items: [],
   loaded: false,
   loadFailed: false,
+  corruptStorage: null,
   view: { page: "list" },
   submitting: false,
   submitError: null,
@@ -54,8 +61,9 @@ export const useAgentCenterStore = create<AgentCenterState>()((set) => ({
   openConnectForm: () => set({ view: { page: "connect" }, submitError: null }),
   openDetail: (bindingId) => set({ view: { page: "detail", bindingId }, actionFailed: false }),
   backToList: () => set({ view: { page: "list" }, actionFailed: false }),
-  setItems: (items) => set({ items, loaded: true, loadFailed: false }),
+  setItems: (items) => set({ items, loaded: true, loadFailed: false, corruptStorage: null }),
   setLoadFailed: (loadFailed) => set({ loadFailed }),
+  setCorruptStorage: (corruptStorage) => set({ corruptStorage }),
   setSubmitting: (submitting) => set({ submitting }),
   setSubmitError: (submitError) => set({ submitError }),
   setActionFailed: (actionFailed) => set({ actionFailed }),

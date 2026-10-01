@@ -28,6 +28,10 @@ const enUS: Record<string, string> = {
   "agentCenter.unavailable": "Connecting Raft Agents isn't supported in this environment",
   "agentCenter.loadFailed": "Couldn't load the Agent list",
   "agentCenter.refreshFailed": "Refresh failed; what's shown may be out of date",
+  "agentCenter.storageCorrupt.withBackup":
+    "The binding store file is corrupted. A backup was saved to {backupPath}; restore it and restart ZCode.",
+  "agentCenter.storageCorrupt.withoutBackup":
+    "The binding store file is corrupted. A backup could not be created; restore the file and restart ZCode.",
   "agentCenter.actionFailed": "That didn't work. Please try again",
   "agentCenter.form.saving": "Connecting…",
   "agentCenter.form.error.CliMissing":

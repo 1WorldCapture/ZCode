@@ -27,6 +27,7 @@ export function AgentListPage() {
   const items = useAgentCenterStore((state) => state.items);
   const loaded = useAgentCenterStore((state) => state.loaded);
   const loadFailed = useAgentCenterStore((state) => state.loadFailed);
+  const corruptStorage = useAgentCenterStore((state) => state.corruptStorage);
   const actionFailed = useAgentCenterStore((state) => state.actionFailed);
   const openConnectForm = useAgentCenterStore((state) => state.openConnectForm);
   const openDetail = useAgentCenterStore((state) => state.openDetail);
@@ -44,6 +45,13 @@ export function AgentListPage() {
 
   // 首次加载完成前不显示空态，避免闪一下「还没有接入任何 Agent」。
   if (!loaded) {
+    if (corruptStorage) {
+      return (
+        <div className="flex h-full items-center justify-center px-6 text-center">
+          <CorruptStorageNotice backupPath={corruptStorage.backupPath} />
+        </div>
+      );
+    }
     return (
       <div className="flex h-full items-center justify-center px-6 text-center">
         <p className="flex items-center gap-2 text-ui-caption text-foreground-subtle" role="status">
@@ -91,7 +99,11 @@ export function AgentListPage() {
           {intl.formatMessage({ id: "agentCenter.connect" })}
         </Button>
       </div>
-      {loadFailed || actionFailed ? (
+      {corruptStorage ? (
+        <div className="border-b border-border px-4 py-2">
+          <CorruptStorageNotice backupPath={corruptStorage.backupPath} />
+        </div>
+      ) : loadFailed || actionFailed ? (
         <p
           className="border-b border-border px-4 py-2 text-ui-caption text-destructive"
           role="alert"
@@ -162,5 +174,21 @@ export function AgentListPage() {
         })}
       </ul>
     </div>
+  );
+}
+
+/**
+ * 绑定记录文件损坏的定向提示（PM 定稿文案）。fail-closed：原文件保留，等用户
+ * 手动恢复后探测自动回到 ok。备份路径为 null（创建备份失败）时如实改说。
+ */
+function CorruptStorageNotice({ backupPath }: { backupPath: string | null }) {
+  const { intl } = useZCodeIntl();
+  return (
+    <p className="max-w-md text-ui-caption text-destructive" role="alert">
+      {intl.formatMessage(
+        { id: backupPath ? "agentCenter.storageCorrupt.withBackup" : "agentCenter.storageCorrupt.withoutBackup" },
+        backupPath ? { backupPath } : undefined,
+      )}
+    </p>
   );
 }

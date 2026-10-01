@@ -13,6 +13,17 @@ export async function refreshAgents(service: IRaftAgentsService): Promise<void> 
     store.setItems(await service.list());
   } catch (error) {
     logger.warn("[AgentCenter] 加载 Agent 列表失败", { error });
+    // list() 抛错后探一次存储健康：损坏是有形状的状态（fail-closed，原文件保留
+    // 等手动恢复），给出定向提示而不是笼统的加载失败。探测本身失败则照旧兜底。
+    try {
+      const health = await service.getStorageHealth();
+      if (health.status === "corrupt") {
+        store.setCorruptStorage({ backupPath: health.backupPath });
+        return;
+      }
+    } catch (healthError) {
+      logger.warn("[AgentCenter] 存储健康探测失败", { healthError });
+    }
     store.setLoadFailed(true);
   }
 }
