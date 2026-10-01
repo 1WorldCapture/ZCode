@@ -53,6 +53,12 @@ export interface RaftBindingCreateDeps {
   emitBindingsChanged(next: RaftAgentBinding[]): void;
 }
 
+/** 默认 Home：数据根下按绑定 UUID 派生。verifyCredential 的预派发回显与创建默认
+ * 共用同一派生函数，防止两侧路径规则漂移（评审线程 a517415a）。 */
+export function defaultRaftAgentHomePath(dataRootDir: string, bindingId: string): string {
+  return join(dataRootDir, "agents", bindingId, "workspace");
+}
+
 /** 表单输入的前置校验（本地、无副作用、不打网络）。 */
 function validateInput(
   input: RaftAgentBindingInput,
@@ -119,7 +125,7 @@ export async function createRaftAgentBinding(
 
   const bindingId = randomUUID();
   const profileSlug = deriveProfileSlug(bindingId);
-  const homePath = preflight.homePath || join(deps.dataRootDir, "agents", bindingId, "workspace");
+  const homePath = preflight.homePath || defaultRaftAgentHomePath(deps.dataRootDir, bindingId);
   if (!isAbsolute(homePath)) {
     return { ok: false, code: "OriginInvalid" };
   }

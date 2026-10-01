@@ -208,6 +208,8 @@ export function createRaftAgentManagement(options: RaftAgentManagementOptions): 
           sessionId: ref.sessionId,
           agentMemory: agentMemoryOf(binding),
           officialMcpServers,
+          // pre-会话恢复补写绑定归属（与值守恢复同款；历史行经此处顺手盖章）。
+          raftBindingId: binding.bindingId,
         });
         if (resumed.ok) {
           return { ok: true, sessionId: ref.sessionId, workspacePath: binding.homeWorkspacePath };

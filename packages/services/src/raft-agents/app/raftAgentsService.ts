@@ -27,9 +27,9 @@ import {
 import { createServiceLogger, type ServiceLogger } from "#src/logger/serviceLogger.js";
 
 import type { IRaftAgentsService, RaftProvisioningStep } from "../contract.js";
-import { normalizeRaftOrigin } from "../domain/binding.js";
+import { normalizeHomePathForCompare, normalizeRaftOrigin } from "../domain/binding.js";
 import type { RaftActivityTracker } from "./activity.js";
-import { createRaftAgentBinding } from "./bindingCreate.js";
+import { createRaftAgentBinding, defaultRaftAgentHomePath } from "./bindingCreate.js";
 import type { AgentHomePort } from "./agentHomePorts.js";
 import type { RaftAgentManagement } from "./management.js";
 import { loginAndVerifyIdentity } from "./loginVerify.js";
@@ -123,6 +123,9 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
       connectionState: "credential_ok",
       runState,
       homePath: binding.homeWorkspacePath,
+      // B3 嵌入会话视图：列表直达主会话编号；null = 懒建未发生，
+      // 冷恢复统一走 openAgentSession（绑定派生记忆 + MCP 的恢复/重建入口）。
+      mainSessionId: binding.mainSessionRef?.sessionId ?? null,
       ...(activity ? { activity } : {}),
     };
   }
@@ -241,6 +244,22 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
       if (!/^sk_agent_[A-Za-z0-9_-]+$/.test(token)) {
         return { ok: false, code: "TokenInvalid" };
       }
+      // 实际生效 Home（评审线程 a517415a，B1/A2 验收）：输入给了就按创建同款规则
+      // 校验后回显；留空给预派发默认——绑定 UUID 创建时才生成，这里先派发一个
+      // 具体路径，向导保存时作为显式输入回传（与创建共用 defaultRaftAgentHomePath）。
+      let homePath: string;
+      if (input.homeWorkspacePath !== undefined) {
+        if (normalizeHomePathForCompare(input.homeWorkspacePath, { win32 }) === undefined) {
+          return {
+            ok: false,
+            code: "OriginInvalid",
+            detail: "homeWorkspacePath must be an absolute path",
+          };
+        }
+        homePath = input.homeWorkspacePath;
+      } else {
+        homePath = defaultRaftAgentHomePath(options.dataRootDir, randomUUID());
+      }
       const resolution = await cli.resolve();
       if (!resolution.ok) {
         return { ok: false, code: resolution.code, detail: resolution.detail };
@@ -262,6 +281,7 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
       if (!outcome.ok) return outcome;
       return {
         ok: true,
+        homePath,
         identity: {
           agentId: outcome.agentId,
           ...(outcome.agentName ? { agentName: outcome.agentName } : {}),
