@@ -267,11 +267,13 @@ test("MEMORY 门失败：ErrorPaused(memory_unavailable)，不换代不 spawn（
   const memory: RaftMemoryGatePort = {
     verifyMemoryAvailable: async () => ({ ok: false, code: "MemoryUnreadable", detail: "EACCES" }),
   };
-  const { runtime, store, supervisor, sessions } = makeRuntime({ memory });
+  const sched = fakeScheduler();
+  const { runtime, store, supervisor, sessions } = makeRuntime({ memory, schedule: sched.schedule });
   const outcome = await runtime.startWatch(BINDING_ID);
   assert.equal(outcome.ok, false);
   assert.ok(!outcome.ok && outcome.code === "MemoryUnavailable");
   assert.ok(!outcome.ok && outcome.detail === "MemoryUnreadable: EACCES");
+  assert.equal(sched.pending().length, 0, "前置门 fail-closed 保持：首启门失败不触发 D8 重拉");
   assert.equal(store.writes.length, 0, "未换代");
   assert.equal(supervisor.startCalls.length, 0, "MEMORY 门未过不碰 bridge");
   assert.equal(sessions.sent.length, 0);
@@ -321,9 +323,10 @@ test("锁内意图翻转：start 期间用户停止 → 中止且不写不 spawn
   assert.equal(runtime.resolveRunState(store.current()[0]), undefined);
 });
 
-test("spawn 失败分支：EarlyExit → ErrorPaused(bridge_exit)，换代已持久化；AlreadyRunning 兜底成功", async () => {
+test("spawn 失败分支：EarlyExit → ErrorPaused(bridge_exit) + D8 安排重拉，换代已持久化；AlreadyRunning 兜底成功且不重拉", async () => {
+  const sched = fakeScheduler();
   const fail = fakeSupervisor([{ ok: false, code: "EarlyExit", detail: "exit 1" }]);
-  const first = makeRuntime({ supervisor: fail });
+  const first = makeRuntime({ supervisor: fail, schedule: sched.schedule });
   const failOutcome = await first.runtime.startWatch(BINDING_ID);
   assert.ok(!failOutcome.ok && failOutcome.code === "BridgeStartFailed");
   assert.equal(first.store.writes.length, 1, "换代先于 spawn，失败也保留代次");
@@ -331,12 +334,17 @@ test("spawn 失败分支：EarlyExit → ErrorPaused(bridge_exit)，换代已持
     kind: "ErrorPaused",
     reason: "bridge_exit",
   });
+  // D8：首启失败（进程没起来不会有 onExit）也进入封顶退避重拉。
+  assert.equal(sched.pending().length, 1, "EarlyExit 安排一次重拉");
+  assert.equal(sched.pending()[0]?.delayMs, 10_000);
 
+  const sched2 = fakeScheduler();
   const already = fakeSupervisor([{ ok: false, code: "AlreadyRunning" }]);
-  const second = makeRuntime({ supervisor: already });
+  const second = makeRuntime({ supervisor: already, schedule: sched2.schedule });
   const okOutcome = await second.runtime.startWatch(BINDING_ID);
   assert.deepEqual(okOutcome, { ok: true });
   assert.equal(second.sessions.sent.length, 0, "AlreadyRunning 不重复 drain");
+  assert.equal(sched2.pending().length, 0, "AlreadyRunning 按已运行处理，不安排重拉");
   assert.equal(second.runtime.resolveRunState(second.store.current()[0]), "Running");
 });
 
@@ -421,6 +429,73 @@ test("D6 requested 主动停零重拉", async () => {
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(sched.pending().length, 0, "requested（stop/stopAll 主动结束）不安排重拉");
   assert.equal(sched.tasks.length, 0);
+});
+
+test("D8 首启失败重拉成功：EarlyExit（孤儿锁形态）→ 10s 重拉 → Running 且计数清零", async () => {
+  const sched = fakeScheduler();
+  // 恢复窗口竞态：旧宿主孤儿 bridge 还持锁 → 首启 EarlyExit；孤儿死后重拉成功。
+  const supervisor = fakeSupervisor([
+    { ok: false, code: "EarlyExit", detail: "BRIDGE_ALREADY_RUNNING: bridge.lock held" },
+    { ok: true, pid: 5501 },
+  ]);
+  const { runtime, store } = makeRuntime({ supervisor, schedule: sched.schedule });
+  const outcome = await runtime.startWatch(BINDING_ID);
+  assert.ok(!outcome.ok && outcome.code === "BridgeStartFailed");
+  assert.equal(sched.pending().length, 1, "首启失败安排第一档退避");
+  assert.equal(sched.pending()[0]?.delayMs, 10_000);
+
+  await sched.fireNext();
+  assert.equal(supervisor.startCalls.length, 2, "10s 后重拉一次");
+  assert.equal(runtime.resolveRunState(store.current()[0]), "Running", "重拉成功恢复 Running");
+  assert.equal(sched.pending().length, 0, "成功后无遗留调度");
+  // 计数已清零：下次首启失败（模拟又一次恢复竞态）从 10s 重新开始。
+  await supervisor.exit({ bindingId: BINDING_ID, requested: false, code: 1, signal: null, stderrTail: "" });
+  assert.equal(sched.pending()[0]?.delayMs, 10_000);
+});
+
+test("D8 首启连败封顶：10s/30s/60s 共 3 次后放弃，每档恰好一个排程（无双推）", async () => {
+  const sched = fakeScheduler();
+  const supervisor = fakeSupervisor([
+    { ok: false, code: "EarlyExit", detail: "BRIDGE_ALREADY_RUNNING" },
+    { ok: false, code: "EarlyExit", detail: "BRIDGE_ALREADY_RUNNING" },
+    { ok: false, code: "EarlyExit", detail: "BRIDGE_ALREADY_RUNNING" },
+    { ok: false, code: "EarlyExit", detail: "BRIDGE_ALREADY_RUNNING" },
+  ]);
+  const { runtime, store } = makeRuntime({ supervisor, schedule: sched.schedule });
+  const outcome = await runtime.startWatch(BINDING_ID);
+  assert.ok(!outcome.ok && outcome.code === "BridgeStartFailed");
+  assert.equal(sched.pending().length, 1, "首启失败只安排一个排程");
+  assert.equal(sched.pending()[0]?.delayMs, 10_000);
+
+  await sched.fireNext();
+  assert.equal(sched.pending().length, 1, "重拉失败只推进一档（noteStartFailure 与 outcome 自推进不叠加）");
+  assert.equal(sched.pending()[0]?.delayMs, 30_000);
+  await sched.fireNext();
+  assert.equal(sched.pending().length, 1);
+  assert.equal(sched.pending()[0]?.delayMs, 60_000);
+  await sched.fireNext();
+  assert.equal(sched.pending().length, 0, "3 次失败后封顶，不再调度");
+  assert.equal(supervisor.startCalls.length, 4, "首启 + 3 次重拉，无第四次");
+  assert.deepEqual(runtime.resolveRunState(store.current()[0]), {
+    kind: "ErrorPaused",
+    reason: "bridge_exit",
+  }, "终态错误暂停且原因可见");
+});
+
+test("D8 多窗口路由结果不重拉：NotOwner/LockHeld 保持 defer；前置门失败 fail-closed 不重拉", async () => {
+  const schedOwner = fakeScheduler();
+  const owner = fakeSupervisor([{ ok: false, code: "NotOwner" }]);
+  const first = makeRuntime({ supervisor: owner, schedule: schedOwner.schedule });
+  const ownerOutcome = await first.runtime.startWatch(BINDING_ID);
+  assert.ok(!ownerOutcome.ok && ownerOutcome.code === "BridgeStartFailed");
+  assert.equal(schedOwner.pending().length, 0, "NotOwner（绑定归 owner 窗口）不属本机故障，不重拉");
+
+  const schedLock = fakeScheduler();
+  const lock = fakeSupervisor([{ ok: false, code: "LockHeld" }]);
+  const second = makeRuntime({ supervisor: lock, schedule: schedLock.schedule });
+  const lockOutcome = await second.runtime.startWatch(BINDING_ID);
+  assert.ok(!lockOutcome.ok && lockOutcome.code === "BridgeStartFailed");
+  assert.equal(schedLock.pending().length, 0, "LockHeld（多实例路由锁）不重拉");
 });
 
 test("D6 意图已变不再重试：重拉时 desiredState 已非 Running → 一次即停", async () => {

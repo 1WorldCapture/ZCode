@@ -10,6 +10,12 @@
  * terminateAllNow/disposeAllAndWait）不触发重拉；重拉成功或用户主动停止都会
  * 清零计数。bridge 侧分类加固（CHECK_FAILED+传输 cause → 可重试）需发新 CLI，
  * 记后续待办，不在本期。
+ *
+ * D8（2026-10-01 批 D 发现）：崩溃恢复窗口里 bridge 首次启动也可能失败——
+ * 典型形态是旧宿主的孤儿 bridge 还持锁，新 bridge 以 BRIDGE_ALREADY_RUNNING
+ * 快速退出（宿主侧表现为 EarlyExit）。进程没起来不会再有 onExit，同样进入
+ * 本模块的封顶退避重拉（noteStartFailure），不另写机制；多窗口路由结果
+ * （NotOwner/LockHeld）不属本机故障，仍不重拉。
  */
 import type { ServiceLogger } from "#src/logger/serviceLogger.js";
 
@@ -35,6 +41,13 @@ export interface BridgeRecoveryOptions {
 export interface BridgeRecovery {
   /** 意外退出（requested=false）：安排一次重拉；同绑定已有安排或已封顶则跳过。 */
   noteUnexpectedExit(bindingId: string): void;
+  /**
+   * D8：doStart 的 supervisor.start 故障失败（EarlyExit 含 BRIDGE_ALREADY_RUNNING
+   * 孤儿锁、SpawnFailed、EndpointUnavailable）——进程没起来不会再有 onExit，从
+   * 这里进入同一套封顶退避重拉；守卫与 noteUnexpectedExit 共用（同一故障先后从
+   * 两个入口报告时只安排一次，防退避档位双倍消耗）。
+   */
+  noteStartFailure(bindingId: string): void;
   /** 成功运行/主动停止/绑定移除：清零计数并取消未触发的重拉。 */
   noteSettled(bindingId: string): void;
   /** 宿主关停：取消全部重拉，此后 noteUnexpectedExit 为 no-op。 */
@@ -83,7 +96,9 @@ export function createBridgeRecovery(options: BridgeRecoveryOptions): BridgeReco
           if (outcome === "relaunched" || outcome === "intentGone") {
             attempts.delete(bindingId); // 跑起来了（下次故障从头计）或用户已改意图。
           } else {
-            scheduleRelaunch(bindingId); // 没起来不会再有 onExit，自推进下一档。
+            // 没起来不会再有 onExit，自推进下一档；走统一守卫——doStart 的
+            // noteStartFailure 可能已为同一失败安排过（D8 防双推跳档）。
+            triggerRelaunch(bindingId);
           }
         })
         .catch((error: unknown) => {
@@ -91,17 +106,25 @@ export function createBridgeRecovery(options: BridgeRecoveryOptions): BridgeReco
             bindingId,
             error: String(error),
           });
-          scheduleRelaunch(bindingId);
+          triggerRelaunch(bindingId);
         });
     });
     pending.set(bindingId, cancel);
   }
 
+  /** 统一入口守卫：已关停/已有安排不叠加（同一故障从 onExit 与启动失败两个入口先后报告时只安排一次）。 */
+  function triggerRelaunch(bindingId: string): void {
+    if (disposed || pending.has(bindingId)) return;
+    scheduleRelaunch(bindingId);
+  }
+
   return {
     noteUnexpectedExit(bindingId) {
       // 已有安排不叠加（同一进程只会退出一次；防御并发 onExit 重复通知）。
-      if (disposed || pending.has(bindingId)) return;
-      scheduleRelaunch(bindingId);
+      triggerRelaunch(bindingId);
+    },
+    noteStartFailure(bindingId) {
+      triggerRelaunch(bindingId);
     },
     noteSettled(bindingId) {
       attempts.delete(bindingId);
