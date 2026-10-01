@@ -102,6 +102,8 @@ function createSharedDefines() {
     __ZCODE_ENV__: JSON.stringify(zcodeEnv),
     __ZCODE_ENDPOINT_ENV__: JSON.stringify(pickProductEndpointEnv(env)),
     __ZCODE_PRODUCT_FLAVOR__: JSON.stringify(zcodeProductFlavor),
+    // 用户级数据根目录名：TinyCode 形态烧录 ".tinycode"（独立数据根），其余形态保持 ".zcode"。
+    __ZCODE_DATA_ROOT_NAME__: JSON.stringify(zcodeProductFlavor === "tinycode" ? ".tinycode" : ".zcode"),
     // Raft 集成构建跳过官方更新通道（autoUpdater / 强制升级 gate）的编译期标志。
     __ZCODE_RAFT_BUILD__: JSON.stringify(isRaftBuildRequested(env) ? "1" : "0"),
     // Computer Use Helper build identity — helperInstaller 读它决定下载哪个 Helper bundle。

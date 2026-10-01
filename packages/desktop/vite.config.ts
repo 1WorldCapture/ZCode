@@ -194,6 +194,8 @@ export default defineConfig(({ mode }) => {
       __ZCODE_BUILD_TIME__: JSON.stringify(buildMetadata.buildTime),
       __ZCODE_ENV__: JSON.stringify(zcodeEnv),
       __ZCODE_PRODUCT_FLAVOR__: JSON.stringify(zcodeProductFlavor),
+      // 用户级数据根目录名：TinyCode 形态烧录 ".tinycode"（独立数据根），其余形态保持 ".zcode"。
+      __ZCODE_DATA_ROOT_NAME__: JSON.stringify(zcodeProductFlavor === "tinycode" ? ".tinycode" : ".zcode"),
       // Raft 集成构建跳过官方更新通道（autoUpdater / 强制升级 gate）的编译期标志。
       __ZCODE_RAFT_BUILD__: JSON.stringify(isRaftBuildRequested(env) ? "1" : "0"),
       __ZCODE_LOCAL_DEVELOPMENT_RUNTIME__: JSON.stringify(mode !== "production"),

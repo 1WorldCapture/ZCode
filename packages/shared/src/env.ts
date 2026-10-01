@@ -1,14 +1,30 @@
 import type { ZCodeRuntimeEnv } from "./runtimeEnv.js";
 
 export type ZCodeEnv = "test" | "production";
-/** 安装包身份：决定应用名、app id、Electron 数据目录与更新策略；与后端环境 `ZCodeEnv` 是两个轴。 */
-export type ZCodeProductFlavor = "production" | "preview";
+/**
+ * 安装包身份：决定应用名、app id、Electron 数据目录与更新策略；与后端环境 `ZCodeEnv` 是两个轴。
+ * `tinycode` 是对外发布的独立产品形态（基于 ZCode 修改，1WorldCapture 维护）：独立 appId/
+ * 应用名/图标与独立数据根，更新与强更入口在 `!== "production"` 判断下自动关闭。
+ */
+export type ZCodeProductFlavor = "production" | "preview" | "tinycode";
+
+/**
+ * 各形态的用户可见应用名（运行时产品身份的显示名来源）。
+ * 与构建脚本 desktop-product-identity.mjs 身份表的 productName 保持一致——
+ * 构建期配置读 mjs 表，运行时（主进程/渲染层）读这里，两处由 identity 测试对账。
+ */
+export const ZCODE_PRODUCT_DISPLAY_NAMES: Record<ZCodeProductFlavor, string> = Object.freeze({
+  production: "ZCode",
+  preview: "ZCode Preview",
+  tinycode: "TinyCode",
+});
 export type ArmsRumEnv = "local" | "prod";
 
 // 非构建环境（如 e2e 测试的 mocha）下 define 不存在，用 typeof 检查 + fallback 避免 ReferenceError
 declare const __ZCODE_ENV__: string;
 declare const __ZCODE_PRODUCT_FLAVOR__: string;
 declare const __ZCODE_RAFT_BUILD__: string;
+declare const __ZCODE_DATA_ROOT_NAME__: string;
 
 export function normalizeZCodeEnv(value: string | undefined): ZCodeEnv {
   return value?.trim().toLowerCase() === "production" ? "production" : "test";
@@ -28,7 +44,7 @@ export function normalizeZCodeProductFlavor(
   zcodeEnv: ZCodeEnv,
 ): ZCodeProductFlavor {
   const normalized = value?.trim().toLowerCase();
-  if (normalized === "production" || normalized === "preview") {
+  if (normalized === "production" || normalized === "preview" || normalized === "tinycode") {
     return normalized;
   }
   return zcodeEnv === "production" ? "production" : "preview";
@@ -48,6 +64,16 @@ export const ZCODE_PRODUCT_FLAVOR = normalizeZCodeProductFlavor(
  */
 export const ZCODE_RAFT_BUILD: boolean =
   typeof __ZCODE_RAFT_BUILD__ !== "undefined" && __ZCODE_RAFT_BUILD__ === "1";
+
+/**
+ * 用户级数据根目录名（编译期 define）：production/preview 烧录 ".zcode"，TinyCode 烧录
+ * ".tinycode"。这是**唯一**的数据根名来源——services/paths.ts、CLI 适配器的用户级路径、
+ * 桌面侧引导/日志/MCP 目录都必须读它，不得再写字面 ".zcode"/".tinycode"。未注入 define
+ * 的产物（独立 CLI、web、测试）回落 ".zcode"，与官方行为一致。
+ * 注意：工作区级 `<workspace>/.zcode/`（项目配置/agent-memory/工作流档）不属用户数据根，不读此常量。
+ */
+export const ZCODE_DATA_ROOT_NAME: string =
+  typeof __ZCODE_DATA_ROOT_NAME__ !== "undefined" ? __ZCODE_DATA_ROOT_NAME__ : ".zcode";
 export const ZCODE_APP_VERSION_ENV = "ZCODE_APP_VERSION" as const;
 export const ZCODE_BUILD_COMMIT_ID_ENV = "ZCODE_BUILD_COMMIT_ID" as const;
 

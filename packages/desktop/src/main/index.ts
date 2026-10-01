@@ -68,6 +68,7 @@ import {
   type AppSettings,
   PlatformChannels,
   ZCODE_ENV,
+  ZCODE_PRODUCT_DISPLAY_NAMES,
   ZCODE_PRODUCT_FLAVOR,
   ZCODE_RAFT_BUILD,
   DEFAULT_ZCODE_ENDPOINT_ORIGIN,
@@ -2273,7 +2274,9 @@ app.whenReady().then(async () => {
         })
       : { blocked: false };
   if (ZCODE_PRODUCT_FLAVOR !== "production") {
-    logger.info("[force-update] Preview 跳过远端强制升级检查");
+    logger.info(
+      `[force-update] ${ZCODE_PRODUCT_DISPLAY_NAMES[ZCODE_PRODUCT_FLAVOR]} 形态（非 production）跳过远端强制升级检查`,
+    );
   } else if (skipForceUpdateForRaftBuild) {
     logger.info("[force-update] Raft 构建（关闭官方更新通道）跳过远端强制升级检查");
   } else if (skipForceUpdateForLocalDevRuntime) {

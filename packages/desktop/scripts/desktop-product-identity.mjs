@@ -13,6 +13,14 @@ export const ZCODE_PREVIEW_IDENTITY_ENV = "ZCODE_PREVIEW_IDENTITY";
  */
 export const ZCODE_RAFT_BUILD_ENV = "ZCODE_RAFT_BUILD";
 
+/**
+ * 构建期开关：为真时安装包使用 TinyCode 形态（对外发布身份，基于 ZCode 修改的独立产品）。
+ * TinyCode 拥有独立 appId/应用名/图标与独立数据根（~/.tinycode），可与 ZCode 正式版并排安装；
+ * 更新与强制升级入口在 `flavor !== "production"` 判断下自动关闭。与 `ZCODE_PREVIEW_IDENTITY`
+ * 互斥：同时开启直接构建期报错，避免打出身份不明的包。
+ */
+export const ZCODE_TINYCODE_IDENTITY_ENV = "ZCODE_TINYCODE_IDENTITY";
+
 const PRODUCTION_IDENTITY = Object.freeze({
   flavor: "production",
   appId: "dev.zcode.app",
@@ -31,9 +39,19 @@ const PREVIEW_IDENTITY = Object.freeze({
   cuaHelperInstallVariant: "preview",
 });
 
+const TINYCODE_IDENTITY = Object.freeze({
+  flavor: "tinycode",
+  appId: "build.raft.tinycode",
+  productName: "TinyCode",
+  linuxExecutableName: "tinycode",
+  linuxPackageName: "tinycode",
+  cuaHelperInstallVariant: "tinycode",
+});
+
 export const desktopProductIdentities = Object.freeze({
   production: PRODUCTION_IDENTITY,
   preview: PREVIEW_IDENTITY,
+  tinycode: TINYCODE_IDENTITY,
 });
 
 function normalizeDesktopZCodeEnv(env) {
@@ -76,14 +94,39 @@ export function isRaftBuildRequested(env = process.env) {
   );
 }
 
+/** 与 Preview/TinyCode 同一套 fail-safe 拼写规则（只认 `1`，`0` / 空 = 关闭，其它构建期失败）。 */
+export function isTinycodeIdentityRequested(env = process.env) {
+  const value = env[ZCODE_TINYCODE_IDENTITY_ENV]?.trim() ?? "";
+  if (value === "1") {
+    return true;
+  }
+  if (value === "" || value === "0") {
+    return false;
+  }
+  throw new Error(
+    `invalid ${ZCODE_TINYCODE_IDENTITY_ENV}=${env[ZCODE_TINYCODE_IDENTITY_ENV]}; expected 1 or 0`,
+  );
+}
+
 /**
  * 产品身份（flavor）与后端环境（`ZCODE_ENV`）是两个轴：
- * - `ZCODE_ENV=test` 一律是 Preview，测试后端不能顶着正式 `ZCode` 身份覆盖用户的正式安装；
+ * - 显式身份开关（Preview / TinyCode）优先于 `ZCODE_ENV` 推导，两个开关同时开启直接构建期报错；
+ * - `ZCODE_ENV=test` 默认是 Preview，测试后端不能顶着正式 `ZCode` 身份覆盖用户的正式安装；
  * - `ZCODE_ENV=production` 默认是正式身份，显式 `ZCODE_PREVIEW_IDENTITY=1` 时改用 Preview 身份。
  * 未知 `ZCODE_ENV` 继续按 test 处理，和共享层 normalizeZCodeEnv 的 fail-safe 默认值一致。
  */
 export function resolveDesktopProductFlavor(env = process.env) {
-  if (isPreviewIdentityRequested(env)) {
+  const previewRequested = isPreviewIdentityRequested(env);
+  const tinycodeRequested = isTinycodeIdentityRequested(env);
+  if (previewRequested && tinycodeRequested) {
+    throw new Error(
+      `invalid build configuration: ${ZCODE_PREVIEW_IDENTITY_ENV}=1 and ${ZCODE_TINYCODE_IDENTITY_ENV}=1 are mutually exclusive`,
+    );
+  }
+  if (tinycodeRequested) {
+    return "tinycode";
+  }
+  if (previewRequested) {
     return "preview";
   }
   return normalizeDesktopZCodeEnv(env) === "production" ? "production" : "preview";
@@ -112,7 +155,7 @@ export function resolveWindowsAppUserModelIdForFlavor(flavor, runtime = { isPack
   if (runtime.isPackaged === false) {
     return "cn.aminer.zcode";
   }
-  return desktopProductIdentities[flavor === "preview" ? "preview" : "production"].appId;
+  return (desktopProductIdentities[flavor] ?? desktopProductIdentities.production).appId;
 }
 
 export function resolveWindowsAppUserModelId(env = process.env, runtime = { isPackaged: true }) {
