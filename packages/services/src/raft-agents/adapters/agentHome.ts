@@ -9,9 +9,10 @@
  * 3. 目录权限 0700、文件 0600（记忆可能含协作细节）。
  * 4. 二期 A1 只读/删除面：路径判定统一在 realpath 两侧做（macOS /var → /private/var 一类
  *    根别名不误判；Home 内指向外部的符号链接解析后拒绝）。记忆面 = 根下 MEMORY.md、
- *    AGENTS.md 与 notes/**。
+ *    AGENTS.md 与 notes/**。删除整 Home 以归属标记（`.zcode-agent-home`，内容 bindingId）
+ *    或默认位置派生为准；传入路径本身是符号链接即拒绝（评审定稿，线程 cb4426cd）。
  */
-import { lstat, mkdir, open, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
 
@@ -31,6 +32,16 @@ async function writeIfMissing(path: string, content: string): Promise<boolean> {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
     throw error;
   }
+}
+
+/** 归属标记文件名（内容 = bindingId，独占创建于绑定时；删除整 Home 的所有权证明）。 */
+const HOME_OWNERSHIP_MARKER = ".zcode-agent-home";
+
+/** 清记忆面三处（resetMemorySurface 与 deleteHome 的保留分支共用）；只在已解析目录内操作。 */
+async function clearMemorySurfaceAt(homeReal: string): Promise<void> {
+  await rm(join(homeReal, "MEMORY.md"), { force: true });
+  await rm(join(homeReal, "AGENTS.md"), { force: true });
+  await rm(join(homeReal, "notes"), { recursive: true, force: true });
 }
 
 /** 记忆面只读视图的单文件默认上限（512KB，超出截断并标志）。 */
@@ -65,6 +76,22 @@ export function createAgentHomeAdapter(): AgentHomePort {
       await writeIfMissing(
         join(home, "AGENTS.md"),
         renderAgentsTemplate({ agentName: input.displayName }),
+      );
+    },
+
+    async claimHomeOwnership(input): Promise<void> {
+      // 已存在且非空 = 用户自选目录：不写标记（删除时走"保留目录"分支）。
+      // ENOENT 视为空（ZCode 即将创建）；其余读取错误如实抛给 provisioning。
+      try {
+        const entries = await readdir(input.homeWorkspacePath);
+        if (entries.length > 0) return;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      await mkdir(input.homeWorkspacePath, { recursive: true, mode: 0o700 });
+      await writeIfMissing(
+        join(input.homeWorkspacePath, HOME_OWNERSHIP_MARKER),
+        `${input.bindingId}\n`,
       );
     },
 
@@ -208,9 +235,7 @@ export function createAgentHomeAdapter(): AgentHomePort {
         return { ok: false, code: "HomeMissing" as const };
       }
       try {
-        await rm(join(homeReal, "MEMORY.md"), { force: true });
-        await rm(join(homeReal, "AGENTS.md"), { force: true });
-        await rm(join(homeReal, "notes"), { recursive: true, force: true });
+        await clearMemorySurfaceAt(homeReal);
         return { ok: true };
       } catch (error) {
         return { ok: false, code: "ResetFailed" as const, detail: String(error) };
@@ -218,39 +243,73 @@ export function createAgentHomeAdapter(): AgentHomePort {
     },
 
     async deleteHome(input) {
+      // 守卫 1：先检查传入路径本身——是符号链接即拒绝（realpath 会把删除引到链接
+      // 目标的整树，评审实测可删掉真实项目目录）；不是目录也拒绝。
+      let given: Awaited<ReturnType<typeof lstat>>;
+      try {
+        given = await lstat(input.homeWorkspacePath);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") return { ok: true, homeDeleted: false }; // 幂等
+        return { ok: false, code: "Refused" as const, detail: code };
+      }
+      if (given.isSymbolicLink()) {
+        return { ok: false, code: "Refused" as const, detail: "home path is a symlink" };
+      }
+      if (!given.isDirectory()) {
+        return { ok: false, code: "Refused" as const, detail: "not a directory" };
+      }
       let homeReal: string;
       try {
         homeReal = await realpath(input.homeWorkspacePath);
       } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code === "ENOENT") return { ok: true }; // 幂等：已不存在视为成功
-        return { ok: false, code: "Refused" as const, detail: code };
+        return { ok: false, code: "Refused" as const, detail: (error as NodeJS.ErrnoException).code };
       }
-      if (!isAbsolute(homeReal) || homeReal === sep || homeReal === homedir() || homeReal === homedir() + sep) {
+      // 守卫 2：拒绝文件系统根、用户主目录与数据根目录及其上级（homeReal 是它们的
+      // 前缀或相等即拒绝——含 /Users、/Volumes 等主目录上级的真实路径形态）。
+      let dataRootReal: string | undefined;
+      try {
+        dataRootReal = await realpath(input.dataRootDir);
+      } catch {
+        /* 数据根暂不可解析不阻断其余守卫 */
+      }
+      if (!isAbsolute(homeReal) || homeReal === sep) {
         return { ok: false, code: "Refused" as const, detail: "refusing to delete root-like path" };
       }
-      if (isWithin(homeReal, homedir()) && !homeReal.includes(`${sep}agents${sep}`)) {
-        // Home 在用户主目录下但不位于任何 agents/ 结构里：要求标记文件在场，
-        // 防误删形似 Home 的任意用户目录。
-        const markers = await Promise.all(
-          ["MEMORY.md", "AGENTS.md", "notes"].map(async (m) => {
-            try {
-              return await lstat(join(homeReal, m));
-            } catch {
-              return undefined;
-            }
-          }),
-        );
-        if (!markers.some((s) => s !== undefined)) {
-          return { ok: false, code: "Refused" as const, detail: "no agent-home marker files" };
+      for (const protectedRoot of dataRootReal ? [homedir(), dataRootReal] : [homedir()]) {
+        if (isWithin(protectedRoot, homeReal)) {
+          return {
+            ok: false,
+            code: "Refused" as const,
+            detail: `refusing to delete protected root or its ancestor: ${protectedRoot}`,
+          };
+        }
+      }
+      // 守卫 3：归属判定。整删仅当 (a) 归属标记内容与 bindingId 一致，或 (b) Home
+      // 恰为默认位置（路径由 bindingId 派生——兼容加标记前建的旧绑定）。
+      let owned = false;
+      try {
+        owned = (await readFile(join(homeReal, HOME_OWNERSHIP_MARKER), "utf8")).trim() === input.bindingId;
+      } catch {
+        owned = false;
+      }
+      if (!owned && dataRootReal !== undefined) {
+        owned = homeReal === join(dataRootReal, "agents", input.bindingId, "workspace");
+      }
+      if (!owned) {
+        // 非自有目录（用户自选 / 旧绑定无标记 / 标记不匹配）：只清记忆三处与标记，
+        // 保留目录本身，homeDeleted=false 由界面如实提示"已保留你的目录"。
+        try {
+          await clearMemorySurfaceAt(homeReal);
+          await rm(join(homeReal, HOME_OWNERSHIP_MARKER), { force: true });
+          return { ok: true, homeDeleted: false };
+        } catch (error) {
+          return { ok: false, code: "Failed" as const, detail: String(error) };
         }
       }
       try {
-        if (!(await stat(homeReal)).isDirectory()) {
-          return { ok: false, code: "Refused" as const, detail: "not a directory" };
-        }
         await rm(homeReal, { recursive: true, force: true });
-        return { ok: true };
+        return { ok: true, homeDeleted: true };
       } catch (error) {
         return { ok: false, code: "Failed" as const, detail: String(error) };
       }

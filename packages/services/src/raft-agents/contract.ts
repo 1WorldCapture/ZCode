@@ -54,8 +54,12 @@ export interface IRaftAgentsService {
    * 不读收件箱、不发消息（spec §4）。
    */
   createBinding(input: RaftAgentBindingInput): Promise<RaftAgentSetupResult>;
-  /** 移除绑定记录；deleteHome 同时删除 Home 目录与本地 profile（不撤销 Raft 侧 token，D4）。 */
-  removeBinding(bindingId: string, opts: { deleteHome: boolean }): Promise<void>;
+  /**
+   * 移除绑定记录；deleteHome 同时删除 Home 目录与本地 profile（不撤销 Raft 侧 token，D4）。
+   * 返回 homeDeleted 如实区分"整目录已删"与"归属不成立只清记忆面、保留目录"
+   *（评审定稿：Home 是用户自选目录/旧绑定无归属标记时不得整删，界面按此提示）。
+   */
+  removeBinding(bindingId: string, opts: { deleteHome: boolean }): Promise<{ homeDeleted: boolean }>;
   /** 更新值守意图；Running 的实际效果（bridge/会话）在 T2/T3 接入。 */
   setDesiredState(bindingId: string, desired: "ReadyStopped" | "Running"): Promise<void>;
   /**

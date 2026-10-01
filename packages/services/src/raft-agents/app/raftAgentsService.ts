@@ -140,7 +140,7 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
       return createRaftAgentBinding(createDeps, input);
     },
 
-    async removeBinding(bindingId: string, opts: { deleteHome: boolean }): Promise<void> {
+    async removeBinding(bindingId: string, opts: { deleteHome: boolean }): Promise<{ homeDeleted: boolean }> {
       // 二期 A1 删除动作前置拆除：停 bridge + session/close 归档主会话（close 失败
       // 容忍，删除语义优先）。拆除失败不阻断记录移除——桥接进程由 supervisor 的
       // 进程锁与 Host 关停兜底收口。
@@ -154,38 +154,44 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
           });
         }
       }
-      let removedHome: string | null = null;
+      let removed: RaftAgentBinding | undefined;
       await withStoreLock(async () => {
         const existing = await store.readAll();
-        const removed = existing.find((b) => b.bindingId === bindingId);
+        removed = existing.find((b) => b.bindingId === bindingId);
         const next = existing.filter((b) => b.bindingId !== bindingId);
         if (next.length === existing.length) return;
         await store.writeAll(next);
         // 本地 profile 随记录移除一并删除（凭据不留孤儿）；Raft 侧 token 不撤销（D4）。
         if (removed) {
           await cleanupProfile(join(options.dataRootDir, "raft", "profiles", removed.profileSlug));
-          removedHome = removed.homeWorkspacePath;
         }
         log.info("binding removed", { bindingId, deleteHomeRequested: opts.deleteHome });
         bindingsChanged.fire(next);
       });
-      // Home 删除在锁外（递归 rm 可能慢）；守卫在适配器（realpath / 根目录拒删 /
-      // Home 标记文件），失败只记日志——记录已移除，重试入口是用户手动删目录。
-      if (opts.deleteHome && removedHome && options.memory) {
+      let homeDeleted = false;
+      // Home 删除在锁外（递归 rm 可能慢）；守卫在适配器（符号链接拒绝 / 根目录与
+      // 主目录上级拒删 / 归属标记或默认位置判定），归属不成立时适配器只清记忆面
+      // 并保留目录——homeDeleted 如实投影给界面。失败只记日志：记录已移除，
+      // 重试入口是用户手动删目录。
+      if (opts.deleteHome && removed && options.memory) {
         const deleted = await options.memory.deleteHome({
-          homeWorkspacePath: removedHome,
+          homeWorkspacePath: removed.homeWorkspacePath,
           dataRootDir: options.dataRootDir,
+          bindingId,
         });
-        if (!deleted.ok) {
+        if (deleted.ok) {
+          homeDeleted = deleted.homeDeleted;
+        } else {
           log.warn(undefined, "raft home deletion failed", {
             bindingId,
-            homePath: removedHome,
+            homePath: removed.homeWorkspacePath,
             code: deleted.code,
             detail: deleted.detail,
           });
         }
       }
       options.activity?.clear(bindingId);
+      return { homeDeleted };
     },
 
     async setDesiredState(bindingId: string, desired: "ReadyStopped" | "Running"): Promise<void> {

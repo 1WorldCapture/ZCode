@@ -4,7 +4,7 @@
  * （临时 profile 即毁）、复用凭据接入、活动记录。
  */
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -407,14 +407,15 @@ test("removeBinding：停 bridge + 关主会话 + 删记录 + 删 Home + 清活�
     await stack.store.writeAll([makeBinding(home)]);
     stack.activity.record(BINDING_ID, "wake");
 
-    await stack.service.removeBinding(BINDING_ID, { deleteHome: true });
+    const result = await stack.service.removeBinding(BINDING_ID, { deleteHome: true });
 
+    assert.deepEqual(result, { homeDeleted: true });
     assert.equal((await stack.store.readAll()).length, 0);
     // 拆除顺序：bridge 停止、会话 close 尝试过（失败被容忍，未抛出）。
     assert.ok(supervisor.stopCalls.includes(BINDING_ID));
     assert.equal(sessions.closes.length, 1);
     assert.equal(sessions.closes[0].sessionId, "sess-old");
-    // Home 已删（守卫放行：位于数据根 agents/ 结构下）。
+    // Home 已删（默认位置 = 路径由 bindingId 派生，归属成立）。
     await assert.rejects(readFile(join(home, "MEMORY.md")));
     // 本地 profile 清理与活动清除。
     assert.equal(cli.destroyCalls.length, 1);
@@ -431,8 +432,72 @@ test("removeBinding：deleteHome=false 保留 Home", async () => {
     await stack.memory.initialize({ bindingId: BINDING_ID, displayName: "t11", homeWorkspacePath: home });
     await stack.store.writeAll([makeBinding(home)]);
 
-    await stack.service.removeBinding(BINDING_ID, { deleteHome: false });
+    const result = await stack.service.removeBinding(BINDING_ID, { deleteHome: false });
+    assert.deepEqual(result, { homeDeleted: false });
     assert.match(await readFile(join(home, "MEMORY.md"), "utf8"), /t11/);
+  });
+});
+
+test("removeBinding：用户自选 Home（无归属标记）→ 只清记忆面、保留目录、homeDeleted=false", async (t) => {
+  if (process.platform === "win32") return t.skip("符号链接需要权限");
+  await withDataRoot(async (dataRoot) => {
+    const sessions = fakeSessions();
+    const supervisor = fakeSupervisor();
+    const stack = await buildStack(dataRoot, sessions, supervisor, fakeCli());
+    // 用户已有的非空目录（含项目文件），绕过 provisioning 直接落绑定记录。
+    const home = join(dataRoot, "user-chosen-home");
+    await mkdir(join(home, "notes", "deep"), { recursive: true });
+    await mkdir(join(home, "projects", "repo"), { recursive: true });
+    await writeFile(join(home, "MEMORY.md"), "# 记忆\n");
+    await writeFile(join(home, "AGENTS.md"), "# 指引\n");
+    await writeFile(join(home, "notes", "deep", "a.md"), "旧记忆");
+    await writeFile(join(home, "projects", "repo", "file.txt"), "project artifact");
+    await stack.store.writeAll([makeBinding(home)]);
+
+    const result = await stack.service.removeBinding(BINDING_ID, { deleteHome: true });
+
+    assert.deepEqual(result, { homeDeleted: false });
+    await assert.rejects(readFile(join(home, "MEMORY.md")));
+    await assert.rejects(readFile(join(home, "notes", "deep", "a.md")));
+    assert.equal(await readFile(join(home, "projects", "repo", "file.txt"), "utf8"), "project artifact");
+    assert.ok((await stat(home)).isDirectory(), "用户目录保留");
+  });
+});
+
+test("removeBinding：绑定时声明过归属的自选 Home → 整删（homeDeleted=true）", async () => {
+  await withDataRoot(async (dataRoot) => {
+    const sessions = fakeSessions();
+    const supervisor = fakeSupervisor();
+    const stack = await buildStack(dataRoot, sessions, supervisor, fakeCli());
+    const home = join(dataRoot, "claimed-home");
+    await stack.memory.claimHomeOwnership({ bindingId: BINDING_ID, homeWorkspacePath: home });
+    await stack.memory.initialize({ bindingId: BINDING_ID, displayName: "t11", homeWorkspacePath: home });
+    await stack.store.writeAll([makeBinding(home)]);
+
+    const result = await stack.service.removeBinding(BINDING_ID, { deleteHome: true });
+
+    assert.deepEqual(result, { homeDeleted: true });
+    await assert.rejects(stat(home));
+  });
+});
+
+test("removeBinding：Home 路径是符号链接 → 拒绝整删（homeDeleted=false），目标保全", async (t) => {
+  if (process.platform === "win32") return t.skip("符号链接需要权限");
+  await withDataRoot(async (dataRoot) => {
+    const sessions = fakeSessions();
+    const supervisor = fakeSupervisor();
+    const stack = await buildStack(dataRoot, sessions, supervisor, fakeCli());
+    const project = join(dataRoot, "real-project");
+    await mkdir(join(project, "src"), { recursive: true });
+    await writeFile(join(project, "src", "main.ts"), "code");
+    const linkedHome = join(dataRoot, "linked-home");
+    await symlink(project, linkedHome);
+    await stack.store.writeAll([makeBinding(linkedHome)]);
+
+    const result = await stack.service.removeBinding(BINDING_ID, { deleteHome: true });
+
+    assert.deepEqual(result, { homeDeleted: false });
+    assert.equal(await readFile(join(project, "src", "main.ts"), "utf8"), "code");
   });
 });
 
