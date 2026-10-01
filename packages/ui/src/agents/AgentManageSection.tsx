@@ -59,6 +59,7 @@ export function AgentManageSection({ bindingId }: { bindingId: string }) {
         if (!result.ok) return;
         setPending(null);
         // Home 处置四态如实提示（e3479b5 定稿）；failed 可能已部分删除，detail 只进日志。
+        // untouched 细分（grokbot cb4426cd）：not_requested → 按用户选择保留；仅 refused → 请手动处理。
         const doneId =
           result.home.home === "deleted"
             ? "doneDeleted"
@@ -66,7 +67,9 @@ export function AgentManageSection({ bindingId }: { bindingId: string }) {
               ? "doneKept"
               : result.home.home === "failed"
                 ? "doneFailed"
-                : "doneUntouched";
+                : result.home.reason === "refused"
+                  ? "doneUntouched"
+                  : "doneUntouchedNotRequested";
         if (result.home.home === "failed" || result.home.home === "untouched") {
           logger.warn("[AgentCenter] Home 目录未按预期处置", {
             bindingId,
