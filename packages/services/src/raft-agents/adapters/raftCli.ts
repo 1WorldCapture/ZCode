@@ -13,8 +13,12 @@
  * - `raft auth whoami` 恒 JSON 输出，token 不回显。
  * - 失败形态：非零退出 + stderr `Code: <CODE>` 行。
  */
-import { access, constants, rm } from "node:fs/promises";
-import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
+import { rm } from "node:fs/promises";
+import { isAbsolute, relative, resolve } from "node:path";
+
+import { isResolvedPathWithin } from "@zcode/shared/node";
+
+import { resolveCommandOnPath } from "#src/runtime-tools/runtimeToolResolver.js";
 
 import {
   capKeepingTail,
@@ -40,29 +44,17 @@ const CLI_PATH_ENV = "ZCODE_RAFT_CLI";
 const LOGIN_TIMEOUT_MS = 45_000;
 const WHOAMI_TIMEOUT_MS = 10_000;
 const VERSION_TIMEOUT_MS = 8_000;
-/** PATH 上的可执行文件查找（win32 走 PATHEXT）。 */
-async function findOnPath(binary: string): Promise<string | undefined> {
-  const pathValue = process.env.PATH;
-  if (!pathValue) return undefined;
-  const isWindows = process.platform === "win32";
-  const candidates = isWindows
-    ? (process.env.PATHEXT || ".COM;.EXE;.CMD;.BAT")
-        .split(";")
-        .map((ext) => `${binary}${ext.toLowerCase()}`)
-    : [binary];
-  for (const dir of pathValue.split(delimiter)) {
-    if (!dir) continue;
-    for (const candidate of candidates) {
-      const full = join(dir, candidate);
-      try {
-        await access(full, constants.X_OK);
-        return full;
-      } catch {
-        // 继续找下一个候选。
-      }
-    }
+
+/** 子进程环境：业务变量 + 宿主注入的代理/自定义 CA（设置页配置；读失败按无代理继续）。 */
+async function cliEnv(
+  resolveProxyEnv: (() => Promise<Record<string, string>>) | undefined,
+  extra: Record<string, string>,
+): Promise<Record<string, string>> {
+  try {
+    return { ...extra, ...(await resolveProxyEnv?.()) };
+  } catch {
+    return extra;
   }
-  return undefined;
 }
 
 /**
@@ -104,23 +96,25 @@ function classifyLoginFailure(stderr: string): RaftCliLoginOutcome {
   return { ok: false, code: "CredentialCheckFailed", detail: code };
 }
 
-/** CLI 路径解析：显式覆盖优先，其次 PATH 查找。 */
-async function resolveCliPath(): Promise<string | undefined> {
+/** CLI 路径解析：显式覆盖优先，其次 PATH 查找（复用 runtime-tools 的实现）。 */
+function resolveCliPath(): string | undefined {
   const explicit = process.env[CLI_PATH_ENV];
   if (explicit && explicit.length > 0) return explicit;
-  return findOnPath("raft");
+  return resolveCommandOnPath("raft") ?? undefined;
 }
 
-export function createRaftCliAdapter(): RaftCliPort {
+export function createRaftCliAdapter(
+  options: { resolveProxyEnv?: () => Promise<Record<string, string>> } = {},
+): RaftCliPort {
   return {
     async resolve(): Promise<RaftCliResolution> {
-      const cliPath = await resolveCliPath();
+      const cliPath = resolveCliPath();
       if (cliPath === undefined) {
         return { ok: false, code: "CliMissing" };
       }
       const run = await runCli(cliPath, ["--version"], {
         timeoutMs: VERSION_TIMEOUT_MS,
-        env: {},
+        env: await cliEnv(options.resolveProxyEnv, {}),
       });
       if (run.status !== 0) {
         return { ok: false, code: "CliMissing", detail: `exit ${run.status}` };
@@ -136,7 +130,7 @@ export function createRaftCliAdapter(): RaftCliPort {
     },
 
     async login(params): Promise<RaftCliLoginOutcome> {
-      const cliPath = await resolveCliPath();
+      const cliPath = resolveCliPath();
       if (cliPath === undefined)
         return { ok: false, code: "CredentialCheckFailed", detail: "CliMissing" };
       const run = await runCli(
@@ -155,7 +149,7 @@ export function createRaftCliAdapter(): RaftCliPort {
         ],
         {
           timeoutMs: LOGIN_TIMEOUT_MS,
-          env: { RAFT_PROFILE_DIR: params.profileDir },
+          env: await cliEnv(options.resolveProxyEnv, { RAFT_PROFILE_DIR: params.profileDir }),
           // token 只经 stdin 单行；绝不进 argv / 日志 / 返回值。
           stdin: `${params.token}\n`,
         },
@@ -167,11 +161,11 @@ export function createRaftCliAdapter(): RaftCliPort {
     },
 
     async whoami(params): Promise<RaftCliWhoami | { error: string }> {
-      const cliPath = await resolveCliPath();
+      const cliPath = resolveCliPath();
       if (cliPath === undefined) return { error: "CliMissing" };
       const run = await runCli(cliPath, ["--profile", params.profileSlug, "auth", "whoami"], {
         timeoutMs: WHOAMI_TIMEOUT_MS,
-        env: { RAFT_PROFILE_DIR: params.profileDir },
+        env: await cliEnv(options.resolveProxyEnv, { RAFT_PROFILE_DIR: params.profileDir }),
       });
       if (run.status !== 0) {
         return { error: parseCliErrorCode(run.stderr) ?? `exit ${run.status}` };
@@ -189,21 +183,19 @@ export function createRaftCliAdapter(): RaftCliPort {
     },
 
     async destroyProfile(params): Promise<void> {
-      // 包含性防护：只删 profilesRoot 直系子目录，profileDir 必须是绝对路径且
-      // relative 不越过根（".." 开头）也不等于根本身。防任意目录误删。
+      // 包含性防护（共享判定，审核 #8）：只删 profilesRoot 直系之内的目录；resolve 后
+      // 按绝对路径前缀判包含，"..foo" 这类 resolve 后确实落在根内的目录名不再误拒。
       const root = resolve(params.profilesRoot);
       const target = resolve(params.profileDir);
-      // win32 跨盘符显式拒绝：relative() 对不同盘符会给出 ".." 开头的路径（已被拦），
-      // 但盘符比较更直白、不依赖实现细节。
+      // win32 跨盘符显式拒绝：盘符比较直白、不依赖 relative() 的实现细节。
       const drive = (p: string) => (/^[a-zA-Z]:/.exec(p)?.[0]?.toLowerCase() ?? "");
       const rootDrive = drive(root);
       const targetDrive = drive(target);
       if (rootDrive !== targetDrive) {
         throw new Error(`refusing to destroy profile on a different drive: ${targetDrive || "?"} vs ${rootDrive || "?"}`);
       }
-      const rel = relative(root, target);
-      if (!isAbsolute(params.profileDir) || rel === "" || rel.startsWith("..")) {
-        throw new Error(`refusing to destroy profile outside profiles root: ${rel}`);
+      if (!isAbsolute(params.profileDir) || !isResolvedPathWithin(target, root)) {
+        throw new Error(`refusing to destroy profile outside profiles root: ${relative(root, target)}`);
       }
       await rm(target, { recursive: true, force: true });
     },

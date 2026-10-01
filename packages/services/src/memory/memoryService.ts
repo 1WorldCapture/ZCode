@@ -4,7 +4,10 @@ import {
   type ProjectMemoryWorkspaceSummary,
 } from "./memory.js";
 import { lstat, readdir, realpath } from "node:fs/promises";
-import { basename, isAbsolute, join, relative, sep } from "node:path";
+import { basename, join, relative } from "node:path";
+
+import { relativePathEscapesRoot } from "@zcode/shared/node";
+
 import { readProjectMemoryFileFromStableHandle } from "#src/memory/projectMemoryStableRead.js";
 import { getZCodeDataRootDir } from "#src/paths.js";
 
@@ -94,7 +97,7 @@ async function assertContainedProjectMemoryPath(
   const projectsRootRealPath = await realpath(projectsRoot);
   const targetRealPath = await realpath(targetPath);
   const relativePath = relative(projectsRootRealPath, targetRealPath);
-  if (relativePath === ".." || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
+  if (relativePathEscapesRoot(relativePath)) {
     throw new Error(`Project Memory path is outside the local profile: ${targetPath}`);
   }
 }

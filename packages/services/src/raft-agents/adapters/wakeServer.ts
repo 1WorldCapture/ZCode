@@ -12,7 +12,7 @@
  * token：每绑定独立、随机生成、只存内存不落盘；open 重入即换代（旧 bridge 自然失效）。
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 
 import type { WakeEndpointPort } from "../app/bridgePorts.js";
 import type { RaftWakeRequest, WakeDelivery, WakeHandlerPort } from "../app/ports.js";
@@ -224,12 +224,10 @@ export function createWakeServer(
   };
 }
 
-/** 时序安全的字符串比较（等长前提下逐字节异或）。 */
+/** 时序安全的令牌比较：先比长度（长度本身不敏感，token 为定长 hex），等长走标准库。 */
 function timingSafeEqualStr(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diff === 0;
+  const bufA = Buffer.from(a, "utf8");
+  const bufB = Buffer.from(b, "utf8");
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
 }

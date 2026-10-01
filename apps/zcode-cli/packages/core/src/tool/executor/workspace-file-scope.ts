@@ -20,6 +20,8 @@ import { isResolvedPathInsideRoot, resolveWorkspacePath } from "../path-policy.j
  * 两类越界都拦（评审定稿）：
  * 1. 路径入参（file_path/path/cwd）：字符串解析后对已存在的部分取 realpath 再判
  *    包含——Home 内预置的指向外部的符号链接绕不过字符串比较，这里解析掉。
+ *    例外：Glob/Grep 的范围目录等于工作区根本身（含 "." 解析结果）不算越界——
+ *    搜索工具的合法语义（审核报告 D2）；文件类工具照旧拒绝根本身。
  * 2. 模式入参（Glob.pattern / Grep.glob）：glob 模式里的 `..` 段与绝对路径前缀
  *    直接拒绝（保守 fail-closed；值守会话换个等价写法没有损失）。
  */
@@ -55,6 +57,9 @@ export async function applyWorkspaceFileScopePermission(input: {
   }
 
   const operation = WRITE_TOOLS.has(input.toolName) ? "write" : "read";
+  // Glob/Grep 的 path/cwd 是"搜索范围目录"语义：模型常显式传工作区根本身（或 "."），
+  // 等于根不算越界（审核报告 D2）；Read/Write/Edit 的目标是文件，根本身照旧拒绝。
+  const allowRootAsScope = input.toolName === "Glob" || input.toolName === "Grep";
   const realRoot = await realPathLongestExisting(input.workspaceRoot);
   for (const key of FILE_SCOPE_PATH_KEYS) {
     const value = record[key];
@@ -70,6 +75,7 @@ export async function applyWorkspaceFileScopePermission(input: {
     // /private/var 一类）在根侧消解，同目录的两种写法不会被误判。
     const realTarget = await realPathLongestExisting(resolvedPath);
     if (isResolvedPathInsideRoot(realTarget, realRoot)) continue;
+    if (allowRootAsScope && realTarget === realRoot) continue;
     return denyScopeDecision(input.decision, input.workspaceRoot);
   }
   return input.decision;

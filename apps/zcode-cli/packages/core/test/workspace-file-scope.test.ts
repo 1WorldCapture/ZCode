@@ -68,6 +68,25 @@ test("开启后：根内路径放行，绝对/相对/.. 逃逸一律 deny", asyn
   );
 });
 
+test("Glob/Grep 搜索范围允许等于工作区根（审核 D2）；Read/Write/Edit 仍拒绝根本身", async () => {
+  // 模型常显式传根路径或 "." 作为搜索目录——等于根不算越界。
+  assert.equal(
+    (await scopeDecision({ toolName: "Glob", input: { pattern: "**/*.md", path: WORKSPACE } })).allowed,
+    true,
+  );
+  assert.equal(
+    (await scopeDecision({ toolName: "Glob", input: { pattern: "**/*.md", path: "." } })).allowed,
+    true,
+  );
+  assert.equal((await scopeDecision({ toolName: "Grep", input: { pattern: "x", cwd: WORKSPACE } })).allowed, true);
+  // 文件类工具的目标是文件：根本身照旧拒绝（行为不变）。
+  assert.equal((await scopeDecision({ toolName: "Read", input: { file_path: WORKSPACE } })).allowed, false);
+  assert.equal((await scopeDecision({ toolName: "Write", input: { file_path: WORKSPACE } })).allowed, false);
+  // 等于根的例外不放宽越界：范围键指到根外仍然拒绝。
+  assert.equal((await scopeDecision({ toolName: "Glob", input: { pattern: "x", path: "/etc" } })).allowed, false);
+  assert.equal((await scopeDecision({ toolName: "Grep", input: { pattern: "x", path: "/etc" } })).allowed, false);
+});
+
 test("安全矩阵（评审定稿）：凭据文件、邻居 Home、glob 穿越全拒", async () => {
   // Raft 明文凭据就在 Home 外面，读取即外带。
   assert.equal(

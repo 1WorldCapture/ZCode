@@ -11,7 +11,7 @@
 
 - **唯一所有者**：main 进程的 `RaftAgentsService` 实例。绑定记录的读写、登录子进程的拉起、profile 目录的创建都只经它；renderer 经 IPC 桥调用 contract，不持有第二份可写状态。
 - 数据类型唯一事实源：`@zcode/shared/raft-agents`（renderer 桥与 main 共用）；本模块 `contract.ts` 再导出。
-- 持久化：`<ZCodeDataRoot>/raft/bindings.json`（应用管理数据；原子写 tmp+rename）；profile 目录 `<ZCodeDataRoot>/raft/profiles/<slug>/`。不放 Agent Home、不进 UI 持久 store。
+- 持久化：`<ZCodeDataRoot>/raft/bindings.json`（应用管理数据；原子写 tmp+rename）；profile 目录 `<ZCodeDataRoot>/raft/profiles/<slug>/`。不放 Agent Home、不进 UI 持久 store。 文件损坏时 **fail-closed**（与 credentialService 同口径）：`backupCorruptFile` 保全证据副本后抛 `RaftBindingStoreCorruptError`，原文件原样保留，上层报错并暂停值守恢复（`recoverAllDesiredRunning` 跳过、零 bridge 拉起），等用户手动恢复——绝不按空集继续（否则下一次写入会永久抹掉全部绑定，正在跑的 bridge 变成无人管理的孤儿）。
 
 ## 不变量
 
@@ -145,9 +145,9 @@ interface IRaftAgentsService {
 
 ### 关停
 
-- `stopAll()`：SIGTERM，超过宽限（默认 2s，**必须小于** Host `service-dispose` 阶段超时 3.5s）后 SIGKILL；挂进 Host 关停的 `service-dispose` 阶段。
-- `terminateAllNow()`：同步强杀，用于 `disposeHostResourcesBestEffort` 这类无法 await 的同步收口路径。
-- 已知限制：宿主进程被强杀（崩溃）时 bridge 子进程可能成为孤儿；它的唤醒会打到已关闭的端点被拒，重启后重新 open 换新 token，旧 bridge 因 token 失效无法注入。孤儿进程的主动回收（按 pid 记录清理）留给后续。
+- `stopAll()` / `stop()`：**整棵进程树终止**（复用 `process/processTreeTerminator.ts`，与 zcodeAgentProcessManager 同一事实源）：spawn 用 `shouldSpawnInDetachedProcessGroup()` 派生独立进程组，POSIX 下信号打给进程组（`kill(-pid)`），Windows 下也能连带杀掉 `raft.cmd` 包装层；宽限（默认 2s，**必须小于** Host `service-dispose` 阶段超时 3.5s）后 SIGKILL，`terminateProcessTreeAndWait` 有界等待并上报残留 pid。bridge 自己的孙进程不再有孤儿问题。
+- `terminateAllNow()`：同步树杀（`keepForceTimerRef`），用于 `disposeHostResourcesBestEffort` 这类无法 await 的同步收口路径。
+- 已知限制：**宿主进程**被强杀（崩溃）时 bridge 子进程仍可能成为孤儿；它的唤醒会打到已关闭的端点被拒，重启后重新 open 换新 token，旧 bridge 因 token 失效无法注入。孤儿进程的主动回收（按 pid 记录清理）留给后续。
 
 ### 接口
 
@@ -200,7 +200,7 @@ interface IRaftAgentsService {
 2. **`toolDenylist`（工具面 = 界面"完全允许"会话，task #18 定稿）**：不再设 allowlist——工具面与界面"完全允许"（yolo）会话完全一致（lyonliang 定稿：内置有哪些给哪些，含 Bash/git/gh）。仅 denylist 排除三个"等人回应"工具：`AskUserQuestion` 与 `ExitPlanMode` 声明 `requiresUserInteraction`，permission service 里该分支排在 yolo 放行**之前**（service.ts:112 先于 :136），且 `permissionTimeoutMs` 未设时 broker 不设超时（broker.ts:101）→ 无人值守无审批消费者即**永久挂死**；`EnterPlanMode` 本身免批但会把会话切进只读计划态且无人能批准退出，同列。resume 必须重发（否则冷恢复后工具面变化）。Raft MCP 工具（`mcp__raft_agent_tools__*`）经 `officialMcpServers` 注入，serverKey 由 `apps/zcode-cli` 的 `official-mcp-hosts.ts` 锁定，两处同步。**历史注记**：一期曾用最小白名单（无 Bash）收死工具面；二期按 lyonliang"与界面完全允许等同"的决定放开，风险知情（无 OS 沙箱，命令行 = 宿主账户权限；见二期 A1b 讨论，线程 59b3e306）。
 3. **`confineFileToolsToWorkspace`（文件工具边界，新增 wire 参数）**：yolo 与白名单都约束不了「已注册文件工具指向哪里」——现状文件工具对 workspaceRoot 外路径不设防（path-policy 故意放行子代理跨仓需求），yolo 下等于全盘可读写。开启后 `Read`/`Write`/`Edit`/`Glob`/`Grep` 的路径入参（`file_path`/`path`/`cwd`）越出 workspaceRoot（= Agent Home）在**执行边界**拒绝（deny 可恢复，模型可改用根内路径），排在 yolo 放行与 memory 放行之后、不可被 hook/审批改写。**读也一并限**：全盘可读 + `raft_message_send` 即数据外带通道。create 与 resume 同语义重发。
 
-安全性质（task #18 放开工具面后的实际边界）：**文件工具**（Read/Write/Edit/Glob/Grep）仍限定读写 Agent Home——路径判定在 realpath 两侧进行（根与目标都规范化后判包含）：Home 内预置的指向外部的符号链接被解析后拒绝，根本身经符号链接给出（macOS `/var` → `/private/var` 一类）不产生误判。glob 模式键（Glob.pattern / Grep.glob）含 `..` 段或绝对路径前缀直接拒绝（Grep.pattern 是内容正则，不在此列）。配套：T1 创建绑定拒绝「Home 包住或落入 `raft/profiles`（明文凭据）」的路径（`HomeOverlapsCredentials`）。**命令行（Bash）不在上述边界内**：与界面"完全允许"会话一致，以宿主用户账户权限运行（无 OS 级沙箱，NOTICE 明文；含读 `~/.ssh`、其他 agent 凭据目录的能力）——lyonliang 已知情定稿，将来收紧需另立沙箱任务（调研与工作量清单见二期线程 59b3e306）。
+安全性质（task #18 放开工具面后的实际边界）：**文件工具**（Read/Write/Edit/Glob/Grep）仍限定读写 Agent Home——路径判定在 realpath 两侧进行（根与目标都规范化后判包含）：Home 内预置的指向外部的符号链接被解析后拒绝，根本身经符号链接给出（macOS `/var` → `/private/var` 一类）不产生误判。glob 模式键（Glob.pattern / Grep.glob）含 `..` 段或绝对路径前缀直接拒绝（Grep.pattern 是内容正则，不在此列）。例外（审核 D2）：Glob/Grep 的范围目录（path/cwd）等于工作区根本身（含 `.` 解析结果）不算越界——搜索工具的合法语义；Read/Write/Edit 的目标是文件，根本身照旧拒绝。配套：T1 创建绑定拒绝「Home 包住或落入 `raft/profiles`（明文凭据）」的路径（`HomeOverlapsCredentials`）。**命令行（Bash）不在上述边界内**：与界面"完全允许"会话一致，以宿主用户账户权限运行（无 OS 级沙箱，NOTICE 明文；含读 `~/.ssh`、其他 agent 凭据目录的能力）——lyonliang 已知情定稿，将来收紧需另立沙箱任务（调研与工作量清单见二期线程 59b3e306）。
 
 已知边界（评审确认，非阻塞，2026-09-30）：① `isAbsolute(pattern)` 在 macOS/Linux 上识别不了 Windows 盘符写法（`C:/...`）——值守只跑在宿主平台，mac 无影响，将来支持 Windows 时补盘符判断；② Home 内指向外部目录的符号链接可能让 Glob `**` 遍历在结果里列出外部文件的名字——只泄露名字，读取时仍被 realpath 判定拦截，二期收紧。
 

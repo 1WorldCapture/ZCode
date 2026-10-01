@@ -21,7 +21,10 @@ import {
   createReadFileStateKey,
   normalizeReadFileStateMtimeMs,
 } from "../../tool/read-file-state.js";
-import { loadAgentMemoryIndexContent } from "../helpers/agent-memory-index.js";
+import {
+  loadAgentMemoryIndexContent,
+  recordMemoryIndexReadFileState,
+} from "../helpers/agent-memory-index.js";
 import { resolveEnabledProjectMemoryRoot } from "../helpers/project-memory.js";
 import { buildContextHistoryEntries } from "./context-history-entries.js";
 import { resolveRuntimeEmbeddedSearchEnabled } from "./embedded-search-branch.js";
@@ -187,17 +190,7 @@ async function loadProjectMemoryIndexContent(
     const read = await fileSystemPort.readTextFile({ path: indexPath });
     const formattedContent = formatProjectMemoryIndexContent(read.content);
     if (!formattedContent) return undefined;
-    runtime.readFileState.set(createReadFileStateKey(indexPath, undefined, undefined), {
-      content: read.content,
-      isPartialView: formattedContent !== read.content,
-      limit: undefined,
-      mtimeMs: normalizeReadFileStateMtimeMs(read.revision?.mtimeMs),
-      offset: undefined,
-      path: indexPath,
-      readAt: runtime.now(),
-      revisionId: read.revision?.id,
-      sizeBytes: read.sizeBytes,
-    });
+    recordMemoryIndexReadFileState(runtime, indexPath, read);
     return read.content;
   } catch {
     // 默认 Memory 分支将缺失或不可读的 index 视为没有该 context source。

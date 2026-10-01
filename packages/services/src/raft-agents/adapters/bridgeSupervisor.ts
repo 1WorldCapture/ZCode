@@ -42,6 +42,11 @@ export interface BridgeSupervisorOptions {
     info(message: string, fields?: Record<string, unknown>): void;
     warn(message: string, fields?: Record<string, unknown>): void;
   };
+  /**
+   * 宿主注入的代理/自定义 CA 环境（设置页配置经 buildAgentRuntimeEnv 生成）。
+   * 桥接进程要连 Raft 服务，需要与 agent 运行时同样的企业内网可达性；读失败按无代理继续。
+   */
+  resolveProxyEnv?: () => Promise<Record<string, string>>;
   /** 测试注入。 */
   spawn?: typeof nodeSpawn;
   settleMs?: number;
@@ -178,6 +183,8 @@ export function createBridgeSupervisor(options: BridgeSupervisorOptions): Bridge
         try {
           child = spawnFn(cliPath, buildArgs(binding, endpoint.url), {
             env: sanitizedEnv({
+              // 代理/CA 来自设置页（宿主 process.env 已被上游清洗），读失败按无代理继续。
+              ...(await options.resolveProxyEnv?.().catch(() => ({}))),
               RAFT_PROFILE_DIR: join(options.dataRootDir, "raft", "profiles", binding.profileSlug),
               RAFT_CHANNEL_TOKEN: endpoint.token,
             }),

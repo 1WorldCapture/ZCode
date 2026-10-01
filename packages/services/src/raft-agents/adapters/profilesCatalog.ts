@@ -10,7 +10,9 @@
  * - verify- 前缀目录是 verifyCredential 的临时核验工作区，不进枚举结果。
  */
 import { readFile, readdir, realpath } from "node:fs/promises";
-import { join, sep } from "node:path";
+import { join } from "node:path";
+
+import { isResolvedPathWithin } from "@zcode/shared/node";
 
 import type { RaftLocalProfileEntry, RaftProfilesCatalogPort } from "../app/ports.js";
 
@@ -28,11 +30,6 @@ interface ProfileCredentialFile {
   scopes?: string[];
   apiKey: string;
   createdAt?: string;
-}
-
-function isWithin(target: string, root: string): boolean {
-  if (target === root) return true;
-  return target.startsWith(root.endsWith(sep) ? root : root + sep);
 }
 
 function parseCredential(raw: string): ProfileCredentialFile | undefined {
@@ -110,7 +107,7 @@ export function createRaftProfilesCatalog(profilesRoot: string): RaftProfilesCat
       } catch {
         return { ok: false, code: "Missing" as const };
       }
-      if (!isWithin(dirReal, rootReal)) {
+      if (!isResolvedPathWithin(dirReal, rootReal)) {
         return { ok: false, code: "Missing" as const };
       }
       let raw: string;

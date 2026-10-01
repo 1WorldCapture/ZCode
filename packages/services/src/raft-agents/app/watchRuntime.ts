@@ -348,7 +348,17 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
     },
 
     async recoverAllDesiredRunning() {
-      const targets = (await options.store.readAll()).filter((b) => b.desiredState === "Running");
+      let targets;
+      try {
+        targets = (await options.store.readAll()).filter((b) => b.desiredState === "Running");
+      } catch (error) {
+        // 存储损坏 fail-closed：不拉起任何 bridge（值守暂停），错误进日志等用户恢复
+        //（绑定文件损坏时报错并暂停值守，审核报告 D3）。
+        logger?.warn(undefined, "raft watch recovery skipped: bindings store unreadable", {
+          error: String(error),
+        });
+        return;
+      }
       const results = await Promise.allSettled(targets.map((b) => this.startWatch(b.bindingId)));
       const failed = results.filter((r) => r.status === "rejected").length;
       if (failed > 0) {

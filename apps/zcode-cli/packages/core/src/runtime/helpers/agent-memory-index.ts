@@ -50,6 +50,16 @@ export async function loadAgentMemoryIndexContent(
     );
   }
   if (read.content.trim().length === 0) throw new AgentMemoryUnavailableError("memory_empty");
+  recordMemoryIndexReadFileState(runtime, indexPath, read);
+  return read.content;
+}
+
+/** Memory 索引单次读取的 readFileState 落账（项目/Agent 记忆共用，审核 #10 去重）。 */
+export function recordMemoryIndexReadFileState(
+  runtime: AgentRuntimeInternal,
+  indexPath: string,
+  read: Awaited<ReturnType<NonNullable<AgentRuntimeInternal["fileSystemPort"]>["readTextFile"]>>,
+): void {
   const formattedContent = formatProjectMemoryIndexContent(read.content);
   runtime.readFileState.set(createReadFileStateKey(indexPath, undefined, undefined), {
     content: read.content,
@@ -62,5 +72,4 @@ export async function loadAgentMemoryIndexContent(
     revisionId: read.revision?.id,
     sizeBytes: read.sizeBytes,
   });
-  return read.content;
 }

@@ -25,6 +25,7 @@ import {
   normalizeRaftOrigin,
 } from "../domain/binding.js";
 import type { RaftProvisioningStep } from "../contract.js";
+import { loginAndVerifyIdentity } from "./loginVerify.js";
 import { cleanupProfileQuietly } from "./profileCleanup.js";
 import type {
   ClockPort,
@@ -169,37 +170,30 @@ export async function createRaftAgentBinding(
   const profileDir = join(deps.dataRootDir, "raft", "profiles", profileSlug);
   const cleanup = (dir: string) => cleanupProfileQuietly({ cli, dataRootDir: deps.dataRootDir, logger: log }, dir);
 
-  // 步骤 3：登录（token 只进 stdin）。CLI 内部自带 agentId 一致性校验。
-  const login = await cli.login({
-    origin: preflight.origin,
-    expectedAgentId: input.raftAgentId.trim(),
-    profileSlug,
-    profileDir,
-    token,
-  });
-  if (!login.ok) {
-    return { ok: false, code: login.code, detail: login.detail };
-  }
-
-  // 步骤 4：whoami 二次核验 + serverId（不读 credential.json，避免 token 进应用内存）。
-  // 自此起登录已成功、本地已有有效凭据：任何失败路径都要清理本次 profile。
-  const whoami = await cli.whoami({ profileSlug, profileDir });
-  if ("error" in whoami) {
-    await cleanup(profileDir);
-    return { ok: false, code: "CredentialCheckFailed", detail: whoami.error };
-  }
-  const whoamiOrigin = normalizeRaftOrigin(whoami.serverUrl);
-  if (whoami.agentId !== input.raftAgentId.trim() || whoamiOrigin !== preflight.origin) {
-    await cleanup(profileDir);
-    return { ok: false, code: "IdentityMismatch" };
+  // 步骤 3+4：登录（token 只进 stdin）→ whoami 二次核验 + serverId（不读
+  // credential.json，避免 token 进应用内存）。链路与 verifyCredential 共用
+  //（复用审核 #11）；绑定 profile 成功保留，失败出口统一在链内清理。
+  const identity = await loginAndVerifyIdentity(
+    { cli, dataRootDir: deps.dataRootDir, logger: log },
+    {
+      origin: preflight.origin,
+      expectedAgentId: input.raftAgentId.trim(),
+      profileSlug,
+      profileDir,
+      token,
+      keepProfileOnSuccess: true,
+    },
+  );
+  if (!identity.ok) {
+    return identity;
   }
 
   const now = clock.nowIso();
   const binding: RaftAgentBinding = {
     bindingId,
-    displayName: login.agentName?.trim() || input.raftAgentId.trim(),
+    displayName: identity.agentName || input.raftAgentId.trim(),
     raftOrigin: preflight.origin,
-    serverId: whoami.serverId,
+    serverId: identity.serverId,
     raftAgentId: input.raftAgentId.trim(),
     profileSlug,
     homeWorkspacePath: homePath,
@@ -220,7 +214,7 @@ export async function createRaftAgentBinding(
         homePathForCompare,
         profileSlug,
         raftOrigin: preflight.origin,
-        serverId: whoami.serverId,
+        serverId: identity.serverId,
         raftAgentId: input.raftAgentId.trim(),
       },
       current,

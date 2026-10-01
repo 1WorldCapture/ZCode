@@ -12,9 +12,14 @@
  *    AGENTS.md 与 notes/**。删除整 Home 以归属标记（`.zcode-agent-home`，内容 bindingId）
  *    或默认位置派生为准；传入路径本身是符号链接即拒绝（评审定稿，线程 cb4426cd）。
  */
-import { lstat, mkdir, open, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join, sep } from "node:path";
+import { dirname, isAbsolute, join, sep } from "node:path";
+
+import { isResolvedPathWithin } from "@zcode/shared/node";
+
+import { PROJECT_MEMORY_FILE_CHANGED_ERROR_CODE } from "#src/memory/memory.js";
+import { readProjectMemoryFileFromStableHandle } from "#src/memory/projectMemoryStableRead.js";
 
 import type {
   AgentHomeInitInput,
@@ -47,11 +52,8 @@ async function clearMemorySurfaceAt(homeReal: string): Promise<void> {
 /** 记忆面只读视图的单文件默认上限（512KB，超出截断并标志）。 */
 export const MEMORY_FILE_MAX_BYTES = 512 * 1024;
 
-/** realpath 判包含：target 必须等于 root 或落在 root 之下（两侧都已规范化）。 */
-function isWithin(target: string, root: string): boolean {
-  if (target === root) return true;
-  return target.startsWith(root.endsWith(sep) ? root : root + sep);
-}
+/** readMemoryFile 的目录链越界错误码（validatePath 抛出后映射回 OutsideMemorySurface）。 */
+const OUTSIDE_SURFACE_ERROR_CODE = "AGENT_MEMORY_OUTSIDE_SURFACE";
 
 /** 记忆面路径合法性：仅根下 MEMORY.md / AGENTS.md / notes/**（拒绝 ../、绝对路径、空段）。 */
 function memorySurfaceRelativePath(path: string): string | undefined {
@@ -196,34 +198,48 @@ export function createAgentHomeAdapter(): AgentHomePort {
           ? { ok: false, code: "NotFound" as const }
           : { ok: false, code: "Unreadable" as const, detail: code };
       }
-      // realpath 两侧包含判定：Home 内指向外部的符号链接已由 lstat 挡住，
-      // 这里再防目录本身经链接给出（与 confineFileToolsToWorkspace 同口径）。
-      const targetReal = await realpath(target);
-      if (!isWithin(targetReal, homeReal)) {
-        return { ok: false, code: "OutsideMemorySurface" as const, detail: "resolved outside home" };
-      }
+      // 稳定读复用项目记忆原语（审核 #3）：O_NOFOLLOW 句柄 + 打开前后一致性校验，
+      // 消掉 lstat→open 之间的替换竞态；validatePath 在句柄打开后复验目录链包含——
+      // 中间目录（notes 等）被换成指向外部的符号链接即拒绝。
+      // 上限 512KB 截断而非报错（记忆面只读视图语义，与项目记忆预览的报错语义不同）。
       const maxBytes = input.maxBytes ?? MEMORY_FILE_MAX_BYTES;
+      const readOnce = () =>
+        readProjectMemoryFileFromStableHandle({
+          fileName: rel,
+          filePath: target,
+          validatePath: async () => {
+            const parentReal = await realpath(dirname(target));
+            if (!isResolvedPathWithin(parentReal, homeReal)) {
+              throw Object.assign(new Error("resolved outside home"), {
+                code: OUTSIDE_SURFACE_ERROR_CODE,
+              });
+            }
+          },
+          limits: { maxBytes, onOversize: "truncate" },
+        });
       try {
-        const handle = await open(target, "r");
+        let read;
         try {
-          const fileStat = await handle.stat();
-          const length = Math.min(fileStat.size, maxBytes);
-          const { buffer, bytesRead } = await handle.read({
-            buffer: Buffer.alloc(length),
-            position: 0,
-            length,
-          });
-          return {
-            ok: true,
-            content: buffer.subarray(0, bytesRead).toString("utf8"),
-            modifiedAt: new Date(fileStat.mtimeMs).toISOString(),
-            truncated: fileStat.size > maxBytes,
-          };
-        } finally {
-          await handle.close();
+          read = await readOnce();
+        } catch (error) {
+          // CHANGED：与代理自身的原子写（rename）交错属正常竞态，重试一次再定论。
+          if ((error as NodeJS.ErrnoException).code !== PROJECT_MEMORY_FILE_CHANGED_ERROR_CODE) {
+            throw error;
+          }
+          read = await readOnce();
         }
+        return {
+          ok: true,
+          content: read.content,
+          modifiedAt: new Date(read.updatedAt).toISOString(),
+          truncated: read.truncated,
+        };
       } catch (error) {
-        return { ok: false, code: "Unreadable" as const, detail: (error as NodeJS.ErrnoException).code };
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === OUTSIDE_SURFACE_ERROR_CODE) {
+          return { ok: false, code: "OutsideMemorySurface" as const, detail: "resolved outside home" };
+        }
+        return { ok: false, code: "Unreadable" as const, detail: code ?? String(error) };
       }
     },
 
@@ -278,7 +294,7 @@ export function createAgentHomeAdapter(): AgentHomePort {
         return { ok: false, code: "Refused" as const, detail: "refusing to delete root-like path" };
       }
       for (const protectedRoot of dataRootReal ? [homedir(), dataRootReal] : [homedir()]) {
-        if (isWithin(protectedRoot, homeReal)) {
+        if (isResolvedPathWithin(protectedRoot, homeReal)) {
           return {
             ok: false,
             code: "Refused" as const,

@@ -382,14 +382,20 @@ test("removeBinding 与 setDesiredState 更新存储并广播", async () => {
   }
 });
 
-test("绑定存储损坏时按空集恢复（读加固）", async () => {
+test("绑定存储损坏：报错且不自动清空（fail-closed，审核 D3）", async () => {
   const dataRoot = await mkdtemp(join(tmpdir(), "raft-agents-"));
   try {
-    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { mkdir, writeFile, readFile } = await import("node:fs/promises");
+    const bindingsPath = join(dataRoot, "raft", "bindings.json");
     await mkdir(join(dataRoot, "raft"), { recursive: true });
-    await writeFile(join(dataRoot, "raft", "bindings.json"), "{ not json", "utf8");
+    await writeFile(bindingsPath, "{ not json", "utf8");
     const service = await makeService(fakeCli({}), dataRoot);
-    assert.deepEqual(await service.list(), []);
+    // 读取报错（不再按空集继续），上层据此提示用户恢复。
+    await assert.rejects(service.list(), /corrupt/);
+    // 原文件原样保留（不自动清空），且留有内容寻址的证据备份。
+    assert.equal(await readFile(bindingsPath, "utf8"), "{ not json");
+    const dirEntries = await (await import("node:fs/promises")).readdir(join(dataRoot, "raft"));
+    assert.ok(dirEntries.some((name) => name.startsWith("bindings.json.corrupt-")), "存在证据备份");
   } finally {
     await rm(dataRoot, { recursive: true, force: true });
   }

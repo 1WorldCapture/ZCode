@@ -11,16 +11,12 @@ import { getZCodeDataRootDir } from "#src/paths.js";
 import type { IRaftAgentsService, RaftProvisioningStep } from "./contract.js";
 import { createRaftActivityTracker } from "./app/activity.js";
 import { createRaftAgentsService, type RaftAgentsServiceOptions } from "./app/raftAgentsService.js";
-import { createRaftWakeDelivery, type RaftWakeDeliveryOptions } from "./app/wakeDelivery.js";
-import {
-  createRaftWatchRuntime,
-  type RaftWatchRuntime,
-  type RaftWatchRuntimeOptions,
-} from "./app/watchRuntime.js";
+import { createRaftWakeDelivery } from "./app/wakeDelivery.js";
+import { createRaftWatchRuntime, type RaftWatchRuntime } from "./app/watchRuntime.js";
 import { createRaftAgentManagement } from "./app/management.js";
 import type { OwnerGuardPort } from "./app/bridgePorts.js";
 import type { AgentHomePort } from "./app/agentHomePorts.js";
-import type { RaftSessionPort, WakeHandlerPort } from "./app/ports.js";
+import type { RaftSessionPort } from "./app/ports.js";
 import { createRaftStoreWriteLock, type RaftStoreWriteLock } from "./app/storeLock.js";
 import { createAgentHomeProvisioningStep } from "./app/agentHomeProvisioning.js";
 import { buildRaftAgentToolsMcpRef } from "./app/officialMcp.js";
@@ -31,11 +27,11 @@ import { createRaftCliAdapter } from "./adapters/raftCli.js";
 import { createRaftProfilesCatalog } from "./adapters/profilesCatalog.js";
 import { createWakeServer } from "./adapters/wakeServer.js";
 
-type WakeDeliveryLogger = NonNullable<RaftWakeDeliveryOptions["logger"]>;
-
 export interface DefaultRaftAgentsServiceOptions {
   /** 应用数据根；省略时用 getZCodeDataRootDir()。测试注入临时目录用。 */
   dataRootDir?: string;
+  /** CLI 子进程的代理/自定义 CA 环境（设置页配置经 buildAgentRuntimeEnv 生成）。 */
+  resolveProxyEnv?: () => Promise<Record<string, string>>;
   logger?: RaftAgentsServiceOptions["logger"];
   provisioningSteps?: RaftProvisioningStep[];
   storeWriteLock?: RaftStoreWriteLock;
@@ -46,7 +42,7 @@ export interface DefaultRaftAgentsServiceOptions {
 export function createDefaultRaftAgentsService(options: DefaultRaftAgentsServiceOptions = {}) {
   const dataRootDir = options.dataRootDir ?? getZCodeDataRootDir();
   return createRaftAgentsService({
-    cli: createRaftCliAdapter(),
+    cli: createRaftCliAdapter({ resolveProxyEnv: options.resolveProxyEnv }),
     store: createRaftBindingStore(dataRootDir),
     clock: { nowIso: () => new Date().toISOString() },
     dataRootDir,
@@ -60,52 +56,6 @@ export function createDefaultRaftAgentsService(options: DefaultRaftAgentsService
     memory: createAgentHomeAdapter(),
     profilesCatalog: createRaftProfilesCatalog(join(dataRootDir, "raft", "profiles")),
     activity: createRaftActivityTracker(),
-  });
-}
-
-/**
- * 值守编排器组合根（T3）：宿主必须把与 createDefaultRaftAgentsService 同一把
- * storeWriteLock 传入两侧（换代写与 setDesiredState 互斥的前提）。supervisor 与
- * memory（T5 AgentHomePort 的 verifyMemoryAvailable 面）由宿主注入。
- */
-export function createDefaultRaftWatchRuntime(
-  options: Omit<RaftWatchRuntimeOptions, "store" | "cli"> & {
-    dataRootDir?: string;
-    cli?: RaftWatchRuntimeOptions["cli"];
-  },
-): RaftWatchRuntime {
-  const dataRootDir = options.dataRootDir ?? getZCodeDataRootDir();
-  return createRaftWatchRuntime({
-    store: createRaftBindingStore(dataRootDir),
-    lock: options.lock,
-    sessions: options.sessions,
-    supervisor: options.supervisor,
-    cli: options.cli ?? createRaftCliAdapter(),
-    memory: options.memory,
-    resolveOfficialMcpServers: options.resolveOfficialMcpServers,
-    activity: options.activity,
-    clock: options.clock,
-    logger: options.logger,
-  });
-}
-
-/**
- * 唤醒投递组合根（T3）：Host 侧持有 wakeServer 时把 handler 接到这里。
- * sessions 由宿主注入（createZcodeSessionPort(zcodeAgentService)）——本模块
- * 不直接依赖 zcode-agent 服务树，避免 raft-agents → 服务树的装配耦合。
- */
-export function createDefaultRaftWakeDelivery(options: {
-  dataRootDir?: string;
-  sessions: RaftSessionPort;
-  busyRetryAfterMs?: number;
-  logger?: WakeDeliveryLogger;
-}): WakeHandlerPort {
-  const dataRootDir = options.dataRootDir ?? getZCodeDataRootDir();
-  return createRaftWakeDelivery({
-    store: createRaftBindingStore(dataRootDir),
-    sessions: options.sessions,
-    busyRetryAfterMs: options.busyRetryAfterMs,
-    logger: options.logger,
   });
 }
 
@@ -146,10 +96,12 @@ export function createDefaultRaftHostStack(options: {
   /** 收件日志保留天数（spec §7 默认 14 天，这里只透传给 MCP env）。 */
   inboxRetentionDays?: number;
   logger?: RaftAgentsServiceOptions["logger"];
+  /** CLI 与 bridge 子进程共用的代理/自定义 CA 环境（设置页配置经 buildAgentRuntimeEnv 生成）。 */
+  resolveProxyEnv?: () => Promise<Record<string, string>>;
 }): RaftHostStack {
   const dataRootDir = options.dataRootDir ?? getZCodeDataRootDir();
   const logger = options.logger;
-  const cli = createRaftCliAdapter();
+  const cli = createRaftCliAdapter({ resolveProxyEnv: options.resolveProxyEnv });
   const lock = createRaftStoreWriteLock();
   const store = createRaftBindingStore(dataRootDir);
   const memory = options.memory ?? createAgentHomeAdapter();
@@ -182,6 +134,7 @@ export function createDefaultRaftHostStack(options: {
     dataRootDir,
     wakeEndpoint: wakeServer,
     ownerGuard: options.ownerGuard ?? { isOwner: () => true },
+    resolveProxyEnv: options.resolveProxyEnv,
     logger: {
       info: (message, fields) => logger?.info(undefined, message, fields),
       warn: (message, fields) => logger?.warn(undefined, message, fields),

@@ -392,6 +392,18 @@ test("recoverAllDesiredRunning：只恢复 desiredState=Running 的绑定，彼�
   assert.deepEqual(startedIds, [BINDING_ID, "11111111-2222-4333-8444-555555555555"].sort());
 });
 
+test("recoverAllDesiredRunning：存储损坏 → 不拉起任何 bridge（值守暂停，fail-closed）", async () => {
+  const store = fakeStore([makeBinding()]);
+  // readAll 抛错模拟绑定文件损坏（RaftBindingStoreCorruptError 形态）。
+  store.port.readAll = async () => {
+    throw new Error("raft bindings store is corrupt: /x/raft/bindings.json");
+  };
+  const supervisor = fakeSupervisor();
+  const { runtime } = makeRuntime({ store, supervisor });
+  await runtime.recoverAllDesiredRunning(); // 不抛、不拉起，静默暂停等待恢复。
+  assert.equal(supervisor.startCalls.length, 0);
+});
+
 test("幂等键与文本：代次参与 commandId；prompt 含绑定/代次与工具引导", () => {
   assert.equal(backlogDrainCommandId(BINDING_ID, 3), `raft-drain:${BINDING_ID}:3`);
   assert.notEqual(backlogDrainCommandId(BINDING_ID, 3), backlogDrainCommandId(BINDING_ID, 4));

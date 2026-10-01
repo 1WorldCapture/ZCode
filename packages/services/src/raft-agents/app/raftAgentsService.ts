@@ -32,6 +32,7 @@ import type { RaftActivityTracker } from "./activity.js";
 import { createRaftAgentBinding } from "./bindingCreate.js";
 import type { AgentHomePort } from "./agentHomePorts.js";
 import type { RaftAgentManagement } from "./management.js";
+import { loginAndVerifyIdentity } from "./loginVerify.js";
 import { cleanupProfileQuietly } from "./profileCleanup.js";
 import type {
   ClockPort,
@@ -245,32 +246,27 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
         return { ok: false, code: resolution.code, detail: resolution.detail };
       }
       // 临时 profile：verify- 前缀不进 listLocalCredentials 枚举；任何出口都即毁，
-      // 无持久残留。链路与 createBinding 完全一致（login → whoami → 身份核验）。
+      // 无持久残留。登录→whoami→身份核验与 createBinding 共用一条链（复用审核 #11）。
       const profileSlug = `verify-${randomUUID().slice(0, 8)}`;
-      const profileDir = join(options.dataRootDir, "raft", "profiles", profileSlug);
-      const login = await cli.login({ origin, expectedAgentId: agentId, profileSlug, profileDir, token });
-      if (!login.ok) {
-        await cleanupProfile(profileDir);
-        return { ok: false, code: login.code, detail: login.detail };
-      }
-      const whoami = await cli.whoami({ profileSlug, profileDir });
-      if ("error" in whoami) {
-        await cleanupProfile(profileDir);
-        return { ok: false, code: "CredentialCheckFailed", detail: whoami.error };
-      }
-      const whoamiOrigin = normalizeRaftOrigin(whoami.serverUrl);
-      if (whoami.agentId !== agentId || whoamiOrigin !== origin) {
-        await cleanupProfile(profileDir);
-        return { ok: false, code: "IdentityMismatch" };
-      }
-      await cleanupProfile(profileDir);
+      const outcome = await loginAndVerifyIdentity(
+        { cli, dataRootDir: options.dataRootDir, logger: log },
+        {
+          origin,
+          expectedAgentId: agentId,
+          profileSlug,
+          profileDir: join(options.dataRootDir, "raft", "profiles", profileSlug),
+          token,
+          keepProfileOnSuccess: false,
+        },
+      );
+      if (!outcome.ok) return outcome;
       return {
         ok: true,
         identity: {
-          agentId: whoami.agentId,
-          ...(login.agentName?.trim() ? { agentName: login.agentName.trim() } : {}),
-          serverUrl: whoami.serverUrl,
-          serverId: whoami.serverId,
+          agentId: outcome.agentId,
+          ...(outcome.agentName ? { agentName: outcome.agentName } : {}),
+          serverUrl: outcome.serverUrl,
+          serverId: outcome.serverId,
         },
       };
     },

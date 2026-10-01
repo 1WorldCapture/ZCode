@@ -361,7 +361,7 @@ import { TaskIndexRepo } from "./session/taskIndexRepo.js";
 import { createBotsService } from "./bots/botsService.js";
 import { createBotRemoteWorkspaceService } from "./bots/botRemoteWorkspaceBridge.js";
 import { IRaftAgentsService } from "./raft-agents/contract.js";
-import { createDefaultRaftAgentsService, createDefaultRaftHostStack, type RaftHostStack } from "./raft-agents/compose.js";
+import { createDefaultRaftHostStack, type RaftHostStack } from "./raft-agents/compose.js";
 import { createZcodeSessionPort } from "./raft-agents/adapters/zcodeSession.js";
 import type { SessionMessageSendRequested } from "#src/session/sessionMailbox.js";
 import { createFileWatcherService } from "./fileWatcher/fileWatcherService.js";
@@ -2449,6 +2449,21 @@ export function createLocalServices(options: {
   // disposeServiceResources（AndWait），恢复在集合建成后异步触发（spec §3 崩溃恢复）。
   const raftStack = createDefaultRaftHostStack({
     sessions: createZcodeSessionPort(zcodeAgentService),
+    // CLI/bridge 子进程与企业内网可达性：代理/自定义 CA 来自设置页（宿主 process.env
+    // 已被上游清洗，不能从 env 抄），与 agent spawn（resolveSpawnEnv）同一来源、
+    // 同一 buildAgentRuntimeEnv。spawn 时读取：改动后下次拉起 bridge/登录生效。
+    resolveProxyEnv: async () => {
+      const settings = await settingService.get();
+      const agentNetwork =
+        isDesktopAttachedRemote && options?.remoteAgentNetwork
+          ? options.remoteAgentNetwork
+          : { httpProxy: settings.httpProxy, noProxy: settings.httpProxyNoProxy };
+      return buildAgentRuntimeEnv({
+        httpProxy: agentNetwork.httpProxy,
+        noProxy: agentNetwork.noProxy,
+        caCertPath: settings.httpProxyCaCertPath,
+      });
+    },
     // Without a logger the raft runtime (watchRuntime/supervisor/wakeServer) is
     // silent in host logs — e2e debugging showed wake delivery is unobservable.
     logger: createServiceLogger("raft-agents"),
