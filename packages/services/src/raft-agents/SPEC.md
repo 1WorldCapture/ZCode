@@ -257,12 +257,12 @@ createBinding(input: { raftOrigin, raftAgentId, homePath }
 - **详情页「管理」区**：重启 / 重置 / 删除三个动作，均带二次确认（AlertDialog，与插件卸载确认同惯例）。
 - **重启确认**：提示进行中的工作会中断；语义 = 停值守 → 新建主会话（同 Home/记忆配置）→ 恢复值守，记忆保留。
 - **重置确认**：同上中断提示；另明确 Home 记忆面（MEMORY.md、AGENTS.md、notes/）清空并按初始模板重建，Home 其他内容不受影响。
-- **删除确认**：明确写明删除绑定、本地凭据与整个 Home 目录（**包括 projects/ 下 clone 的代码**）、操作不可恢复、**Raft 服务侧 token 不会被撤销**（需用户在服务端自行撤销）。
+- **删除确认**：写明删除绑定与本地凭据；Home 目录会被删除（**包括 projects/ 下 clone 的代码**），但**目录守卫**成立时例外——Home 无 ZCode 归属标记（用户在向导里指定的既有目录）只清记忆面、保留目录；操作不可恢复；**Raft 服务侧 token 不会被撤销**（需用户在服务端自行撤销）。删除完成后按 `removeBinding` 返回的 `homeDeleted` 如实 toast 两种结果。
 - **状态完整显示**：详情页在运行状态下列出活动投影——最近活动（类别 + 时间，类别 = wake/drain_submitted/message_sent/error）与记忆状态（memoryLoaded）。`activity` 为列表投影的可选扩展字段（A1 第 5 条），旧数据无字段时不渲染这些行。
 
 ### 接口对接（A1 形状）
 
-`restartBinding(bindingId)` / `resetBinding(bindingId)` / `removeBinding(bindingId, {deleteHome:true})` 按 Dev-developer 的 A1 形状对接；失败（NotFound / SessionCreateFailed / MemoryResetFailed）统一置操作失败提示并刷新快照，不做乐观更新。
+`restartBinding(bindingId)` / `resetBinding(bindingId)` 按 Dev-developer 的 A1 形状对接；`removeBinding(bindingId, {deleteHome:true})` 返回 `{ homeDeleted }`（目录守卫评审定稿，9b695ea：符号链接拒绝、受保护根、`.zcode-agent-home` 归属标记或默认位置才整删，否则只清记忆面保留目录）。失败（NotFound / SessionCreateFailed / MemoryResetFailed）统一置操作失败提示并刷新快照，不做乐观更新。
 
 ### 不变量
 

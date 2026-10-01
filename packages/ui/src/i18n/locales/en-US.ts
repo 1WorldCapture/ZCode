@@ -121,8 +121,11 @@ const enUS: Record<string, string> = {
   "agentCenter.manage.reset.confirm": "Reset",
   "agentCenter.manage.remove.confirmTitle": "Delete this Agent?",
   "agentCenter.manage.remove.confirmDescription":
-    "This stops watching and deletes the binding, the local credential and the entire Home directory (including code under projects/). This can't be undone. The token on the Raft server is NOT revoked — revoke it there too if you want a complete removal.",
+    "This stops watching and deletes the binding and the local credential. The Home directory is deleted (including code under projects/); if it isn't a ZCode-owned directory, the directory is kept and only the memory files are cleared. This can't be undone. The token on the Raft server is NOT revoked — revoke it there too if you want a complete removal.",
   "agentCenter.manage.remove.confirm": "Delete",
+  "agentCenter.manage.remove.doneDeleted": "Agent and its Home directory deleted",
+  "agentCenter.manage.remove.doneKept":
+    "Agent deleted; the Home directory was kept with only the memory files cleared",
   "agentCenter.activity.lastActivity": "Last activity",
   "agentCenter.activity.none": "No activity yet",
   "agentCenter.activity.memoryLoaded": "Memory",

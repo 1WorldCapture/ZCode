@@ -109,8 +109,10 @@ const zhCN: Record<string, string> = {
   "agentCenter.manage.reset.confirm": "重置",
   "agentCenter.manage.remove.confirmTitle": "删除这个 Agent？",
   "agentCenter.manage.remove.confirmDescription":
-    "将停止值守，并删除绑定、本地凭据和整个 Home 目录（包括 projects/ 下的代码）。此操作不可恢复；Raft 服务侧的 token 不会被撤销，如需彻底移除请同时在服务端撤销。",
+    "将停止值守，并删除绑定与本地凭据。Home 目录会被删除（包括 projects/ 下的代码）；如果该目录不是 ZCode 创建的专属目录，将保留目录、只清空记忆文件。此操作不可恢复；Raft 服务侧的 token 不会被撤销，如需彻底移除请同时在服务端撤销。",
   "agentCenter.manage.remove.confirm": "删除",
+  "agentCenter.manage.remove.doneDeleted": "已删除 Agent 及其 Home 目录",
+  "agentCenter.manage.remove.doneKept": "已删除 Agent；Home 目录已保留，仅清空了记忆文件",
   "agentCenter.activity.lastActivity": "最近活动",
   "agentCenter.activity.none": "暂无活动",
   "agentCenter.activity.memoryLoaded": "记忆状态",

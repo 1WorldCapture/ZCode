@@ -11,6 +11,7 @@
 import { useState } from "react";
 import { Eraser, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
+import { toast } from "@/components/ui/toast.js";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,13 +49,23 @@ export function AgentManageSection({ bindingId }: { bindingId: string }) {
   const run = async (action: ManageAction) => {
     setBusy(true);
     try {
-      const ok =
-        action === "restart"
-          ? await restartAgent(service, bindingId)
-          : action === "reset"
-            ? await resetAgent(service, bindingId)
-            : await removeAgent(service, bindingId);
-      if (ok) setPending(null);
+      if (action === "restart") {
+        if (await restartAgent(service, bindingId)) setPending(null);
+      } else if (action === "reset") {
+        if (await resetAgent(service, bindingId)) setPending(null);
+      } else {
+        const result = await removeAgent(service, bindingId);
+        if (!result.ok) return;
+        setPending(null);
+        // 目录守卫（评审定稿）：无 ZCode 归属标记的 Home 只清记忆、保留目录，如实提示。
+        toast(
+          intl.formatMessage({
+            id: result.homeDeleted
+              ? "agentCenter.manage.remove.doneDeleted"
+              : "agentCenter.manage.remove.doneKept",
+          }),
+        );
+      }
     } finally {
       setBusy(false);
     }

@@ -90,24 +90,30 @@ export async function resetAgent(
 
 /**
  * 删除（B1）：二次确认后调用；deleteHome 清除 Home 目录（含 projects/）与本地 profile，
- * 不撤销 Raft 侧 token（确认文案已提示用户）。成功后刷新快照；
- * 详情页因绑定消失自动回列表。
+ * 不撤销 Raft 侧 token（确认文案已提示用户）。
+ *
+ * 返回 homeDeleted：服务端目录守卫（a517415a 评审定稿）下，Home 无 ZCode 归属标记
+ * （用户指定的既有目录）时只清记忆面、保留目录——界面必须按此如实提示，不能一律说已删除。
  */
 export async function removeAgent(
   service: IRaftAgentsService,
   bindingId: string,
-): Promise<boolean> {
+): Promise<{ ok: boolean; homeDeleted: boolean }> {
   const store = useAgentCenterStore.getState();
   store.setActionFailed(false);
   try {
-    await service.removeBinding(bindingId, { deleteHome: true });
+    const result = await service.removeBinding(bindingId, { deleteHome: true });
+    // A1 形状：removeBinding 返回 { homeDeleted }（9b695ea 起）；
+    // 旧实现返回 void 时按"已删除"处理，避免界面误报保留。
+    const homeDeleted =
+      (result as { homeDeleted?: boolean } | undefined)?.homeDeleted ?? true;
+    await refreshAgents(service);
+    return { ok: true, homeDeleted };
   } catch (error) {
     logger.warn("[AgentCenter] 删除 Agent 失败", { bindingId, error });
     store.setActionFailed(true);
-    return false;
+    return { ok: false, homeDeleted: false };
   }
-  await refreshAgents(service);
-  return true;
 }
 
 /** 提交接入表单；成功返回 true 并回到列表。token 只在这次调用里存在，不进 store。 */

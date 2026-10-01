@@ -157,9 +157,31 @@ test("管理动作：重启/重置成功刷新；失败置 actionFailed；删除
   const removable = fakeService({
     removeBinding: async (bindingId: string, opts: unknown) => {
       removeArgs = { bindingId, opts };
+      return { homeDeleted: true };
     },
   });
-  assert.equal(await removeAgent(removable.service, "b1"), true);
+  assert.deepEqual(await removeAgent(removable.service, "b1"), {
+    ok: true,
+    homeDeleted: true,
+  });
   assert.deepEqual(removeArgs, { bindingId: "b1", opts: { deleteHome: true } });
   assert.deepEqual(removable.calls, ["list"]);
+
+  // 目录守卫：无归属标记的 Home 只清记忆、保留目录，返回值必须如实带出来。
+  const kept = fakeService({
+    removeBinding: async () => ({ homeDeleted: false }),
+  });
+  assert.deepEqual(await removeAgent(kept.service, "b1"), {
+    ok: true,
+    homeDeleted: false,
+  });
+
+  const failingRemove = fakeService({
+    removeBinding: async () => Promise.reject(new Error("boom")),
+  });
+  assert.deepEqual(await removeAgent(failingRemove.service, "b1"), {
+    ok: false,
+    homeDeleted: false,
+  });
+  assert.equal(useAgentCenterStore.getState().actionFailed, true);
 });
