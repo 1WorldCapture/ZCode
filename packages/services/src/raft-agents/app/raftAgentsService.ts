@@ -33,6 +33,7 @@ import { RaftBindingStoreCorruptError } from "../domain/bindingStoreError.js";
 import type { RaftActivityTracker } from "./activity.js";
 import type { RaftActivityFeed } from "./activityFeed.js";
 import { createRaftAgentBinding, defaultRaftAgentHomePath } from "./bindingCreate.js";
+import { resolveCredentialToken } from "./credentialToken.js";
 import type { AgentHomePort } from "./agentHomePorts.js";
 import type { RaftAgentManagement } from "./management.js";
 import { loginAndVerifyIdentity } from "./loginVerify.js";
@@ -288,33 +289,17 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
       if (!raftAgentIdSchema.safeParse(agentId).success) {
         return { ok: false, code: "AgentIdInvalid" };
       }
-      // 凭据来源二选一（与 createBinding 复用路径同款）：直传，或复用本机凭据
-      // （服务侧读出、读完即弃）。核验统一走临时 verify- profile 链，用户 profile
-      // 不被触碰——两种接入模式的确认页都能先核验身份再显示（线程 bbb29be1）。
-      let token: string | undefined;
-      if (input.token !== undefined) {
-        token = input.token.trim();
-      } else if (input.existingProfileSlug !== undefined) {
-        const occupiedBy = (await store.readAll()).find(
-          (b) => b.profileSlug === input.existingProfileSlug,
-        );
-        if (occupiedBy) {
-          return { ok: false, code: "ProfileInUse", detail: occupiedBy.displayName };
-        }
-        if (!options.profilesCatalog) {
-          return { ok: false, code: "CredentialCheckFailed", detail: "credential reuse not wired" };
-        }
-        const resolved = await options.profilesCatalog.resolveProfileToken({
-          profileSlug: input.existingProfileSlug,
-        });
-        if (!resolved.ok) {
-          return { ok: false, code: "CredentialCheckFailed", detail: resolved.code };
-        }
-        token = resolved.token.trim();
+      // 凭据来源二选一：与 createBinding 共用 resolveCredentialToken（同一条规则，
+      // 不各改各的）。核验统一走临时 verify- profile 链，用户 profile 不被触碰
+      // ——两种接入模式的确认页都能先核验身份再显示（线程 bbb29be1）。
+      const credential = await resolveCredentialToken(
+        { store, profilesCatalog: options.profilesCatalog },
+        input,
+      );
+      if (!credential.ok) {
+        return { ok: false, code: credential.code, detail: credential.detail };
       }
-      if (token === undefined || !/^sk_agent_[A-Za-z0-9_-]+$/.test(token)) {
-        return { ok: false, code: "TokenInvalid" };
-      }
+      const token = credential.token;
       // 实际生效 Home（评审线程 a517415a，B1/A2 验收）：输入给了就按创建同款规则
       // 校验后回显；留空给预派发默认——绑定 UUID 创建时才生成，这里先派发一个
       // 具体路径，向导保存时作为显式输入回传（与创建共用 defaultRaftAgentHomePath）。
