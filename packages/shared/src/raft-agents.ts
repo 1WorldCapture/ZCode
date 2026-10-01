@@ -217,19 +217,29 @@ export type RaftAgentStorageHealth = z.infer<typeof raftAgentStorageHealthSchema
 // 二期 A1：管理动作 / 凭据预核验 / 记忆只读 / 凭据枚举
 // -----------------------------------------------
 
-/** 凭据预核验输入：与接入表单同形（token 只经 stdin 进 CLI，不进任何持久化结构）。 */
+/**
+ * 凭据预核验输入：token 只经 stdin 进 CLI，不进任何持久化结构。凭据来源二选一
+ * （与 createBinding 同款）：直传 token，或复用本机已有凭据 existingProfileSlug
+ * （服务侧读出、读完即弃）——两种接入模式的确认页都能先核验身份再显示。
+ */
 export const raftAgentVerifyCredentialInputSchema = z
   .object({
     raftOrigin: z.string().trim().min(1),
     raftAgentId: z.string().trim().pipe(raftAgentIdSchema),
-    token: z.string().min(1),
+    /** 直传凭据；与 existingProfileSlug 恰好给一个。 */
+    token: z.string().min(1).optional(),
+    /** 复用本机已有凭据（A2）；与 token 恰好给一个。 */
+    existingProfileSlug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/).optional(),
     /**
      * 可选 Home 路径：给了就形状校验后原样回显；留空返回服务端预派发的默认路径，
      * 向导保存时把它作为 homeWorkspacePath 显式回传（两侧共用同一派生函数）。
      */
     homeWorkspacePath: z.string().trim().optional(),
   })
-  .strict();
+  .strict()
+  .refine((v) => (v.token !== undefined) !== (v.existingProfileSlug !== undefined), {
+    message: "exactly one of token or existingProfileSlug is required",
+  });
 export type RaftAgentVerifyCredentialInput = z.infer<typeof raftAgentVerifyCredentialInputSchema>;
 
 /** 预核验结果：成功返回服务端认定的身份；失败码与接入同族（无 Provisioning/Store 系）。 */
@@ -263,6 +273,8 @@ export const raftAgentVerifyResultSchema = z.discriminatedUnion("ok", [
         "TokenInvalid",
         "IdentityMismatch",
         "CredentialCheckFailed",
+        // 复用凭据预核验（与 createBinding 同款早失败）：确认页不该走到保存才报占用。
+        "ProfileInUse",
       ]),
       detail: z.string().optional(),
     })

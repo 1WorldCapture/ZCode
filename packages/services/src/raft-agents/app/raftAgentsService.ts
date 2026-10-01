@@ -255,8 +255,31 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
       if (!raftAgentIdSchema.safeParse(agentId).success) {
         return { ok: false, code: "AgentIdInvalid" };
       }
-      const token = input.token.trim();
-      if (!/^sk_agent_[A-Za-z0-9_-]+$/.test(token)) {
+      // 凭据来源二选一（与 createBinding 复用路径同款）：直传，或复用本机凭据
+      // （服务侧读出、读完即弃）。核验统一走临时 verify- profile 链，用户 profile
+      // 不被触碰——两种接入模式的确认页都能先核验身份再显示（线程 bbb29be1）。
+      let token: string | undefined;
+      if (input.token !== undefined) {
+        token = input.token.trim();
+      } else if (input.existingProfileSlug !== undefined) {
+        const occupiedBy = (await store.readAll()).find(
+          (b) => b.profileSlug === input.existingProfileSlug,
+        );
+        if (occupiedBy) {
+          return { ok: false, code: "ProfileInUse", detail: occupiedBy.displayName };
+        }
+        if (!options.profilesCatalog) {
+          return { ok: false, code: "CredentialCheckFailed", detail: "credential reuse not wired" };
+        }
+        const resolved = await options.profilesCatalog.resolveProfileToken({
+          profileSlug: input.existingProfileSlug,
+        });
+        if (!resolved.ok) {
+          return { ok: false, code: "CredentialCheckFailed", detail: resolved.code };
+        }
+        token = resolved.token.trim();
+      }
+      if (token === undefined || !/^sk_agent_[A-Za-z0-9_-]+$/.test(token)) {
         return { ok: false, code: "TokenInvalid" };
       }
       // 实际生效 Home（评审线程 a517415a，B1/A2 验收）：输入给了就按创建同款规则

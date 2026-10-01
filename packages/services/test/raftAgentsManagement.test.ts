@@ -4,7 +4,7 @@
  * （临时 profile 即毁）、复用凭据接入、活动记录。
  */
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -741,6 +741,94 @@ test("verifyCredential：homePath 输入回显 / 形状非法本地拒收", asyn
     });
     // 形状非法在本地快速拒收：login 只有前一次回显成功，坏路径没有产生新登录。
     assert.equal(cli.loginCalls.length, 1);
+  });
+});
+
+test("verifyCredential：复用已有凭据——读 token 走同一核验链，用户 profile 不被触碰", async () => {
+  await withDataRoot(async (dataRoot) => {
+    const profilesRoot = join(dataRoot, "raft", "profiles");
+    await mkdir(join(profilesRoot, "team-alpha"), { recursive: true });
+    const credentialJson = JSON.stringify({
+      serverUrl: "https://raft.example.com",
+      agentId: AGENT_ID,
+      apiKey: "sk_agent_reuse123",
+    });
+    const credPath = join(profilesRoot, "team-alpha", "credential.json");
+    await writeFile(credPath, credentialJson);
+    const cli = fakeCli();
+    const service = createRaftAgentsService({
+      cli,
+      store: createRaftBindingStore(dataRoot),
+      clock: fixedClock,
+      dataRootDir: dataRoot,
+      profilesCatalog: createRaftProfilesCatalog(profilesRoot),
+    });
+    const result = await service.verifyCredential({
+      raftOrigin: "https://raft.example.com",
+      raftAgentId: AGENT_ID,
+      existingProfileSlug: "team-alpha",
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.identity.agentId, AGENT_ID);
+      assert.ok(result.homePath.startsWith(join(dataRoot, "agents")));
+    }
+    // 读出的 token 直达 CLI stdin；核验走临时 verify- profile（与直传同一条链）。
+    assert.equal(cli.loginCalls.length, 1);
+    assert.equal(cli.loginCalls[0].token, "sk_agent_reuse123");
+    assert.match(cli.loginCalls[0].profileSlug, /^verify-/);
+    assert.equal(cli.destroyCalls.length, 1);
+    // 用户 profile 原样保留，无 verify- 残留。
+    assert.equal(await readFile(credPath, "utf8"), credentialJson);
+    assert.deepEqual(await readdir(profilesRoot), ["team-alpha"]);
+  });
+});
+
+test("verifyCredential：复用被占用凭据 → ProfileInUse；读不出 → CredentialCheckFailed", async () => {
+  await withDataRoot(async (dataRoot) => {
+    const profilesRoot = join(dataRoot, "raft", "profiles");
+    await mkdir(join(profilesRoot, "team-alpha"), { recursive: true });
+    await writeFile(
+      join(profilesRoot, "team-alpha", "credential.json"),
+      JSON.stringify({ serverUrl: "https://raft.example.com", agentId: AGENT_ID, apiKey: "sk_agent_reuse123" }),
+    );
+    const cli = fakeCli();
+    const store = createRaftBindingStore(dataRoot);
+    // 已有绑定占用 team-alpha。
+    await store.writeAll([
+      makeBinding(join(dataRoot, "agents", BINDING_ID, "workspace"), {
+        bindingId: "12345678-1234-4123-8123-123456789012",
+        profileSlug: "team-alpha",
+        desiredState: "ReadyStopped",
+        mainSessionRef: null,
+      }),
+    ]);
+    const service = createRaftAgentsService({
+      cli,
+      store,
+      clock: fixedClock,
+      dataRootDir: dataRoot,
+      profilesCatalog: createRaftProfilesCatalog(profilesRoot),
+    });
+    // 占用早失败（与 createBinding 同款），确认页不该走到保存才报。
+    assert.deepEqual(
+      await service.verifyCredential({
+        raftOrigin: "https://raft.example.com",
+        raftAgentId: AGENT_ID,
+        existingProfileSlug: "team-alpha",
+      }),
+      { ok: false, code: "ProfileInUse", detail: "t11-test-agent" },
+    );
+    // 读不出的 slug（不存在）→ CredentialCheckFailed，且未触达 login。
+    assert.deepEqual(
+      await service.verifyCredential({
+        raftOrigin: "https://raft.example.com",
+        raftAgentId: AGENT_ID,
+        existingProfileSlug: "ghost",
+      }),
+      { ok: false, code: "CredentialCheckFailed", detail: "Missing" },
+    );
+    assert.equal(cli.loginCalls.length, 0);
   });
 });
 
