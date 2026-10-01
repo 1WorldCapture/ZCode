@@ -10,6 +10,7 @@ import { getZCodeDataRootDir } from "#src/paths.js";
 
 import type { IRaftAgentsService, RaftProvisioningStep } from "./contract.js";
 import { createRaftActivityTracker } from "./app/activity.js";
+import { createRaftActivityFeed } from "./app/activityFeed.js";
 import { createRaftAgentsService, type RaftAgentsServiceOptions } from "./app/raftAgentsService.js";
 import { createRaftWakeDelivery } from "./app/wakeDelivery.js";
 import { createRaftWatchRuntime, type RaftWatchRuntime } from "./app/watchRuntime.js";
@@ -116,6 +117,8 @@ export function createDefaultRaftHostStack(options: {
   const store = createRaftBindingStore(dataRootDir);
   const memory = options.memory ?? createAgentHomeAdapter();
   const activity = createRaftActivityTracker();
+  // 二期 B2：主会话活动摘要（会话事件 → Raft 活动转发缓冲 + 本机实时投影）。
+  const feed = createRaftActivityFeed({ sessions: options.sessions, logger });
   const profilesCatalog = createRaftProfilesCatalog(join(dataRootDir, "raft", "profiles"));
 
   // 官方 MCP 引用：CLI 不可解析 = 插件/环境不可用 → fail-closed（undefined）。
@@ -142,9 +145,10 @@ export function createDefaultRaftHostStack(options: {
     // 回调用箭头惰性引用（唤醒发生时必已初始化）。
     resolveOfficialMcpServers,
     onSessionUnrecoverable: (bindingId) => runtime.markSessionUnavailable(bindingId),
+    feed,
     logger,
   });
-  const wakeServer = createWakeServer({ handler: wakeHandler, port: options.wakePort });
+  const wakeServer = createWakeServer({ handler: wakeHandler, port: options.wakePort, activity: feed });
   const supervisor = createBridgeSupervisor({
     dataRootDir,
     wakeEndpoint: wakeServer,
@@ -155,6 +159,10 @@ export function createDefaultRaftHostStack(options: {
       warn: (message, fields) => logger?.warn(undefined, message, fields),
     },
   });
+  // B2：bridge 意外退出记一次断开（requested 由 stopWatch 经 feed.detach 记）。
+  supervisor.onExit((info) => {
+    if (!info.requested) feed.noteBridge(info.bindingId, "disconnected", "bridge_exit");
+  });
   const runtime = createRaftWatchRuntime({
     store,
     lock,
@@ -164,6 +172,7 @@ export function createDefaultRaftHostStack(options: {
     memory,
     resolveOfficialMcpServers,
     activity,
+    feed,
     logger,
   });
 
@@ -194,6 +203,7 @@ export function createDefaultRaftHostStack(options: {
     profilesCatalog,
     management,
     activity,
+    feed,
     onDesiredStateChanged: ({ bindingId, desired }) => {
       // 状态落盘成功后触发编排（锁外、异步）：开始/停止值守。
       void (desired === "Running" ? runtime.startWatch(bindingId) : runtime.stopWatch(bindingId)).catch(
@@ -223,6 +233,7 @@ export function createDefaultRaftHostStack(options: {
         // 后续服务的收口（那里失败会让 agent 进程树变孤儿）。
         try {
           await runtime.disposeAllAndWait();
+          feed.disposeAll();
           await wakeServer.stop();
         } catch (error) {
           logger?.warn(undefined, "raft stack disposeAllAndWait failed (tolerated)", {
@@ -232,6 +243,7 @@ export function createDefaultRaftHostStack(options: {
       },
       disposeAll: () => {
         supervisor.terminateAllNow();
+        feed.disposeAll();
         void wakeServer.stop().catch(() => {});
       },
     } satisfies RaftStackDisposable),

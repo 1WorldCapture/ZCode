@@ -398,6 +398,26 @@ createBinding(input: { raftOrigin, raftAgentId, homePath }
 
 自动化：三动作的服务调用与快照刷新、失败置 actionFailed、删除参数恒为 `{deleteHome:true}`、activity 字段缺失时不渲染活动行。人工：PM 对照本节验收三个确认框文案（projects/ 删除提示、token 不撤销提示、中断提示）与活动投影显示。
 
+## 二期 B2：活动摘要（task #16）
+
+上游依据：二期需求线程（#zcode-raft-integration:a517415a）；设计线程 #zcode-raft-integration:553bb9c6。实现：`app/activityFeed.ts`、`adapters/zcodeSession.ts`（`subscribeActivity`/`toRaftSessionActivityEvent`）、`adapters/wakeServer.ts`（`/activity/drain`）。
+
+### 行为
+
+- **订阅**：值守开始（bridge 连上）时经 `IZCodeTaskService.onDynamicTaskEvent`（宿主侧常开、continuous，与机器人同法）订阅该绑定的主会话；换会话换订，停值守/删除/宿主关停退订。不新建事件存储。
+- **Raft 侧活动**：会话事件映射为 Raft 已定义的 `raft-activity.v1`（开始处理 `UserPromptSubmit`、`PreToolUse`、`PostToolUse`/`PostToolUseFailure`、一轮结束/失败 `Stop`、bridge 连上/断开 `SessionStart`/`SessionEnd`），放入每绑定有上限的转发缓冲（500 条，满了丢最旧并计入 `dropped`，取走即清），官方 bridge 经 `/activity/drain` 取走转发 Raft 服务端；服务端已有活动表持久保存与展示。
+- **本机投影**：并入 `list()` 的 `activity`（只追加可选字段）：`phase`（idle/working/error）、`currentItem`（复用机器人 `/status` 的 `formatStatusStreamToolProgress`，180 字截断）、`pendingCount`（唤醒已进会话、未开始处理）、`pendingApprovals`（以会话 permission 事件为准）、`lastError`。完整历史由 B3 嵌入会话视图展示，这里不保留历史。
+
+### 已确认（lyonliang，2026-10-01）
+
+1. **发到 Raft 的内容**：只发工具名（120 字截断）、成功或失败、耗时、错误码；**不发工具输入/输出与进度文本**（测试锁定）。
+2. **保留时长**：长期保存，不做到期清理（Raft 侧由服务端活动表保存；ZCode 侧会话记录本就持久）。
+
+### 不变量
+
+1. 订阅失败只影响活动展示，不影响值守。
+2. 转发缓冲只是中转：宿主重启丢失未转发的少量事件可接受（会话本身完整保存）。
+3. 活动摘要只做展示，不改变任何任务状态。
 ## 二期 R3：界面审核修复（task #21）
 
 背景：grokbot「重复造轮子」审核（zcode-reuse-audit.md，feat/raft-agent-binding @ 03f9792）。本节覆盖界面侧（packages/ui/src/agents）的缺陷修复与复用替换；第 13 项（Agent 中心挂载方式）按 PM 要求先出方案、评审通过后再改。

@@ -148,6 +148,14 @@ export interface RaftSessionPort {
    * 不做跨进程删库行；失败由调用方决定是否继续（绑定删除的语义优先）。
    */
   closeAgentSession(params: { workspacePath: string; sessionId: string }): Promise<{ ok: true } | { ok: false; code: "failed"; detail?: string }>;
+  /**
+   * 二期 B2：订阅主会话的活动事件（任务服务 onDynamicTaskEvent 的宿主侧订阅，归一成
+   * 下面的最小事件面）。只供活动摘要展示，不改变任何任务状态。可选：测试替身可不实现。
+   */
+  subscribeActivity?(
+    params: { workspacePath: string; sessionId: string },
+    listener: (event: RaftSessionActivityEvent) => void,
+  ): { dispose(): void };
 }
 
 /** 本机凭据目录枚举结果（apiKey 已在适配器内丢弃，永不进此结构）。 */
@@ -183,6 +191,28 @@ export interface RaftBindingStorePort {
   /** 全量写回（原子）；写入方负责唯一性校验（域函数）。 */
   writeAll(bindings: import("@zcode/shared").RaftAgentBinding[]): Promise<void>;
 }
+
+/**
+ * 主会话活动事件（二期 B2）：由会话适配器从 ZCodeStreamEvent 归一而来。
+ * progressText 是本机界面用的一行进度（工具标题/命令等，只在 ZCode 本机展示，
+ * 不转发 Raft）；转发 Raft 的只有工具名、状态、耗时、错误码。
+ */
+export type RaftSessionActivityEvent =
+  | { kind: "turnStarted"; at: number }
+  | { kind: "toolStarted"; at: number; toolId: string; toolName: string; progressText: string | null }
+  | {
+      kind: "toolFinished";
+      at: number;
+      toolId: string;
+      toolName: string;
+      status: "completed" | "failed" | "denied" | "stopped";
+      progressText: string | null;
+    }
+  | { kind: "progress"; at: number; progressText: string }
+  | { kind: "turnCompleted"; at: number }
+  | { kind: "turnFailed"; at: number; errorCode: string | null }
+  | { kind: "permissionRequested"; at: number }
+  | { kind: "permissionResolved"; at: number };
 
 /** 时钟端口：可测试的当前时间。 */
 export interface ClockPort {

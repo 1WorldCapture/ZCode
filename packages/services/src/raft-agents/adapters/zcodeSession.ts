@@ -14,16 +14,85 @@
  *   工具面/文件边界（mode 除外——协议侧从持久化消息派生，且每条投递显式带 yolo 兜底）。
  * - closeAgentSession → closeTask：关 session 并把 tasks-index 行标 deleted。
  */
+import type { ZCodeStreamEvent } from "@zcode/shared";
+
+import {
+  formatStatusStreamToolProgress,
+  truncateLiveStatusProgressText,
+} from "#src/bots/statusFormatting.js";
 import type { IZCodeTaskService } from "#src/session/zcodeTaskService.js";
 import { ZCodeV4CommandRejectedError } from "#src/zcode-agent/zcodeV4HostCommand.js";
 
-import type { RaftSessionPort, RaftSessionSendOutcome } from "../app/ports.js";
+import type {
+  RaftSessionActivityEvent,
+  RaftSessionPort,
+  RaftSessionSendOutcome,
+} from "../app/ports.js";
 
 /** zcodeTaskService 的最小结构面：只依赖用到的四个方法，测试替身无需整套服务。 */
 export type ZcodeTaskSessionService = Pick<
   IZCodeTaskService,
-  "createTask" | "sendPrompt" | "resumeTask" | "closeTask"
+  "createTask" | "sendPrompt" | "resumeTask" | "closeTask" | "onDynamicTaskEvent"
 >;
+
+/** 本机"当前事项"一行的长度上限（与机器人 /status 进度同量级）。 */
+const PROGRESS_TEXT_MAX = 180;
+
+function progressOf(event: Extract<ZCodeStreamEvent, { type: "tool_call" | "tool_call_update" }>): string | null {
+  const text = formatStatusStreamToolProgress(event);
+  return text ? truncateLiveStatusProgressText(text, PROGRESS_TEXT_MAX) : null;
+}
+
+/**
+ * 二期 B2：ZCodeStreamEvent → 活动摘要最小事件面（只取展示需要的字段）。
+ * 进度文本复用机器人 /status 的格式化（statusFormatting），不另写一套。
+ */
+export function toRaftSessionActivityEvent(
+  event: ZCodeStreamEvent,
+  now: number = Date.now(),
+): RaftSessionActivityEvent | null {
+  switch (event.type) {
+    case "task_run_started":
+      return { kind: "turnStarted", at: event.startedAt || now };
+    case "tool_call":
+      return {
+        kind: "toolStarted",
+        at: now,
+        toolId: event.toolId,
+        toolName: event.toolName ?? event.kind ?? "tool",
+        progressText: progressOf(event),
+      };
+    case "tool_call_update": {
+      if (
+        event.status === "completed" ||
+        event.status === "failed" ||
+        event.status === "denied" ||
+        event.status === "stopped"
+      ) {
+        return {
+          kind: "toolFinished",
+          at: now,
+          toolId: event.toolId,
+          toolName: event.toolName ?? event.kind ?? "tool",
+          status: event.status,
+          progressText: progressOf(event),
+        };
+      }
+      const progressText = progressOf(event);
+      return progressText ? { kind: "progress", at: now, progressText } : null;
+    }
+    case "task_complete":
+      return { kind: "turnCompleted", at: now };
+    case "task_error":
+      return { kind: "turnFailed", at: now, errorCode: event.code ?? null };
+    case "permission_request":
+      return { kind: "permissionRequested", at: now };
+    case "permission_response":
+      return { kind: "permissionResolved", at: now };
+    default:
+      return null;
+  }
+}
 
 /** v4 六态里门面会抛出的三种拒绝 → 投递结果（accepted/duplicate/noop 不经此处）。 */
 function v4RejectionToOutcome(error: ZCodeV4CommandRejectedError): RaftSessionSendOutcome {
@@ -131,6 +200,19 @@ export function createZcodeSessionPort(service: ZcodeTaskSessionService): RaftSe
         //（Home 记忆才是持久层，主会话是可重建的运行时资源）。
         return { ok: false, code: "failed", detail: String(error) };
       }
+    },
+
+    subscribeActivity(params, listener) {
+      // 宿主侧常开订阅（与机器人同法，不依赖界面在看）；continuous = 直推语义。
+      const subscription = service.onDynamicTaskEvent({
+        workspacePath: params.workspacePath,
+        taskId: params.sessionId,
+        deliveryKind: "continuous",
+      })((event) => {
+        const mapped = toRaftSessionActivityEvent(event);
+        if (mapped) listener(mapped);
+      });
+      return { dispose: () => subscription.dispose() };
     },
 
     async closeAgentSession(params) {

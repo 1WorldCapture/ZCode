@@ -187,6 +187,14 @@ export const raftAgentListItemSchema = z
         lastActivityKind: z.enum(["wake", "drain_submitted", "error"]).nullable(),
         memoryLoaded: z.boolean(),
         pendingApprovals: z.number().int().min(0),
+        /** 二期 B2：主会话处理状态（会话事件实时投影；值守未开始时缺省）。 */
+        phase: z.enum(["idle", "working", "error"]).optional(),
+        /** 二期 B2：当前事项（处理中最近一条工具/进度，本机展示用；空闲为 null）。 */
+        currentItem: z.string().nullable().optional(),
+        /** 二期 B2：待处理数（唤醒已投递进会话、尚未开始处理）。 */
+        pendingCount: z.number().int().min(0).optional(),
+        /** 二期 B2：最近一次处理出错（错误码 + 时间）。 */
+        lastError: z.object({ code: z.string().nullable(), at: z.string() }).strict().nullable().optional(),
       })
       .strict()
       .optional(),
