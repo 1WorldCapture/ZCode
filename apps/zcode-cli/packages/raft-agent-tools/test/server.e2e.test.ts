@@ -10,14 +10,24 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { buildRaftAgentToolsBundle } from "../scripts/build.mjs";
 import { formatToolResult, listRaftTools, toToolCall } from "../src/server.js";
 
-test("工具列表：6 个白名单工具，无身份字段", () => {
+test("工具列表：8 个白名单工具，入参无身份字段", () => {
   const tools = listRaftTools();
   assert.deepEqual(
     tools.map((t) => t.name),
-    ["raft_message_check", "raft_message_read", "raft_message_send", "raft_task_list", "raft_task_claim", "raft_task_update"],
+    [
+      "raft_message_check",
+      "raft_message_read",
+      "raft_message_send",
+      "raft_task_list",
+      "raft_task_claim",
+      "raft_task_update",
+      "raft_server_info",
+      "raft_channel_members",
+    ],
   );
-  const schemaText = JSON.stringify(tools);
-  assert.ok(!/profile|server|token/i.test(schemaText.replace(/服务/g, "")), "入参里不应出现身份字段");
+  // 身份字段检查只看入参 schema：工具名（raft_server_info）不是身份字段。
+  const schemaText = JSON.stringify(tools.map((t) => t.inputSchema));
+  assert.ok(!/profile|token/i.test(schemaText), "入参里不应出现身份字段");
 });
 
 test("入参映射：未知字段与 done 状态被拒", () => {
@@ -27,6 +37,12 @@ test("入参映射：未知字段与 done 状态被拒", () => {
   const ok = toToolCall("raft_message_send", { target: "#dev", content: "hi" });
   assert.ok(ok.ok);
   assert.deepEqual(ok.call, { tool: "message_send", target: "#dev", content: "hi" });
+  // 只读发现面：无参的 server_info 与带频道的 channel_members。
+  // （target 的格式校验在 buildRaftCommand 层，与其他 task 工具同款分层。）
+  assert.deepEqual(toToolCall("raft_server_info", {}), { ok: true, call: { tool: "server_info" } });
+  assert.equal(toToolCall("raft_server_info", { profile: "evil" }).ok, false);
+  const members = toToolCall("raft_channel_members", { target: "#dev" });
+  assert.deepEqual(members.ok ? members.call : null, { tool: "channel_members", target: "#dev" });
 });
 
 test("结果格式化：held 引导模型三选一，unknown 是错误并禁止重发", () => {
@@ -65,7 +81,7 @@ test("stdio 端到端：真实 MCP 客户端调用构建产物，check 先落盘
     const client = new Client({ name: "e2e", version: "1" }, { versionNegotiation: { mode: { pin: "2026-07-28" } } });
     await client.connect(transport);
     try {
-      assert.equal((await client.listTools()).tools.length, 6);
+      assert.equal((await client.listTools()).tools.length, 8);
       const checked = await client.callTool({ name: "raft_message_check", arguments: {} });
       assert.ok(JSON.stringify(checked.content).includes("aaaa1111"));
       assert.equal((await readdir(join(dir, "raft", "inbox-logs", "bind-1"))).length, 1);
@@ -111,7 +127,7 @@ test("stdio 端到端（legacy 握手）：2025-era initialize 也必须连上�
     const client = new Client({ name: "e2e-legacy", version: "1" }, { versionNegotiation: { mode: "legacy" } });
     await client.connect(transport);
     try {
-      assert.equal((await client.listTools()).tools.length, 6);
+      assert.equal((await client.listTools()).tools.length, 8);
       const checked = await client.callTool({ name: "raft_message_check", arguments: {} });
       assert.ok(JSON.stringify(checked.content).includes("bbbb2222"));
       assert.equal((await readdir(join(dir, "raft", "inbox-logs", "bind-legacy"))).length, 1);
@@ -165,7 +181,7 @@ await module.main();
     const client = new Client({ name: "e2e-host", version: "1" }, { versionNegotiation: { mode: { pin: "2026-07-28" } } });
     await client.connect(transport);
     try {
-      assert.equal((await client.listTools()).tools.length, 6);
+      assert.equal((await client.listTools()).tools.length, 8);
       const checked = await client.callTool({ name: "raft_message_check", arguments: {} });
       assert.ok(JSON.stringify(checked.content).includes("cccc3333"));
       assert.equal((await readdir(join(dir, "raft", "inbox-logs", "bind-host"))).length, 1);

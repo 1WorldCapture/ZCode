@@ -14,7 +14,9 @@ export type RaftToolName =
   | "message_send"
   | "task_list"
   | "task_claim"
-  | "task_update";
+  | "task_update"
+  | "server_info"
+  | "channel_members";
 
 /** task update 只放行这两个状态：完成只置 in_review，由人验收后才 done。 */
 export const ALLOWED_TASK_UPDATE_STATUSES = ["in_progress", "in_review"] as const;
@@ -36,7 +38,11 @@ export type RaftToolCall =
   | { tool: "message_send"; target: string; content?: string; sendDraft?: boolean }
   | { tool: "task_list"; target?: string; mine?: boolean; status?: TaskListStatus }
   | { tool: "task_claim"; target: string; numbers: number[] }
-  | { tool: "task_update"; target: string; number: number; status: string };
+  | { tool: "task_update"; target: string; number: number; status: string }
+  // 只读发现面（PM 7b0d34bd 批准）：复用官方 CLI 的 server info / channel members，
+  // 解决"不知道频道名、误把未创建的 DM 当读目标"的缺口。
+  | { tool: "server_info" }
+  | { tool: "channel_members"; target: string };
 
 /** 构造结果：argv 不含 CLI 可执行文件本身。 */
 export type BuiltCommand =
@@ -147,6 +153,17 @@ export function buildRaftCommand(call: RaftToolCall): BuiltCommand {
         ],
         timeoutMs: READ_TIMEOUT_MS,
       };
+    }
+
+    case "server_info":
+      // 官方 CLI 的人读输出直接交给模型（与 message_read 同一策略，不另做解析）。
+      return { ok: true, argv: ["server", "info"], timeoutMs: READ_TIMEOUT_MS };
+
+    case "channel_members": {
+      // CLI 定义为位置参数（raft-source channel/members.ts：<target>）。校验后必以
+      // `#` 开头，不可能被当成选项——这是全文件唯一非 `--flag=value` 的取值位置。
+      if (!CHANNEL_TARGET_PATTERN.test(call.target)) return reject("target 必须是频道");
+      return { ok: true, argv: ["channel", "members", call.target], timeoutMs: READ_TIMEOUT_MS };
     }
 
     default:

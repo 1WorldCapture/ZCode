@@ -109,6 +109,22 @@ test("buildRaftCommand：task update 拒绝 done/closed，只放行 in_progress/
   ]);
 });
 
+test("buildRaftCommand：只读发现面——server info 无参，channel members 位置参数必以 # 开头", () => {
+  const info = buildRaftCommand({ tool: "server_info" });
+  assert.ok(info.ok);
+  assert.deepEqual(info.argv, ["server", "info"]);
+  const members = buildRaftCommand({ tool: "channel_members", target: "#zcode-e2e-test" });
+  assert.ok(members.ok);
+  // CLI 定义为位置参数；校验保证取值必以 `#` 开头，不可能被解析为选项。
+  assert.deepEqual(members.argv, ["channel", "members", "#zcode-e2e-test"]);
+  assert.equal(buildRaftCommand({ tool: "channel_members", target: "--profile=evil" }).ok, false);
+  assert.equal(buildRaftCommand({ tool: "channel_members", target: "dm:@alice" }).ok, false);
+  // 额外字段不进 argv（与其他工具同一构造式保证）。
+  const extra = buildRaftCommand({ tool: "server_info", profile: "evil" } as never);
+  assert.ok(extra.ok);
+  assert.deepEqual(extra.argv, ["server", "info"]);
+});
+
 test("buildRaftCommand：send 正文走 stdin，sendDraft 与 content 互斥", () => {
   const send = buildRaftCommand({
     tool: "message_send",
@@ -154,6 +170,29 @@ test("适配器：固定 --profile 前缀，环境净化后只带 RAFT_PROFILE_D
   } finally {
     delete process.env.RAFT_PROFILE;
     delete process.env.SLOCK_CLI_TRANSPORT_DIR;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("只读发现面：server_info / channel_members 走通用路径，stdout 原样返回", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "raft-tools-"));
+  try {
+    const cli = await makeFakeCli(dir, { status: 0, stdout: "Channels: #dev (joined)" });
+    const adapter = createCliToolAdapter({
+      identity: identityFor(dir, cli.script),
+      inboxLog: createInboxLogStore(dir),
+    });
+    const info = await adapter.invoke({ tool: "server_info" });
+    assert.equal(info.kind, "ok");
+    assert.equal(info.kind === "ok" && info.text, "Channels: #dev (joined)");
+    const members = await adapter.invoke({ tool: "channel_members", target: "#dev" });
+    assert.equal(members.kind, "ok");
+    const record = await cli.readRecord();
+    // 最后一次调用是 channel members：位置参数紧随 --profile 前缀之后。
+    assert.deepEqual(record.argv.slice(0, 4), ["--profile", "raft-test", "channel", "members"]);
+    assert.equal(record.argv[4], "#dev");
+    assert.equal(record.stdin, "");
+  } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
