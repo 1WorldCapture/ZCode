@@ -116,6 +116,8 @@ const zhCN: Record<string, string> = {
   "agentCenter.manage.remove.doneDeleted": "已删除 Agent 及其 Home 目录",
   "agentCenter.manage.remove.doneKept": "已删除 Agent；Home 目录已保留，仅清空了记忆文件",
   "agentCenter.manage.remove.doneUntouched": "已删除 Agent；Home 目录未改动，请手动处理",
+  "agentCenter.manage.remove.doneUntouchedNotRequested":
+    "已删除 Agent；Home 目录按你的选择保留",
   "agentCenter.manage.remove.doneFailed":
     "已删除 Agent；Home 目录可能已部分删除，请手动检查",
   "agentCenter.activity.lastActivity": "最近活动",
