@@ -185,6 +185,8 @@ interface IRaftAgentsService {
 
 内嵌 agent 运行时的会话事件存储为内存态：ZCode 进程退出（重启/崩溃）后，`mainSessionRef` 指向的主会话不复存在（实测 `Session not found`）。值守开始链在 resume 失败时**自动重建**主会话：
 
+> **2026-10-01 实测更正（二期调查）**：上段"事件存储为内存态"的归因不准确。app-server 启动时无条件打开 sqlite 落盘库（`openStartupSessionStore` → `~/.zcode/cli/db/db.sqlite`，session/message/part/session_input/tool_usage 等表），对所有会话（含 agent 主会话）一视同仁；进程内 event store（`create-app.ts` 缺省 `createInMemorySessionEventStore`）只是 live 视图与 seq 来源，不是持久层。"重启后 `Session not found`"的真实成因是**空壳预建会话从未越过统一持久化边界**——保存绑定时预建、零输入 → 零 session 行（resume 的 `getPersistedSession` 查无行即报此错），叠加修复前的 admission FK 缺陷（10ceaac）。处理过消息的会话均正常落库并跨重启 resume（TestAgent-1 主会话 199 message / 93 tool_usage，多次重启同一 sessionId、代次递增）。自动重建因此只可能在"从未处理过输入"的会话上触发，语义无损（本就没有上下文可丢）。
+
 - 重建走 `createAgentSession`（与接入时同一入口），`agentMemory`/`officialMcpServers` 同语义重发；锁内把 `mainSessionRef` 改绑为新会话、代次重置为 1（旧 fencing 随旧 sessionId 失效），仅在引用仍指向被替换旧会话时写入（防并发双写）。
 - **语义（界面与文档如实说明）：重建后主会话内的对话上下文丢弃，不保留；Home 里的长期记忆（MEMORY.md/notes）不受影响。** Home 记忆是持久层，主会话是可重建的运行时资源。
 - 重建失败（create 也失败）才置 ErrorPaused(session_unavailable) 并不启动 bridge。
