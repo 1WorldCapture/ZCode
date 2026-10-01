@@ -34,6 +34,9 @@ import type {
   ModelSelection,
   ZCodeBackgroundTurnAttribution,
   ZCodeAutomationBotDeliveryTarget,
+  ZCodeAgentMemory,
+  ZCodeOfficialMcpServerRef,
+  ZCodeSessionMode,
 } from "@zcode/shared";
 import type {
   SessionMessageDeliveryResult,
@@ -237,6 +240,18 @@ export interface IZCodeTaskService {
     deferPersistenceUntilFirstPrompt?: boolean;
     /** Bot/host 使用 v4 原生 createSession 建立 draft，再配置并发送。 */
     v4Create?: boolean;
+    /** 无人值守会话（Raft/automation）的记忆作用域；随 create/resume 原样透传。 */
+    agentMemory?: ZCodeAgentMemory;
+    /** 无人值守会话引用的官方 MCP；随 create/resume 原样透传。 */
+    officialMcpServers?: ZCodeOfficialMcpServerRef[];
+    /** 无人值守会话的工具隔离；与 session 自带规则合并。 */
+    toolDenylist?: string[];
+    /** 无人值守会话的文件工具边界（锁死 workspace 内）。 */
+    confineFileToolsToWorkspace?: boolean;
+    /**
+     * Raft 值守会话在创建时即盖章绑定归属（meta_json 单一来源；v4Create 路径未建模）。
+     */
+    raftBindingId?: string;
   }): Promise<ZCodeTaskCreateResult>;
 
   /** 发送 prompt 到指定 task */
@@ -260,6 +275,8 @@ export interface IZCodeTaskService {
       modelSelection?: CommandPayloadMap["sendText"]["modelSelection"];
       /** 单次执行约束与动态鉴权；仅 idle start-now 接受，不进入普通队列。 */
       modelExecution?: CommandPayloadMap["sendText"]["modelExecution"];
+      /** 逐条模式兜底（无人值守会话逐条带 yolo）；与 switchCollaborationMode 同口径排除 auto。 */
+      mode?: Exclude<ZCodeSessionMode, "auto">;
     } & ZCodeBackgroundTurnAttribution,
   ): Promise<void>;
 
@@ -372,7 +389,14 @@ export interface IZCodeTaskService {
     automationId?: string;
     /** 闲时续跑恢复 pre-会话时补写 off-peak 标记（新会话在 createTask 已盖章）。 */
     offPeakTaskId?: string;
+    /** Raft 续跑恢复 pre-会话时补写绑定归属标记（新会话在 createTask 已盖章）。 */
+    raftBindingId?: string;
     mcpServers?: ZCodeAgentMcpServer[];
+    /** 无人值守会话透传面：冷恢复必须随 resume 重发给 resumeSession。 */
+    agentMemory?: ZCodeAgentMemory;
+    officialMcpServers?: ZCodeOfficialMcpServerRef[];
+    toolDenylist?: string[];
+    confineFileToolsToWorkspace?: boolean;
   }): Promise<ZCodeTaskMeta>;
 
   /** 列出 workspace 下所有已持久化的 task */

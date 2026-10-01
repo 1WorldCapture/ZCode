@@ -59,19 +59,27 @@ export function createDefaultRaftAgentsService(options: DefaultRaftAgentsService
   });
 }
 
-/** 宿主接线产物：service 进 ServiceCollection，其余面由宿主在关停/启动时调用。 */
+/**
+ * 宿主接线产物：service 进 ServiceCollection（disposeAll/disposeAllAndWait 随服务
+ * 对象走通用关停链），恢复由宿主在启动时调用。
+ */
 export interface RaftHostStack {
-  service: IRaftAgentsService;
+  /** 绑定服务 + 栈级关停面（disposeAll 强杀收口 / disposeAllAndWait 有序关停）。 */
+  service: IRaftAgentsService & RaftStackDisposable;
   runtime: RaftWatchRuntime;
   /** Host 启动后调用：恢复 desiredState=Running 的绑定（内部先等 wake server 就绪）。 */
   recoverAllDesiredRunning(): Promise<void>;
+}
+
+/** 栈级关停面：挂进 node.ts 的 disposeServiceResources(AndWait) 通用列表。 */
+export interface RaftStackDisposable {
   /**
-   * 有序关停（挂 Host service-dispose 阶段）：等全部 bridge 退出（supervisor.stopAll）
+   * 有序关停（Host service-dispose 阶段）：等全部 bridge 退出（supervisor.stopAll）
    * 后停 wake server。宽限期在 supervisor 内（2s < 阶段预算 3.5s）。
    */
   disposeAllAndWait(): Promise<void>;
   /** 同步收口（Host 无法 await 的路径）：强杀 bridge + best-effort 停 server。 */
-  terminateAllNow(): void;
+  disposeAll(): void;
 }
 
 /**
@@ -80,13 +88,15 @@ export interface RaftHostStack {
  * 存储写锁与同一份官方 MCP 引用解析（env 按 binding 派生，不含 token）。
  *
  * 生命周期：wake server 随栈创建即启动（bridge 的 wake url 依赖它已 listen）；
- * disposeAllAndWait 由 node.ts 的 disposeServiceResourcesAndWait 调用。
+ * 关停面（disposeAllAndWait / disposeAll）挂在 service 对象上，由 node.ts 的
+ * disposeServiceResources(AndWait) 通用服务列表统一收口（经 hasDisposeAll(AndWait)
+ * 结构识别，与 terminal/bots 等服务同链）。
  * ownerGuard 缺省恒主窗口（多窗口主窗口判定在 task #8 接入，supervisor 的
  * 进程锁已防同机双 bridge）。
  */
 export function createDefaultRaftHostStack(options: {
   dataRootDir?: string;
-  /** zcodeAgentService 的会话面（宿主传入 createZcodeSessionPort(zcodeAgentService)）。 */
+  /** 任务门面的会话面（宿主传入 createZcodeSessionPort(zcodeTaskService)）。 */
   sessions: RaftSessionPort;
   /** 完整 AgentHomePort（initialize 供 provisioning、verifyMemoryAvailable 供值守门）。 */
   memory?: AgentHomePort;
@@ -200,19 +210,30 @@ export function createDefaultRaftHostStack(options: {
   });
 
   return {
-    service,
+    // 栈级关停面挂进服务对象：node.ts 经 ServiceCollection 通用 dispose 列表收口，
+    // 无需宿主侧表（原 raftHostStacks WeakMap 已删）。
+    service: Object.assign(service, {
+      disposeAllAndWait: async () => {
+        // best-effort（与原宿主侧表调用同语义）：单栈关停失败不阻断通用列表里
+        // 后续服务的收口（那里失败会让 agent 进程树变孤儿）。
+        try {
+          await runtime.disposeAllAndWait();
+          await wakeServer.stop();
+        } catch (error) {
+          logger?.warn(undefined, "raft stack disposeAllAndWait failed (tolerated)", {
+            error: String(error),
+          });
+        }
+      },
+      disposeAll: () => {
+        supervisor.terminateAllNow();
+        void wakeServer.stop().catch(() => {});
+      },
+    } satisfies RaftStackDisposable),
     runtime,
     async recoverAllDesiredRunning() {
       await ready;
       await runtime.recoverAllDesiredRunning();
-    },
-    async disposeAllAndWait() {
-      await runtime.disposeAllAndWait();
-      await wakeServer.stop();
-    },
-    terminateAllNow() {
-      supervisor.terminateAllNow();
-      void wakeServer.stop().catch(() => {});
     },
   };
 }

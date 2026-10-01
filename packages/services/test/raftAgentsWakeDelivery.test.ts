@@ -1,7 +1,7 @@
 /**
  * 唤醒投递（wakeDelivery + zcodeSession 适配器）测试。
  * 覆盖：会话就绪判定、commandId 确定性（幂等键）、drain 文本来源头、
- * ACK 六态映射、退避建议（busy）与 noSession/injectionFailed 分支。
+ * 拒绝三态映射（经任务门面）、退避建议（busy）与 noSession/injectionFailed 分支。
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -14,7 +14,7 @@ import { createRaftWakeDelivery } from "../src/raft-agents/app/wakeDelivery.js";
 import type { RaftBindingStorePort, RaftSessionPort, RaftSessionSendOutcome } from "../src/raft-agents/app/ports.js";
 import type { RaftWakeRequest, WakeDelivery } from "../src/raft-agents/app/ports.js";
 import { createZcodeSessionPort } from "../src/raft-agents/adapters/zcodeSession.js";
-import type { CommandEnvelope } from "@zcode/shared";
+import { ZCodeV4CommandRejectedError } from "../src/zcode-agent/zcodeV4HostCommand.js";
 
 const BINDING_ID = "99999999-8888-4777-a666-555555555555";
 const AGENT_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -162,36 +162,51 @@ function ack(status: CommandAck["status"], extra: Partial<CommandAck> = {}): Com
   return { commandId: "c1", status, revisionAtDecision: 1, ...extra };
 }
 
-/** 记录 envelope 的假 agent，供适配器测试。 */
-function fakeAgent(acks: CommandAck[] | ((envelope: CommandEnvelope) => CommandAck)) {
-  const envelopes: CommandEnvelope[] = [];
+/** 记录参数的假任务门面：sendPrompt 按脚本成功或抛结构化拒绝，供适配器测试。 */
+function fakeTaskService(
+  scripts: Array<
+    | { kind: "ok" }
+    | { kind: "reject"; ack: CommandAck }
+    | { kind: "throw"; error: Error }
+  >,
+) {
+  const prompts: unknown[] = [];
   let i = 0;
   return {
-    envelopes,
-    async sendConversationCommandV4(params: { envelope: CommandEnvelope }): Promise<CommandAck> {
-      envelopes.push(params.envelope);
-      const next = typeof acks === "function" ? acks(params.envelope) : acks[Math.min(i, acks.length - 1)];
+    prompts,
+    async sendPrompt(params: unknown): Promise<void> {
+      prompts.push(params);
+      const next = scripts[Math.min(i, scripts.length - 1)];
       i += 1;
-      return next;
+      if (next?.kind === "reject") {
+        throw new ZCodeV4CommandRejectedError("sendText", next.ack, "test");
+      }
+      if (next?.kind === "throw") {
+        throw next.error;
+      }
     },
-    async resumeSession(): Promise<unknown> {
+    async createTask(): Promise<never> {
+      throw new Error("本测试不触创建路径");
+    },
+    async resumeTask(): Promise<never> {
       throw new Error("本测试不触恢复路径");
+    },
+    async closeTask(): Promise<never> {
+      throw new Error("本测试不触关闭路径");
     },
   };
 }
 
-test("zcodeSession 适配器：ACK 六态映射 + requestedDelivery queue + commandId 透传", async () => {
-  const agent = fakeAgent([
-    ack("accepted"),
-    ack("duplicate"),
-    ack("noop"),
-    ack("stale", { reasonCode: "session_gone" }),
-    ack("failed", { reasonCode: "fault.runtime.dead" }),
-    ack("rejected", { reasonCode: "fault.command.inputRejected" }),
+test("zcodeSession 适配器：拒绝三态映射 + sendPrompt 参数形态（taskId/traceId/mode）", async () => {
+  const service = fakeTaskService([
+    { kind: "ok" },
+    { kind: "reject", ack: ack("stale", { reasonCode: "session_gone" }) },
+    { kind: "reject", ack: ack("failed", { reasonCode: "fault.runtime.dead" }) },
+    { kind: "reject", ack: ack("rejected", { reasonCode: "fault.command.inputRejected" }) },
   ]);
-  const port = createZcodeSessionPort(agent);
+  const port = createZcodeSessionPort(service);
   const outcomes = [];
-  for (let i = 0; i < 6; i += 1) {
+  for (let i = 0; i < 4; i += 1) {
     outcomes.push(
       await port.sendQueuedText({
         workspacePath: "/tmp/wh",
@@ -201,44 +216,92 @@ test("zcodeSession 适配器：ACK 六态映射 + requestedDelivery queue + comm
       }),
     );
   }
+  // accepted/duplicate/noop 在门面内部收为成功；门面不回传 ack，duplicate 按 false 报告。
   assert.deepEqual(outcomes[0], { ok: true, duplicate: false });
-  assert.deepEqual(outcomes[1], { ok: true, duplicate: true });
-  assert.deepEqual(outcomes[2], { ok: true, duplicate: false });
-  assert.deepEqual(outcomes[3], { ok: false, code: "noSession", detail: "session_gone" });
-  assert.deepEqual(outcomes[4], { ok: false, code: "transport", detail: "fault.runtime.dead" });
-  assert.deepEqual(outcomes[5], { ok: false, code: "rejected", detail: "fault.command.inputRejected" });
+  assert.deepEqual(outcomes[1], { ok: false, code: "noSession", detail: "session_gone" });
+  assert.deepEqual(outcomes[2], { ok: false, code: "transport", detail: "fault.runtime.dead" });
+  assert.deepEqual(outcomes[3], { ok: false, code: "rejected", detail: "fault.command.inputRejected" });
 
-  // envelope 形态：sendText + queue + 显式 commandId/sessionId（幂等与目标会话都在调用方控制）。
-  const first = agent.envelopes[0] as unknown as {
-    type: string;
-    sessionId: string | null;
-    commandId: string;
-    payload: { requestedDelivery?: string; text: string; mode?: string };
+  // sendPrompt 形态：taskId=主会话 id、traceId=确定性幂等键（commandId）、逐条 yolo。
+  const first = service.prompts[0] as {
+    taskId: string;
+    traceId: string;
+    content: string;
+    mode: string;
   };
-  assert.equal(first.type, "sendText");
-  assert.equal(first.sessionId, "sess-7");
-  assert.equal(first.commandId, "cmd-0");
-  assert.equal(first.payload.requestedDelivery, "queue");
-  assert.equal(first.payload.text, "t");
+  assert.equal(first.taskId, "sess-7");
+  assert.equal(first.traceId, "cmd-0");
+  assert.equal(first.content, "t");
   // 每次投递显式 yolo：mode 固化进队列输入 intent，空草稿会话冷恢复后首个输入仍全自动。
-  assert.equal(first.payload.mode, "yolo");
+  assert.equal(first.mode, "yolo");
 });
 
-test("zcodeSession 适配器：RPC 抛异常按 transport（可退避重试）", async () => {
-  const agent = {
-    async sendConversationCommandV4(): Promise<CommandAck> {
-      throw new Error("connection closed");
-    },
-  };
-  const port = createZcodeSessionPort(agent);
-  const outcome = await port.sendQueuedText({
+test("zcodeSession 适配器：门面异常按 transport（可退避重试）", async () => {
+  const port = createZcodeSessionPort(
+    fakeTaskService([
+      { kind: "throw", error: Object.assign(new Error("target is not loaded: sess-1"), { code: "ZCODE_SESSION_TARGET_NOT_FOUND" }) },
+      { kind: "throw", error: new Error("connection closed") },
+    ]),
+  );
+  // 重启后 target 映射丢失：映射 transport，值守恢复链 resume 重建 target 后重试成功。
+  const lost = await port.sendQueuedText({
     workspacePath: "/tmp/wh",
     sessionId: "s",
     commandId: "c",
     text: "t",
   });
-  assert.equal(outcome.ok, false);
-  assert.equal(outcome.ok === false && outcome.code, "transport");
+  assert.equal(lost.ok, false);
+  assert.equal(lost.ok === false && lost.code, "transport");
+  const crashed = await port.sendQueuedText({
+    workspacePath: "/tmp/wh",
+    sessionId: "s",
+    commandId: "c2",
+    text: "t",
+  });
+  assert.equal(crashed.ok, false);
+  assert.equal(crashed.ok === false && crashed.code, "transport");
+});
+
+test("zcodeSession 适配器：createTask 透传无人值守会话面（denylist/deferred/归属盖章）", async () => {
+  const created: unknown[] = [];
+  const service = {
+    async sendPrompt(): Promise<void> {
+      throw new Error("本测试不触投递路径");
+    },
+    async createTask(params: unknown): Promise<{ taskId: string }> {
+      created.push(params);
+      return { taskId: "task-1" };
+    },
+    async resumeTask(): Promise<never> {
+      throw new Error("本测试不触恢复路径");
+    },
+    async closeTask(): Promise<never> {
+      throw new Error("本测试不触关闭路径");
+    },
+  };
+  const port = createZcodeSessionPort(service);
+  const outcome = await port.createAgentSession({
+    workspacePath: "/tmp/wh",
+    agentMemory: { homeRoot: "/tmp/wh", agentName: "a" },
+    officialMcpServers: [],
+    raftBindingId: BINDING_ID,
+  });
+  assert.deepEqual(outcome, { ok: true, sessionId: "task-1" });
+  const params = created[0] as {
+    workspacePath: string;
+    mode: string;
+    toolDenylist: string[];
+    confineFileToolsToWorkspace: boolean;
+    deferPersistenceUntilFirstPrompt: boolean;
+    raftBindingId: string;
+  };
+  assert.equal(params.workspacePath, "/tmp/wh");
+  assert.equal(params.mode, "yolo");
+  // 无人值守必挂的"等人回应"工具被排除；文件工具锁 workspace；deferred 解决空壳会话 FK。
+  assert.deepEqual(params.toolDenylist, ["AskUserQuestion", "EnterPlanMode", "ExitPlanMode"]);
+  assert.equal(params.confineFileToolsToWorkspace, true);
+  assert.equal(params.deferPersistenceUntilFirstPrompt, true);
+  assert.equal(params.raftBindingId, BINDING_ID);
 });
 
 test("buildWakePrompt：只含来源头与工具引导，不含消息正文", () => {

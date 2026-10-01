@@ -231,6 +231,8 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
         sessionId: locked.sessionId,
         agentMemory: { homeRoot: binding.homeWorkspacePath, agentName: binding.displayName },
         officialMcpServers,
+        // pre-会话恢复时补写绑定归属标记（懒建会话在创建时已盖章）。
+        raftBindingId: binding.bindingId,
       });
       if (!resumed.ok) {
         // resume 失败 = 会话行已不存在。历史主因是空壳预建会话从未越过统一持久化

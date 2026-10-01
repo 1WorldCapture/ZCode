@@ -98,6 +98,8 @@ import {
   type ZCodePermissionRequest,
   type ZCodeSessionEvent,
   type ZCodeSessionMode,
+  type ZCodeAgentMemory,
+  type ZCodeOfficialMcpServerRef,
   type ZCodeSessionSettingsState,
   type ZCodeSessionStateSnapshot,
   type ZCodeStateUpdatedNotification,
@@ -198,6 +200,10 @@ interface TaskTargetWithMcpServers extends TaskTarget {
   thoughtLevel?: string;
   mcpServers?: ZCodeAgentMcpServer[];
   toolDenylist?: string[];
+  /** 无人值守会话（Raft/automation）透传面：resume 冷恢复必须重发给 resumeSession。 */
+  agentMemory?: ZCodeAgentMemory;
+  officialMcpServers?: ZCodeOfficialMcpServerRef[];
+  confineFileToolsToWorkspace?: boolean;
 }
 
 type WorkspaceEventInput = string | ZCodeWorkspaceEventSubscriptionParams;
@@ -388,6 +394,9 @@ export function createZCodeTaskServiceAdapter(
       logReason?: string;
       modelSelection?: CommandPayloadMap["sendText"]["modelSelection"];
       modelExecution?: CommandPayloadMap["sendText"]["modelExecution"];
+      /** 逐条模式兜底（无人值守会话逐条带 yolo）：固化进队列输入的 canonical intent。
+       * v4 命令面与 switchCollaborationMode 同口径排除 auto。 */
+      mode?: Exclude<ZCodeSessionMode, "auto">;
     } & ZCodeBackgroundTurnAttribution,
   ): Promise<void> {
     const startedAt = Date.now();
@@ -457,6 +466,7 @@ export function createZCodeTaskServiceAdapter(
               ...turnAttributionOf(params),
               ...(params.botDeliveryTarget ? { botDeliveryTarget: params.botDeliveryTarget } : {}),
               ...(promptToolDenylist ? { toolDisallowlist: promptToolDenylist } : {}),
+              ...(params.mode ? { mode: params.mode } : {}),
             },
             sessionId: target.taskId,
             commandId: params.traceId,
@@ -1157,6 +1167,9 @@ export function createZCodeTaskServiceAdapter(
       ...(thoughtLevel ? { thoughtLevel } : {}),
       ...(mcpServers ? { mcpServers } : {}),
       ...(params.toolDenylist ? { toolDenylist: params.toolDenylist } : {}),
+      ...(params.agentMemory ? { agentMemory: params.agentMemory } : {}),
+      ...(params.officialMcpServers ? { officialMcpServers: params.officialMcpServers } : {}),
+      ...(params.confineFileToolsToWorkspace ? { confineFileToolsToWorkspace: true } : {}),
     });
   }
 
@@ -1263,6 +1276,9 @@ export function createZCodeTaskServiceAdapter(
         model: params.model ? parseModelPickerValue(params.model) : undefined,
         ...(mcpServers ? { mcpServers } : {}),
         ...(params.toolDenylist ? { toolDenylist: params.toolDenylist } : {}),
+        ...(params.agentMemory ? { agentMemory: params.agentMemory } : {}),
+        ...(params.officialMcpServers ? { officialMcpServers: params.officialMcpServers } : {}),
+        ...(params.confineFileToolsToWorkspace ? { confineFileToolsToWorkspace: true } : {}),
         importedHistory: {
           source: "claudeCode",
           title: history.title,
@@ -1886,6 +1902,14 @@ export function createZCodeTaskServiceAdapter(
             // Bugfix: replayable task facade 创建 session 时同样会启动 runtime；
             // 之前这里丢掉 mcpServers，导致手机远控路径和 desktop-continuous 的 MCP 行为不一致。
             mcpServers,
+            // 无人值守会话（Raft/automation）透传面（R4）：记忆作用域/官方 MCP/工具
+            // 隔离/文件边界原样进 session 配置；v4Create 分支未建模，不在此转发。
+            ...(params.agentMemory ? { agentMemory: params.agentMemory } : {}),
+            ...(params.officialMcpServers
+              ? { officialMcpServers: params.officialMcpServers }
+              : {}),
+            ...(params.toolDenylist ? { toolDenylist: params.toolDenylist } : {}),
+            ...(params.confineFileToolsToWorkspace ? { confineFileToolsToWorkspace: true } : {}),
           });
         }
       }
@@ -1895,6 +1919,8 @@ export function createZCodeTaskServiceAdapter(
         ...(params.automationId ? { cronAutomationId: params.automationId } : {}),
         // 闲时派发在创建时即盖章持久归属；月亮图标与后续系统分组归属都只看该标记。
         ...(params.offPeakTaskId ? { offPeakTaskId: params.offPeakTaskId } : {}),
+        // Raft 值守会话在创建时即盖章绑定归属（B2/B3 按绑定归组）。
+        ...(params.raftBindingId ? { raftBindingId: params.raftBindingId } : {}),
       });
       await taskIndexRepo.initializeGroupedTaskAtTop({
         workspacePath: meta.workspacePath,
@@ -1936,6 +1962,7 @@ export function createZCodeTaskServiceAdapter(
         clientMode: params.clientMode,
         modelSelection: params.modelSelection,
         modelExecution: params.modelExecution,
+        mode: params.mode,
       });
     },
 
@@ -2310,16 +2337,25 @@ export function createZCodeTaskServiceAdapter(
         model,
         thoughtLevel,
         mcpServers: params.mcpServers,
+        // 无人值守会话（Raft/automation）透传面：冷恢复必须随 resume 重发。
+        ...(params.agentMemory ? { agentMemory: params.agentMemory } : {}),
+        ...(params.officialMcpServers
+          ? { officialMcpServers: params.officialMcpServers }
+          : {}),
+        ...(params.toolDenylist ? { toolDenylist: params.toolDenylist } : {}),
+        ...(params.confineFileToolsToWorkspace ? { confineFileToolsToWorkspace: true } : {}),
       });
       emitWorkspaceConfig(params, snapshot.settings);
       const snapshotMeta = await syncTaskIndexSnapshot(snapshot);
       const meta =
-        params.automationId || params.offPeakTaskId
+        params.automationId || params.offPeakTaskId || params.raftBindingId
           ? await syncTaskIndexMeta({
               ...snapshotMeta,
               ...(params.automationId ? { cronAutomationId: params.automationId } : {}),
               // 续跑时补写闲时归属标记。
               ...(params.offPeakTaskId ? { offPeakTaskId: params.offPeakTaskId } : {}),
+              // 续跑时补写 Raft 绑定归属标记。
+              ...(params.raftBindingId ? { raftBindingId: params.raftBindingId } : {}),
             })
           : snapshotMeta;
       notifySyncerSession({

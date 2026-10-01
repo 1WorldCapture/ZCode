@@ -87,7 +87,7 @@ export interface WakeHandlerPort {
  * 与重入换 token）；实现见 adapters/wakeServer.ts（另扩展 listeningAddress 供诊断）。
  */
 
-/** V4 sendText(queue) 的提交结果；映射规则见 adapters/zcodeSession.ts。 */
+/** 会话投递结果（经 IZCodeTaskService 门面提交 v4 队列输入）；映射规则见 adapters/zcodeSession.ts。 */
 export type RaftSessionSendOutcome =
   | { ok: true; /** true = CommandInbox 判 duplicate（幂等重放），仍视为成功。 */ duplicate: boolean }
   | {
@@ -101,8 +101,9 @@ export type RaftSessionSendOutcome =
     };
 
 /**
- * 主会话操作端口（T3）：唤醒投递经 V4 sendText（requestedDelivery "queue"）提交，
- * 幂等键 commandId 由调用方确定性派生（wakeCycleId）。实现见 adapters/zcodeSession.ts。
+ * 主会话操作端口（T3 → R4）：唤醒投递经 IZCodeTaskService 门面的 sendPrompt
+ * （内部 v4 sendText 队列语义）提交，幂等键 commandId 由调用方确定性派生
+ * （wakeCycleId），经门面即 traceId。实现见 adapters/zcodeSession.ts。
  */
 export interface RaftSessionPort {
   sendQueuedText(params: {
@@ -119,23 +120,26 @@ export interface RaftSessionPort {
    * 持久化语义：以 deferred 草稿创建（适配器固定传入），session 行由首个输入（V4
    * drain/wake）的统一持久化边界写入；immediate 缺省会让 V4 durable admission 跳过
    * 该边界，session_input 外键失败（e2e S4 根因）。
+   * raftBindingId 在 tasks-index meta 上盖章绑定归属（B2/B3 按绑定归组）。
    */
   createAgentSession(params: {
     workspacePath: string;
     agentMemory: import("@zcode/shared").ZCodeAgentMemory;
     officialMcpServers: import("@zcode/shared").ZCodeOfficialMcpServerRef[];
+    raftBindingId?: string;
   }): Promise<{ ok: true; sessionId: string } | { ok: false; code: "failed"; detail?: string }>;
   /**
    * 恢复主会话（值守开始用，spec §3：先完成会话恢复与 MEMORY 校验再启动 bridge）。
    * 冷恢复会重建 runtime，agentMemory 与 officialMcpServers 必须随 resume 再次下发
    * （缺失会退回项目记忆且无 Raft 工具）。失败不置 ErrorPaused（非本机故障语义），
-   * 由调用方决定重试时机。
+   * 由调用方决定重试时机。raftBindingId 会在 pre-会话恢复时补写归属标记。
    */
   resumeAgentSession(params: {
     workspacePath: string;
     sessionId: string;
     agentMemory: import("@zcode/shared").ZCodeAgentMemory;
     officialMcpServers: import("@zcode/shared").ZCodeOfficialMcpServerRef[];
+    raftBindingId?: string;
   }): Promise<{ ok: true } | { ok: false; code: "failed"; detail?: string }>;
   /**
    * 关闭主会话（二期 A1 删除动作）：session/close RPC——停 runtime 并归档产品会话。

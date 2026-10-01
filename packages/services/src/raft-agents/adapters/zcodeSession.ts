@@ -1,46 +1,32 @@
 /**
- * V4 主会话适配器（T3）：把唤醒投递翻译成 V4 sendText 命令。
- *
- * 调用形态照 zcodeTaskServiceAdapter 的既有提交链（createHostCommandEnvelope +
- * sendConversationCommandV4）；ACK 语义按 CommandInbox 契约映射：
- * accepted/duplicate/noop 成功（T0/spec §8.5：重复 messageId 的 duplicate 也是成功，
- * 报错会引发 bridge 退避）；stale = 会话目标失效；rejected = 业务拒绝不可重试；
- * failed/异常 = 传递层失败，可退避重试（commandId 确定性派生，重复提交被判 duplicate）。
+ * 主会话适配器（T3 → R4）：值守会话驱动从 zcodeAgentService 裸 RPC 换到
+ * IZCodeTaskService 任务门面——复用既有 task 生命周期（tasks-index 归档、
+ * target 记忆、v4 命令幂等链），不再自持一条会话管线。RaftSessionPort 签名不变，
+ * 行为映射：
+ * - sendQueuedText → sendPrompt（commandId 即 traceId，幂等键等价；门面内部
+ *   assertV4CommandAckOk 已把 accepted/duplicate/noop 收为成功，stale/rejected/
+ *   failed 抛 ZCodeV4CommandRejectedError，此处映射回 noSession/rejected/transport。
+ *   duplicate 无法从门面回传——上游本就只用于日志，按 false 报告）。
+ * - createAgentSession → createTask(deferPersistenceUntilFirstPrompt)：空壳会话的
+ *   session 行由首个输入的统一持久化边界写入，session_input 外键随之成立（e2e S4）。
+ * - resumeAgentSession → resumeTask：冷恢复随 resume 重发记忆作用域/官方 MCP/
+ *   工具面/文件边界（mode 除外——协议侧从持久化消息派生，且每条投递显式带 yolo 兜底）。
+ * - closeAgentSession → closeTask：关 session 并把 tasks-index 行标 deleted。
  */
-import type { CommandAck } from "@zcode/shared/zcode-protocol-v4";
-
-import { createHostCommandEnvelope } from "#src/zcode-agent/zcodeV4HostCommand.js";
-import type {
-  ZCodeAgentConversationCommandParams,
-  ZCodeAgentCreateSessionParams,
-  ZCodeAgentResumeSessionParams,
-  ZCodeAgentSessionTarget,
-} from "#src/zcode-agent/zcodeAgent.js";
+import type { IZCodeTaskService } from "#src/session/zcodeTaskService.js";
+import { ZCodeV4CommandRejectedError } from "#src/zcode-agent/zcodeV4HostCommand.js";
 
 import type { RaftSessionPort, RaftSessionSendOutcome } from "../app/ports.js";
 
-/** zcodeAgentService 的最小结构面：只依赖用到的那个方法，测试替身无需整套服务。 */
-export interface ZcodeSessionAgent {
-  sendConversationCommandV4(params: ZCodeAgentConversationCommandParams): Promise<CommandAck>;
-  /**
-   * session/create RPC（非 V4 命令通道）：支持空会话创建与启动期注入
-   * （agentMemory + officialMcpServers）。返回快照只需 session.sessionId（结构面收窄）。
-   */
-  createSession(params: ZCodeAgentCreateSessionParams): Promise<{ session: { sessionId: string } }>;
-  /** session/resume RPC：冷恢复重建 runtime，agentMemory/officialMcpServers 随请求重发。 */
-  resumeSession(params: ZCodeAgentResumeSessionParams): Promise<unknown>;
-  /**
-   * session/close RPC：停 runtime 并归档产品会话。closed=false 表示 Agent 侧未关闭
-   * （如空壳草稿从未落库，本就无可关）——调用方按自己的语义决定是否容忍。
-   */
-  closeSession(
-    params: ZCodeAgentSessionTarget & { expectedPersistence?: "deferred" | "immediate" },
-  ): Promise<boolean>;
-}
+/** zcodeTaskService 的最小结构面：只依赖用到的四个方法，测试替身无需整套服务。 */
+export type ZcodeTaskSessionService = Pick<
+  IZCodeTaskService,
+  "createTask" | "sendPrompt" | "resumeTask" | "closeTask"
+>;
 
-function ackToOutcome(ack: CommandAck): RaftSessionSendOutcome {
-  if (ack.status === "accepted" || ack.status === "noop") return { ok: true, duplicate: false };
-  if (ack.status === "duplicate") return { ok: true, duplicate: true };
+/** v4 六态里门面会抛出的三种拒绝 → 投递结果（accepted/duplicate/noop 不经此处）。 */
+function v4RejectionToOutcome(error: ZCodeV4CommandRejectedError): RaftSessionSendOutcome {
+  const ack = error.ack;
   if (ack.status === "stale") return { ok: false, code: "noSession", detail: ack.reasonCode };
   if (ack.status === "failed") {
     // Keep both reasonCode and message: the gateway normalizes internal errors
@@ -70,50 +56,52 @@ export const RAFT_MAIN_SESSION_TOOL_DENYLIST: readonly string[] = [
   "ExitPlanMode",
 ];
 
-export function createZcodeSessionPort(agent: ZcodeSessionAgent): RaftSessionPort {
+export function createZcodeSessionPort(service: ZcodeTaskSessionService): RaftSessionPort {
   return {
     async sendQueuedText(params) {
-      let ack: CommandAck;
       try {
-        ack = await agent.sendConversationCommandV4({
-          workspacePath: params.workspacePath,
-          envelope: createHostCommandEnvelope({
-            type: "sendText",
-            // 每次投递显式带 yolo：堵"空草稿会话重启后 resume 派生不出 mode 退回默认
-            // ask 模式"的角落——mode 会固化进队列输入的 canonical intent，恢复后首个
-            // 输入即重新锁定全自动。
-            payload: { text: params.text, requestedDelivery: "queue", mode: "yolo" },
-            sessionId: params.sessionId,
-            commandId: params.commandId,
-          }),
+        await service.sendPrompt({
+          taskId: params.sessionId,
+          // 每次投递显式带 yolo：堵"空草稿会话重启后 resume 派生不出 mode 退回默认
+          // ask 模式"的角落——mode 会固化进队列输入的 canonical intent，恢复后首个
+          // 输入即重新锁定全自动。门面固定 keepQueueAndSend（无人值守队列语义）。
+          traceId: params.commandId,
+          content: params.text,
+          mode: "yolo",
         });
+        // accepted/duplicate/noop 同为成功；门面不回传 ack，duplicate 无法区分。
+        return { ok: true, duplicate: false };
       } catch (error) {
-        // RPC/连接层异常：退避重试由调用方（wakeDelivery → busy）决定。
+        if (error instanceof ZCodeV4CommandRejectedError) {
+          return v4RejectionToOutcome(error);
+        }
+        // 重启后 target 映射丢失（ZCODE_SESSION_TARGET_NOT_FOUND）：值守编排器的
+        // 恢复链会 resume 并重建 target，映射 transport 让唤醒侧按 busy 退避重试；
+        // 其余 RPC/连接层异常同走 transport（退避重试由调用方决定）。
         return { ok: false, code: "transport", detail: String(error) };
       }
-      return ackToOutcome(ack);
     },
 
     async createAgentSession(params) {
       try {
-        const snapshot = await agent.createSession({
+        const created = await service.createTask({
           workspacePath: params.workspacePath,
-          agentMemory: params.agentMemory,
-          officialMcpServers: params.officialMcpServers,
           // 无人值守权限模型（e2e S4 第五层 + task #18 工具面定稿）：yolo 全自动 +
           // 工具面与界面"完全允许"会话一致（无 allowlist，仅 denylist 排除三个
           // 无人值守必挂的"等人回应"工具）+ 文件工具锁定在 workspace（= Agent Home）内。
           mode: "yolo",
+          agentMemory: params.agentMemory,
+          officialMcpServers: params.officialMcpServers,
           toolDenylist: [...RAFT_MAIN_SESSION_TOOL_DENYLIST],
           confineFileToolsToWorkspace: true,
           // 主会话的首个输入来自 V4 外部通道（drain/wake），必须以 deferred 草稿创建：
-          // legacy session/create 缺省 persistence 时协议侧记 "immediate"，但 session 行
-          // 只在首个输入的统一持久化边界写入；V4 durable admission 对非 deferred 记录
-          // 跳过该边界直接写 session_input，外键（session_input→session）随之失败（e2e S4）。
-          // deferred 下首个 V4 输入会先走 ensureSessionPersistedForExternalActivity 落行。
-          persistence: "deferred",
+          // session 行只在首个输入的统一持久化边界写入；V4 durable admission 对非
+          // deferred 记录跳过该边界直接写 session_input，外键（session_input→session）
+          // 随之失败（e2e S4）——经门面的 deferPersistenceUntilFirstPrompt 承载。
+          deferPersistenceUntilFirstPrompt: true,
+          ...(params.raftBindingId ? { raftBindingId: params.raftBindingId } : {}),
         });
-        return { ok: true, sessionId: snapshot.session.sessionId };
+        return { ok: true, sessionId: created.taskId };
       } catch (error) {
         return { ok: false, code: "failed", detail: String(error) };
       }
@@ -121,34 +109,32 @@ export function createZcodeSessionPort(agent: ZcodeSessionAgent): RaftSessionPor
 
     async resumeAgentSession(params) {
       try {
-        await agent.resumeSession({
+        await service.resumeTask({
+          taskId: params.sessionId,
           workspacePath: params.workspacePath,
-          sessionId: params.sessionId,
+          // 冷恢复重建 runtime：记忆作用域/官方 MCP/工具面/文件边界必须随 resume
+          // 重发（缺失会退回项目记忆且无 Raft 工具）；mode 不重发（见文件头）。
           agentMemory: params.agentMemory,
           officialMcpServers: params.officialMcpServers,
-          // 冷恢复重建 runtime：工具面与文件边界必须随 resume 重发（mode 除外——协议侧
-          // 从持久化消息派生，且每条投递都显式带 yolo 兜底）。
           toolDenylist: [...RAFT_MAIN_SESSION_TOOL_DENYLIST],
           confineFileToolsToWorkspace: true,
+          ...(params.raftBindingId ? { raftBindingId: params.raftBindingId } : {}),
         });
         return { ok: true };
       } catch (error) {
+        // Session 不存在等异常原样透出：watchRuntime 依赖该失败触发主会话重建
+        //（Home 记忆才是持久层，主会话是可重建的运行时资源）。
         return { ok: false, code: "failed", detail: String(error) };
       }
     },
 
     async closeAgentSession(params) {
-      // 不传 expectedPersistence：主会话虽统一以 deferred 创建，但首个输入落库后
-      // Agent 侧的持久化记录语义与本参数的校验口径未必一致（无落库路径可查），
-      // 删除动作宁可多试一次普通 close，也不因期望不匹配误判失败。
       try {
-        const closed = await agent.closeSession({
-          workspacePath: params.workspacePath,
-          sessionId: params.sessionId,
-        });
-        // closed=false（如空壳草稿无 session 行，本就无可关）照实上报，
-        // 是否阻断由调用方决定（绑定删除语义优先，见 port 注释）。
-        return closed ? { ok: true } : { ok: false, code: "failed", detail: "closed=false" };
+        // closeTask 关 session 并把 tasks-index 行标 deleted（统一回收路径）。
+        // target 未加载（如重启后未恢复即删除）抛 ZCODE_SESSION_TARGET_NOT_FOUND：
+        // 如实上报 failed，调用方（teardownForRemoval）删除语义优先、容忍失败。
+        await service.closeTask({ taskId: params.sessionId });
+        return { ok: true };
       } catch (error) {
         return { ok: false, code: "failed", detail: String(error) };
       }
