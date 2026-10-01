@@ -72,6 +72,8 @@ const AUX_TIMEOUT_MS = 30_000;
 const PROBE_TIMEOUT_MS = 10_000;
 /** fork 命令行版本后缀：`0.0.24-zcode.1` 起支持 claim/ack/receipt/--idempotency-key。 */
 const CLAIM_ACK_VERSION = /-zcode\.(\d+)\b/;
+/** 服务端未部署 claim/ack 补丁时 claim 的失败形态（路由未登记）。 */
+const CLAIM_ROUTE_MISSING = /Unregistered internal route|auth_policy_unregistered_path|HTTP 404/;
 /** 去重集合首次从收件日志载入的回看窗口。 */
 const DELIVERED_LOOKBACK_MS = 7 * 86_400_000;
 
@@ -202,6 +204,12 @@ export function createCliToolAdapter(options: CliToolAdapterOptions): CliToolAda
       return { kind: "error", text: strip(joinOutput(claimed)) || "命令超时或被中断" };
     }
     if (claimed.status !== 0) {
+      // 命令行是新的、服务端还没部署补丁：本进程改走第一期路径，不报错。
+      if (CLAIM_ROUTE_MISSING.test(joinOutput(claimed))) {
+        options.logger?.warn("claim route missing on server; falling back to message check", {});
+        claimAckSupport = Promise.resolve(false);
+        return checkLegacy(["message", "check"], timeoutMs);
+      }
       return {
         kind: "error",
         text: strip(joinOutput(claimed)),

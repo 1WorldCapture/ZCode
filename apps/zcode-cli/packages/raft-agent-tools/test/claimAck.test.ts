@@ -287,3 +287,19 @@ test("旧命令行（无 -zcode 后缀）回落第一期：message check、发�
     assert.ok(!calls.some((c) => c.argv.some((a) => a.startsWith("--idempotency-key"))));
   });
 });
+
+test("新命令行 + 未部署补丁的服务端：claim 路由缺失时回落 message check", async () => {
+  await withDir(async (dir) => {
+    const cli = await makeScriptedCli(dir, "Raft CLI: 0.0.24-zcode.1", {
+      "message claim": [{ status: 1, stderr: "Error: Unregistered internal route\nCode: CHECK_FAILED\n" }],
+      "message check": [{ status: 0, stdout: "[target=#dev msg=aaaa1111 time=t type=human] @lyon: hi\n" }],
+    });
+    const adapter = createCliToolAdapter({ identity: identityFor(dir, cli.script), inboxLog: createInboxLogStore(dir) });
+    const first = await adapter.invoke({ tool: "message_check" });
+    assert.ok(first.kind === "ok" && first.text.includes("@lyon: hi"));
+    await adapter.invoke({ tool: "message_check" });
+    const calls = await cli.calls();
+    assert.equal(calls.filter((c) => c.argv.includes("claim")).length, 1, "回落后不再尝试 claim");
+    assert.equal(calls.filter((c) => c.argv.includes("check")).length, 2);
+  });
+});
