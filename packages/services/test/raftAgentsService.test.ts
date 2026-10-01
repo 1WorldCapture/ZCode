@@ -394,7 +394,8 @@ test("绑定存储损坏：报错且不自动清空（fail-closed，审核 D3）
     // 读取报错（不再按空集继续），上层据此提示用户恢复。
     await assert.rejects(service.list(), /corrupt/);
     // 健康探测给出有形状的损坏态（专用码 + 备份路径），界面不必解析异常文本。
-    const health = await service.getStorageHealth();
+    const { storage: health, cli } = await service.getEnvironmentHealth();
+    assert.equal(cli.status, "ok", "CLI 态与存储态互不影响（fakeCli 默认 resolve ok）");
     assert.equal(health.status, "corrupt");
     if (health.status === "corrupt") {
       assert.equal(health.storePath, bindingsPath);
@@ -408,8 +409,50 @@ test("绑定存储损坏：报错且不自动清空（fail-closed，审核 D3）
     assert.ok(dirEntries.some((name) => name.startsWith("bindings.json.corrupt-")), "存在证据备份");
     // 用户手工恢复后：探测回到 ok，list 恢复可用（备份副本不参与读取）。
     await writeFile(bindingsPath, JSON.stringify({ version: 1, bindings: [] }), "utf8");
-    assert.deepEqual(await service.getStorageHealth(), { status: "ok" });
+    assert.deepEqual((await service.getEnvironmentHealth()).storage, { status: "ok" });
     assert.equal((await service.list()).length, 0);
+  } finally {
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("getEnvironmentHealth：CLI 态投影——resolve ok/失败/抛错三分支，不碰凭据面", async () => {
+  const dataRoot = await mkdtemp(join(tmpdir(), "raft-env-health-"));
+  try {
+    // ok 投影：cliPath/version 原样透出。
+    const okService = await makeService(
+      fakeCli({ resolve: async () => ({ ok: true, cliPath: "/opt/raft", version: "0.0.30" }) }),
+      dataRoot,
+    );
+    assert.deepEqual((await okService.getEnvironmentHealth()).cli, {
+      status: "ok",
+      cliPath: "/opt/raft",
+      version: "0.0.30",
+    });
+
+    // 失败投影：code → status，detail 缺席收敛为 null。
+    const unsupported = await makeService(
+      fakeCli({ resolve: async () => ({ ok: false, code: "CliVersionUnsupported", detail: "0.0.10" }) }),
+      dataRoot,
+    );
+    assert.deepEqual((await unsupported.getEnvironmentHealth()).cli, {
+      status: "CliVersionUnsupported",
+      detail: "0.0.10",
+    });
+    const missing = await makeService(
+      fakeCli({ resolve: async () => ({ ok: false, code: "CliMissing" }) }),
+      dataRoot,
+    );
+    assert.deepEqual((await missing.getEnvironmentHealth()).cli, { status: "CliMissing", detail: null });
+
+    // resolve 抛错兜底：收敛为 CliMissing 形状，前置检查不打断 Agent 中心。
+    const throwing = await makeService(
+      fakeCli({ resolve: async () => { throw new Error("spawn ENOENT"); } }),
+      dataRoot,
+    );
+    const thrown = (await throwing.getEnvironmentHealth()).cli;
+    assert.equal(thrown.status, "CliMissing");
+    if (thrown.status === "CliMissing") assert.match(String(thrown.detail), /ENOENT/);
   } finally {
     await rm(dataRoot, { recursive: true, force: true });
   }

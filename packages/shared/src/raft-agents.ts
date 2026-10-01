@@ -224,6 +224,38 @@ export const raftAgentStorageHealthSchema = z.discriminatedUnion("status", [
 ]);
 export type RaftAgentStorageHealth = z.infer<typeof raftAgentStorageHealthSchema>;
 
+/**
+ * CLI 健康态（宿主环境健康的一部分）：向导进入时的前置检测投影。
+ * 复用 RaftCliPort.resolve()（PATH 解析 + `--version`，不碰凭据）；
+ * detail 是 exit code / 版本号 / stdout 截断等非敏感诊断片段，可为 null。
+ */
+export const raftAgentCliHealthSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("ok"),
+      /** 实际解析到的 CLI 路径（显式 env 覆盖或 PATH 命中）。 */
+      cliPath: z.string().min(1),
+      /** `raft --version` 解析出的版本号（已过最低版本门禁）。 */
+      version: z.string().min(1),
+    })
+    .strict(),
+  z.object({ status: z.literal("CliMissing"), detail: z.string().nullable() }).strict(),
+  z.object({ status: z.literal("CliVersionUnsupported"), detail: z.string().nullable() }).strict(),
+]);
+export type RaftAgentCliHealth = z.infer<typeof raftAgentCliHealthSchema>;
+
+/**
+ * 宿主环境健康：存储态 + CLI 态一次返回。Agent 中心 / 接入向导进入时调一次
+ * 即可完成全部前置检查（列表损坏定向提示 + 未装命令行安装提示），不必逐项探测。
+ */
+export const raftAgentEnvironmentHealthSchema = z
+  .object({
+    storage: raftAgentStorageHealthSchema,
+    cli: raftAgentCliHealthSchema,
+  })
+  .strict();
+export type RaftAgentEnvironmentHealth = z.infer<typeof raftAgentEnvironmentHealthSchema>;
+
 // -----------------------------------------------
 // 二期 A1：管理动作 / 凭据预核验 / 记忆只读 / 凭据枚举
 // -----------------------------------------------

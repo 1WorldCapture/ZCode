@@ -12,6 +12,8 @@ import { Emitter, type Event } from "@zcode/rpc";
 import {
   type RaftAgentBinding,
   type RaftAgentBindingInput,
+  type RaftAgentCliHealth,
+  type RaftAgentEnvironmentHealth,
   type RaftAgentListItem,
   type RaftAgentLocalCredential,
   type RaftAgentMemoryContent,
@@ -127,26 +129,47 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
       live: options.feed?.resolveLive(binding.bindingId),
     });
 
+  async function probeStorageHealth(): Promise<RaftAgentStorageHealth> {
+    try {
+      await store.readAll();
+      return { status: "ok" };
+    } catch (error) {
+      if (error instanceof RaftBindingStoreCorruptError) {
+        return { status: "corrupt", storePath: error.storePath, backupPath: error.backupPath ?? null };
+      }
+      throw error;
+    }
+  }
+
+  async function probeCliHealth(cli: RaftCliPort): Promise<RaftAgentCliHealth> {
+    try {
+      const resolution = await cli.resolve();
+      if (resolution.ok) {
+        return { status: "ok", cliPath: resolution.cliPath, version: resolution.version };
+      }
+      return { status: resolution.code, detail: resolution.detail ?? null };
+    } catch (error) {
+      // resolve() 语义上不抛（子进程失败已归类）；兜底收敛为 CliMissing，
+      // 前置检查的异常不能打断整个 Agent 中心。
+      return { status: "CliMissing", detail: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   return {
     async list(): Promise<RaftAgentListItem[]> {
       return (await store.readAll()).map(toItem);
     },
 
     /**
-     * 存储健康态活探测：读一遍 store，corrupt 转形状、其他异常原样抛。
-     * list() 失败后界面改调这里（专用码 + 备份路径），不必解析异常文本。
-     * 备份内容寻址且排他创建，轮询重复探测不会堆积副本。
+     * 宿主环境健康探测：存储态（读一遍 store，corrupt 转形状、其他异常原样抛）
+     * 与 CLI 态（resolve()：PATH/env 解析 + 版本门禁，不碰凭据）并行一次返回。
+     * 存储备份内容寻址且排他创建，轮询重复探测不会堆积副本。CLI 侧 resolve
+     * 抛出的异常收敛为 CliMissing 形状——前置检查不能把 Agent 中心整个打断。
      */
-    async getStorageHealth(): Promise<RaftAgentStorageHealth> {
-      try {
-        await store.readAll();
-        return { status: "ok" };
-      } catch (error) {
-        if (error instanceof RaftBindingStoreCorruptError) {
-          return { status: "corrupt", storePath: error.storePath, backupPath: error.backupPath ?? null };
-        }
-        throw error;
-      }
+    async getEnvironmentHealth(): Promise<RaftAgentEnvironmentHealth> {
+      const storage = await probeStorageHealth();
+      const cli = await probeCliHealth(options.cli);
+      return { storage, cli };
     },
 
     async createBinding(input: RaftAgentBindingInput): Promise<RaftAgentSetupResult> {
