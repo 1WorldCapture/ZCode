@@ -14,6 +14,7 @@ import {
   buildBacklogDrainPrompt,
 } from "../src/raft-agents/app/prompts.js";
 import { createRaftActivityFeed, type RaftActivityFeed } from "../src/raft-agents/app/activityFeed.js";
+import type { BridgeScheduleFn } from "../src/raft-agents/app/runtimeRecovery.js";
 import { createRaftWatchRuntime, type RaftMemoryGatePort } from "../src/raft-agents/app/watchRuntime.js";
 import type { RaftBindingStorePort, RaftSessionPort, RaftSessionSendOutcome } from "../src/raft-agents/app/ports.js";
 import type { BridgeBindingRef, BridgeStartResult, BridgeExitInfo, BridgeSupervisorPort } from "../src/raft-agents/app/bridgePorts.js";
@@ -172,6 +173,7 @@ function makeRuntime(overrides: {
   memory?: RaftMemoryGatePort;
   resolveOfficialMcpServers?: () => Promise<ZCodeOfficialMcpServerRef[] | undefined>;
   feed?: RaftActivityFeed;
+  schedule?: BridgeScheduleFn;
 } = {}) {
   const store = overrides.store ?? fakeStore([makeBinding()]);
   const supervisor = overrides.supervisor ?? fakeSupervisor();
@@ -186,8 +188,32 @@ function makeRuntime(overrides: {
     resolveOfficialMcpServers: overrides.resolveOfficialMcpServers ?? (async () => MCP_REFS),
     clock: { nowIso: () => "2026-09-30T12:00:00.000Z" },
     ...(overrides.feed ? { feed: overrides.feed } : {}),
+    ...(overrides.schedule ? { schedule: overrides.schedule } : {}),
   });
   return { runtime, store, supervisor, sessions };
+}
+
+/** D6 测试用假调度器：记录排程、可手动触发，不依赖真实时钟。 */
+function fakeScheduler() {
+  const tasks: Array<{ delayMs: number; fn: () => void; cancelled: boolean }> = [];
+  const schedule: BridgeScheduleFn = (delayMs, fn) => {
+    const task = { delayMs, fn, cancelled: false };
+    tasks.push(task);
+    return () => {
+      task.cancelled = true;
+    };
+  };
+  const pending = () => tasks.filter((t) => !t.cancelled);
+  /** 触发最早的未取消排程，并等 relaunch 异步链（queue → doStart → 结果映射 → 再调度）走完。 */
+  const fireNext = async () => {
+    const task = pending()[0];
+    assert.ok(task, "expected a scheduled relaunch");
+    task.cancelled = true; // 标记已消费：pending() 只反映尚未触发的排程。
+    task.fn();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+  };
+  return { schedule, tasks, pending, fireNext };
 }
 
 test("startWatch 成功链：换代+1 持久化 → spawn(带 cliPath) → D8 drain(代次幂等键) → Running", async () => {
@@ -315,7 +341,8 @@ test("spawn 失败分支：EarlyExit → ErrorPaused(bridge_exit)，换代已持
 });
 
 test("onExit：意外退出置 ErrorPaused(bridge_exit)，requested 不算故障", async () => {
-  const { runtime, store, supervisor } = makeRuntime();
+  const sched = fakeScheduler();
+  const { runtime, store, supervisor } = makeRuntime({ schedule: sched.schedule });
   await runtime.startWatch(BINDING_ID);
   assert.equal(runtime.resolveRunState(store.current()[0]), "Running");
 
@@ -340,6 +367,90 @@ test("onExit：意外退出置 ErrorPaused(bridge_exit)，requested 不算故障
   const again = await runtime.startWatch(BINDING_ID);
   assert.deepEqual(again, { ok: true });
   assert.equal(runtime.resolveRunState(store.current()[0]), "Running");
+});
+
+test("D6 重拉成功：意外退出后 10s 重启 bridge，成功后计数清零、再崩从头计", async () => {
+  const sched = fakeScheduler();
+  const { runtime, store, supervisor } = makeRuntime({ schedule: sched.schedule });
+  await runtime.startWatch(BINDING_ID);
+  await supervisor.exit({ bindingId: BINDING_ID, requested: false, code: 1, signal: null, stderrTail: "fatal" });
+  assert.equal(sched.pending().length, 1, "意外退出安排一次重拉");
+  assert.equal(sched.pending()[0]?.delayMs, 10_000);
+
+  await sched.fireNext(); // 第一档退避 → relaunch 成功
+  assert.equal(supervisor.startCalls.length, 2, "bridge 被重拉");
+  assert.equal(runtime.resolveRunState(store.current()[0]), "Running", "重拉成功恢复 Running");
+  assert.equal(sched.pending().length, 0, "成功后无遗留调度");
+
+  // 成功运行后计数已清零：再次意外退出从第一档（10s）重新开始，而非 30s。
+  await supervisor.exit({ bindingId: BINDING_ID, requested: false, code: 1, signal: null, stderrTail: "" });
+  assert.equal(sched.pending()[0]?.delayMs, 10_000);
+});
+
+test("D6 连败封顶：10s/30s/60s 共 3 次后放弃，终态保持 ErrorPaused(bridge_exit)", async () => {
+  const sched = fakeScheduler();
+  // 首启成功；之后的 start 全部失败（startScript 最后一项重复回放）。
+  const supervisor = fakeSupervisor([
+    { ok: true, pid: 4321 },
+    { ok: false, code: "EarlyExit", detail: "crash" },
+    { ok: false, code: "EarlyExit", detail: "crash" },
+    { ok: false, code: "EarlyExit", detail: "crash" },
+  ]);
+  const { runtime, store } = makeRuntime({ supervisor, schedule: sched.schedule });
+  await runtime.startWatch(BINDING_ID);
+  await supervisor.exit({ bindingId: BINDING_ID, requested: false, code: 1, signal: null, stderrTail: "fatal" });
+
+  await sched.fireNext();
+  assert.equal(sched.pending()[0]?.delayMs, 30_000, "第一次重拉失败进第二档");
+  await sched.fireNext();
+  assert.equal(sched.pending()[0]?.delayMs, 60_000, "第二次重拉失败进第三档");
+  await sched.fireNext();
+  assert.equal(sched.pending().length, 0, "3 次失败后封顶，不再调度");
+  assert.equal(supervisor.startCalls.length, 4, "首启 + 3 次重拉，无第四次");
+  assert.deepEqual(runtime.resolveRunState(store.current()[0]), {
+    kind: "ErrorPaused",
+    reason: "bridge_exit",
+  }, "终态与封顶前一致：错误暂停且原因可见");
+});
+
+test("D6 requested 主动停零重拉", async () => {
+  const sched = fakeScheduler();
+  const { runtime, supervisor } = makeRuntime({ schedule: sched.schedule });
+  await runtime.startWatch(BINDING_ID);
+  await supervisor.exit({ bindingId: BINDING_ID, requested: true, code: 0, signal: null, stderrTail: "" });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(sched.pending().length, 0, "requested（stop/stopAll 主动结束）不安排重拉");
+  assert.equal(sched.tasks.length, 0);
+});
+
+test("D6 意图已变不再重试：重拉时 desiredState 已非 Running → 一次即停", async () => {
+  const sched = fakeScheduler();
+  const { runtime, store, supervisor } = makeRuntime({ schedule: sched.schedule });
+  await runtime.startWatch(BINDING_ID);
+  await supervisor.exit({ bindingId: BINDING_ID, requested: false, code: 1, signal: null, stderrTail: "" });
+  // 重拉触发前用户停止了值守（desiredState 落盘是调用方职责，这里直接改 store 模拟）。
+  await store.port.writeAll(store.current().map((b) => ({ ...b, desiredState: "ReadyStopped" as const })));
+
+  await sched.fireNext();
+  assert.equal(supervisor.startCalls.length, 1, "重拉被锁内意图校验拒绝，不再 spawn");
+  assert.equal(sched.pending().length, 0, "intentGone 不再安排下一档");
+});
+
+test("D6 stopWatch 取消未触发的重拉；disposeAllAndWait 后意外退出不再重拉", async () => {
+  const sched = fakeScheduler();
+  const { runtime, supervisor } = makeRuntime({ schedule: sched.schedule });
+  await runtime.startWatch(BINDING_ID);
+  await supervisor.exit({ bindingId: BINDING_ID, requested: false, code: 1, signal: null, stderrTail: "" });
+  assert.equal(sched.pending().length, 1);
+  await runtime.stopWatch(BINDING_ID);
+  assert.equal(sched.pending().length, 0, "主动停止取消未触发的重拉");
+
+  // 宿主关停后（含dispose）到来的意外退出通知是 no-op。
+  await runtime.startWatch(BINDING_ID);
+  await runtime.disposeAllAndWait();
+  await supervisor.exit({ bindingId: BINDING_ID, requested: false, code: 1, signal: null, stderrTail: "" });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(sched.pending().length, 0, "dispose 后不再安排重拉");
 });
 
 test("drain 提交失败（transport）：bridge 不回滚，结果仍成功，覆盖层 Running", async () => {

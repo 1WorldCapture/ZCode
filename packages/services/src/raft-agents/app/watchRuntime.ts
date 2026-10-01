@@ -4,11 +4,12 @@
  * fail-closed）→ 锁内换代 → 会话恢复/懒建（sessionSwap 共享段）→ supervisor.start
  * → D8 积压 drain（commandId 按 bindingId+启动代次派生，重启后不误判重复）。
  *
- * 设计要点：ErrorPaused/Running 覆盖层只存内存（list() 投影叠加在 desiredState 之上；
- * 下次 startWatch 成功或 stopWatch 清除；bridge 意外退出经 onExit 置 bridge_exit，
- * spec §9）；换代在锁内（与 RaftAgentsService 共用 storeWriteLock，防"用户停止 vs
- * 编排器换代"竞态）；start/stop 经同一 in-flight 链每绑定线性化（并发重复 start 合并）；
- * 顺序红线——MEMORY 门与会话恢复都完成之前绝不启动 bridge。
+ * 设计要点：ErrorPaused/Running 覆盖层只存内存（runtimeLane；list() 投影叠加在
+ * desiredState 之上，下次 startWatch 成功或 stopWatch 清除）；换代在锁内（与
+ * RaftAgentsService 共用 storeWriteLock，防"用户停止 vs 编排器换代"竞态）；start/
+ * stop 经同一 in-flight 链每绑定线性化（并发重复 start 合并）；顺序红线——MEMORY
+ * 门与会话恢复都完成之前绝不启动 bridge。bridge 意外退出置 ErrorPaused(bridge_exit)
+ * 并触发 D6 封顶退避重拉（runtimeRecovery，spec §9）；requested 主动停不是故障。
  */
 import type { RaftAgentBinding, RaftAgentRunState, ZCodeOfficialMcpServerRef } from "@zcode/shared";
 
@@ -16,9 +17,11 @@ import type { ServiceLogger } from "#src/logger/serviceLogger.js";
 
 import type { RaftActivityTracker } from "./activity.js";
 import type { BridgeSupervisorPort } from "./bridgePorts.js";
+import { createRaftRuntimeLane } from "./runtimeLane.js";
+import { createBridgeRecovery, type BridgeScheduleFn } from "./runtimeRecovery.js";
 import { backlogDrainCommandId, buildBacklogDrainPrompt } from "./prompts.js";
 import type { ClockPort, RaftBindingStorePort, RaftCliPort, RaftSessionPort } from "./ports.js";
-import { createMainSessionAndRebind } from "./sessionSwap.js";
+import { resolveMainSessionForStart } from "./sessionSwap.js";
 import type { RaftStoreWriteLock } from "./storeLock.js";
 import { runWatchStartGates, type RaftMemoryGatePort } from "./watchStartGates.js";
 
@@ -73,6 +76,8 @@ export interface RaftWatchRuntimeOptions {
   logger?: ServiceLogger;
   /** 主会话编号变化广播（与 onBindingsChanged 同源；懒建/重建/换代 +1 落盘后 fire）。 */
   emitBindingsChanged?: (next: RaftAgentBinding[]) => void;
+  /** D6 重拉调度注入口（测试确定性）；缺省 unref 的真实 setTimeout。 */
+  schedule?: BridgeScheduleFn;
 }
 
 export interface RaftWatchRuntime {
@@ -101,29 +106,35 @@ export interface RaftWatchRuntime {
   markSessionUnavailable(bindingId: string): void;
 }
 
+
 export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWatchRuntime {
   const logger = options.logger;
   const clock: ClockPort = options.clock ?? { nowIso: () => new Date().toISOString() };
-  /** 运行态覆盖层（bindingId → ErrorPaused/Running）；仅内存，进程重启即失。 */
-  const overlay = new Map<string, RaftAgentRunState>();
-  /** 每绑定 in-flight 操作链：start/stop 线性化 + 并发合并。 */
-  const inflight = new Map<string, Promise<unknown>>();
+  const lane = createRaftRuntimeLane();
 
-  function queue<T>(bindingId: string, fn: () => Promise<T>): Promise<T> {
-    const prev = inflight.get(bindingId) ?? Promise.resolve();
-    const run = prev.then(fn, fn);
-    const settled = run.then(() => undefined, () => undefined);
-    inflight.set(bindingId, settled);
-    void settled.then(() => {
-      if (inflight.get(bindingId) === settled) inflight.delete(bindingId);
-    });
-    return run;
+  // D6 封顶退避重拉：relaunch 走与 startWatch 相同的排队链（幂等 + 锁内 desiredState
+  // 校验 + 换代纪律全部原样生效）。用户意图已变（停止/删除）映射 intentGone 不再重试。
+  const recovery = createBridgeRecovery({
+    relaunch: (bindingId) =>
+      lane.queue(bindingId, () => doStart(bindingId)).then((outcome) => {
+        if (outcome.ok) return "relaunched";
+        if (outcome.code === "NotRunningIntent" || outcome.code === "BindingNotFound") return "intentGone";
+        return "failed";
+      }),
+    logger,
+    schedule: options.schedule,
+  });
+
+  function markRunning(bindingId: string) {
+    lane.overlay.set(bindingId, "Running");
+    recovery.noteSettled(bindingId); // 跑起来了：本轮恢复结束，D6 计数清零。
   }
 
-  // bridge 意外退出 → ErrorPaused(bridge_exit)；requested（stop/stopAll 主动结束）不是故障。
+  // bridge 意外退出 → ErrorPaused(bridge_exit) + D6 退避重拉；requested（stop/
+  // stopAll 主动结束）不是故障。
   options.supervisor.onExit((info) => {
     if (info.requested) return;
-    overlay.set(info.bindingId, { kind: "ErrorPaused", reason: "bridge_exit" });
+    lane.overlay.set(info.bindingId, { kind: "ErrorPaused", reason: "bridge_exit" });
     options.activity?.record(info.bindingId, "error");
     logger?.error(undefined, "raft bridge exited unexpectedly", {
       bindingId: info.bindingId,
@@ -131,12 +142,13 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
       signal: info.signal,
       stderrTail: info.stderrTail,
     });
+    recovery.noteUnexpectedExit(info.bindingId);
   });
 
   async function doStart(bindingId: string): Promise<RaftWatchStartOutcome> {
     // 幂等入口：bridge 已在跑则不重复换代/不重复 drain。
     if (options.supervisor.isRunning(bindingId)) {
-      overlay.set(bindingId, "Running");
+      markRunning(bindingId);
       return { ok: true };
     }
 
@@ -155,7 +167,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
     );
     if (!gates.ok) {
       if (!("reason" in gates.failure)) return { ok: false, code: gates.failure.code };
-      overlay.set(bindingId, { kind: "ErrorPaused", reason: gates.failure.reason });
+      lane.overlay.set(bindingId, { kind: "ErrorPaused", reason: gates.failure.reason });
       return { ok: false, code: gates.failure.code, detail: gates.failure.detail };
     }
     const officialMcpServers = gates.officialMcpServers;
@@ -186,111 +198,49 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
     }
 
     const binding = locked.binding;
-    // 清历史 ErrorPaused：本次结果以 supervisor 启动成败为准。
-    overlay.delete(bindingId);
+    // 清历史 ErrorPaused：本次结果以会话解析与 supervisor 启动成败为准。
+    lane.overlay.delete(bindingId);
 
-    // 懒建分支（二期 A1）：首启创建主会话，共享段做锁内条件改绑（仍空引用才写入，
-    // 防与并发 start/stop/remove 交错双写）。新会话代次 1。create 刚构建过带记忆与
-    // MCP 的 runtime，无需再 resume。
-    let sessionId: string;
-    let generation: number;
-    if ("code" in locked) {
-      logger?.info(undefined, "raft watch: no main session yet, creating lazily", { bindingId });
-      const swapped = await createMainSessionAndRebind(
-        {
-          store: options.store,
-          lock: options.lock,
-          sessions: options.sessions,
-          clock,
-          emitBindingsChanged: options.emitBindingsChanged,
-        },
-        {
-          bindingId,
-          workspacePath: binding.homeWorkspacePath,
-          agentMemory: { homeRoot: binding.homeWorkspacePath, agentName: binding.displayName },
-          officialMcpServers,
-          expectedSessionId: null,
-          expectedDesiredState: "Running",
-        },
-      );
-      if (!swapped.ok) {
-        if (swapped.code === "concurrent") {
-          logger?.info(undefined, "raft watch: binding changed during lazy create, aborting start", { bindingId });
-          return { ok: false, code: "NotRunningIntent" };
-        }
-        overlay.set(bindingId, { kind: "ErrorPaused", reason: "session_unavailable" });
-        options.activity?.record(bindingId, "error");
-        logger?.warn(undefined, "raft watch start blocked: lazy session create failed", {
-          bindingId,
-          detail: swapped.detail,
-        });
-        return { ok: false, code: "SessionCreateFailed", detail: swapped.detail };
-      }
-      sessionId = swapped.sessionId;
-      generation = 1;
-      logger?.info(undefined, "raft watch: main session created lazily", { bindingId, sessionId });
-    } else {
-      // 会话恢复（spec §3：先于 bridge 启动）：resume 重发记忆作用域与 MCP 引用——
-      // 冷恢复会重建 runtime，缺了会退回项目记忆且无 Raft 工具。失败置 ErrorPaused(session_unavailable)。
-      sessionId = locked.sessionId;
-      generation = locked.generation;
-      const resumed = await options.sessions.resumeAgentSession({
-        workspacePath: binding.homeWorkspacePath,
-        sessionId: locked.sessionId,
-        agentMemory: { homeRoot: binding.homeWorkspacePath, agentName: binding.displayName },
+    // 会话恢复/懒建（sessionSwap 共享段，顺序红线：完成之前绝不 spawn）。
+    const session = await resolveMainSessionForStart(
+      {
+        store: options.store,
+        lock: options.lock,
+        sessions: options.sessions,
+        clock,
+        emitBindingsChanged: options.emitBindingsChanged,
+        logger,
+      },
+      {
+        binding,
+        mode:
+          "code" in locked
+            ? { kind: "lazy" }
+            : { kind: "resume", sessionId: locked.sessionId, generation: locked.generation },
         officialMcpServers,
-        raftBindingId: binding.bindingId, // pre-会话恢复补写归属（懒建已盖章）
-      });
-      if (!resumed.ok) {
-        // resume 失败 = 会话行已不存在。历史主因是空壳预建会话从未越过统一持久化
-        // 边界（无输入即无 session 行，见 SPEC「主会话重建」2026-10-01 更正）——二期 A1
-        // 改懒建后不再产生；本分支留存兜底 db 被清/会话被他途归档等场景。Home 记忆
-        // 才是持久层，主会话可重建——重建并改绑（丢上下文、留记忆），代次重置 1。
-        logger?.warn(undefined, "raft watch: session resume failed, rebuilding main session", {
-          bindingId,
-          oldSessionId: locked.sessionId,
-          reason: resumed.detail,
-        });
-        const swapped = await createMainSessionAndRebind(
-          {
-            store: options.store,
-            lock: options.lock,
-            sessions: options.sessions,
-            clock,
-            emitBindingsChanged: options.emitBindingsChanged,
-          },
-          {
-            bindingId,
-            workspacePath: binding.homeWorkspacePath,
-            agentMemory: { homeRoot: binding.homeWorkspacePath, agentName: binding.displayName },
-            officialMcpServers,
-            expectedSessionId: locked.sessionId,
-          },
-        );
-        if (!swapped.ok) {
-          if (swapped.code === "concurrent") {
-            logger?.info(undefined, "raft watch: binding changed during session rebuild, aborting start", {
-              bindingId,
-            });
-            return { ok: false, code: "NotRunningIntent" };
-          }
-          overlay.set(bindingId, { kind: "ErrorPaused", reason: "session_unavailable" });
-          options.activity?.record(bindingId, "error");
-          logger?.warn(undefined, "raft watch start blocked: session rebuild failed", {
-            bindingId,
-            detail: swapped.detail,
-          });
-          return { ok: false, code: "SessionResumeFailed", detail: swapped.detail };
-        }
-        sessionId = swapped.sessionId;
-        generation = 1;
-        logger?.info(undefined, "raft watch: main session rebuilt", {
-          bindingId,
-          oldSessionId: locked.sessionId,
-          newSessionId: swapped.sessionId,
-        });
+      },
+    );
+    if (!session.ok) {
+      if (session.code === "not-intent") {
+        logger?.info(undefined, "raft watch: binding changed during session resolve, aborting start", { bindingId });
+        return { ok: false, code: "NotRunningIntent" };
       }
+      lane.overlay.set(bindingId, { kind: "ErrorPaused", reason: "session_unavailable" });
+      options.activity?.record(bindingId, "error");
+      logger?.warn(
+        undefined,
+        session.code === "create-failed"
+          ? "raft watch start blocked: lazy session create failed"
+          : "raft watch start blocked: session rebuild failed",
+        { bindingId, detail: session.detail },
+      );
+      return {
+        ok: false,
+        code: session.code === "create-failed" ? "SessionCreateFailed" : "SessionResumeFailed",
+        detail: session.detail,
+      };
     }
+    const { sessionId, generation } = session;
 
     const started = await options.supervisor.start(
       { bindingId, profileSlug: binding.profileSlug, raftAgentId: binding.raftAgentId },
@@ -300,7 +250,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
       // NotOwner/LockHeld 是多窗口/多实例路由结果，不算本机故障，保留推导态；
       // AlreadyRunning 理论上被入口幂等挡住，兜底按已运行处理。
       if (started.code === "AlreadyRunning") {
-        overlay.set(bindingId, "Running");
+        markRunning(bindingId);
         return { ok: true };
       }
       if (started.code === "NotOwner" || started.code === "LockHeld") {
@@ -308,7 +258,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
         return { ok: false, code: "BridgeStartFailed", detail: started.code };
       }
       // EndpointUnavailable/SpawnFailed/EarlyExit → 异常暂停（spec §9）。
-      overlay.set(bindingId, { kind: "ErrorPaused", reason: "bridge_exit" });
+      lane.overlay.set(bindingId, { kind: "ErrorPaused", reason: "bridge_exit" });
       options.activity?.record(bindingId, "error");
       logger?.error(undefined, "raft bridge start failed", {
         bindingId,
@@ -318,7 +268,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
       return { ok: false, code: "BridgeStartFailed", detail: started.detail ?? started.code };
     }
 
-    overlay.set(bindingId, "Running");
+    markRunning(bindingId);
     options.feed?.attach(bindingId, { workspacePath: binding.homeWorkspacePath, sessionId });
 
     // D8 积压 drain：bridge 起来后立即投一次（无 messageId，代次幂等键）。
@@ -351,17 +301,18 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
   }
 
   async function doStop(bindingId: string): Promise<void> {
+    recovery.noteSettled(bindingId); // 主动停：取消任何未触发的 D6 重拉。
     options.feed?.detach(bindingId, { bridgeWasRunning: options.supervisor.isRunning(bindingId) }); // B2
     await options.supervisor.stop(bindingId);
-    overlay.delete(bindingId);
+    lane.overlay.delete(bindingId);
   }
 
   return {
     startWatch(bindingId) {
-      return queue(bindingId, () => doStart(bindingId));
+      return lane.queue(bindingId, () => doStart(bindingId));
     },
     stopWatch(bindingId) {
-      return queue(bindingId, () => doStop(bindingId));
+      return lane.queue(bindingId, () => doStop(bindingId));
     },
 
     async recoverAllDesiredRunning() {
@@ -385,7 +336,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
 
     resolveRunState(binding) {
       if (binding.desiredState !== "Running") return undefined;
-      const pinned = overlay.get(binding.bindingId);
+      const pinned = lane.overlay.get(binding.bindingId);
       if (pinned) return pinned;
       if (options.supervisor.isRunning(binding.bindingId)) return "Running";
       // 无覆盖层且 bridge 未起：Running 意图如实投影为 Starting（等编排器接管）。
@@ -393,12 +344,13 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
     },
 
     async disposeAllAndWait() {
+      recovery.dispose(); // 先取消全部 D6 重拉：关停期间/之后不再有自动拉起。
       await options.supervisor.stopAll();
-      overlay.clear();
+      lane.overlay.clear();
     },
 
     runExclusive(bindingId, fn) {
-      return queue(bindingId, fn);
+      return lane.queue(bindingId, fn);
     },
 
     async stopBridgeNow(bindingId) {
@@ -406,9 +358,9 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
     },
 
     markSessionUnavailable(bindingId) {
-      const pinned = overlay.get(bindingId);
+      const pinned = lane.overlay.get(bindingId);
       if (pinned && pinned !== "Running") return; // 已暂停则保留首个故障原因
-      overlay.set(bindingId, { kind: "ErrorPaused", reason: "session_unavailable" });
+      lane.overlay.set(bindingId, { kind: "ErrorPaused", reason: "session_unavailable" });
       options.activity?.record(bindingId, "error");
       logger?.error(undefined, "raft watch: main session unrecoverable, paused", { bindingId });
     },
