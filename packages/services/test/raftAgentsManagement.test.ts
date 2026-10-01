@@ -351,6 +351,7 @@ test("openAgentSession：无主会话 → 懒建并改绑，不启动 bridge", a
     const stack = await buildStack(dataRoot, sessions, supervisor, fakeCli());
     const home = join(dataRoot, "agents", BINDING_ID, "workspace");
     await stack.store.writeAll([makeBinding(home, { desiredState: "ReadyStopped", mainSessionRef: null })]);
+    assert.equal((await stack.service.list())[0]?.mainSessionId, null);
 
     const result = await stack.service.openAgentSession(BINDING_ID);
     assert.deepEqual(result, { ok: true, sessionId: "sess-new", workspacePath: home });
@@ -358,6 +359,8 @@ test("openAgentSession：无主会话 → 懒建并改绑，不启动 bridge", a
     assert.equal(supervisor.startCalls.length, 0);
     const rebound = (await stack.store.readAll()).find((b) => b.bindingId === BINDING_ID);
     assert.deepEqual(rebound?.mainSessionRef, { sessionId: "sess-new", sessionGeneration: 1 });
+    // B3：列表投影直达主会话编号；懒建前为 null，打开后随改绑更新。
+    assert.equal((await stack.service.list())[0]?.mainSessionId, "sess-new");
   });
 });
 
@@ -373,10 +376,17 @@ test("openAgentSession：已有主会话 → resume（带记忆与 MCP）；resu
       const result = await stack.service.openAgentSession(BINDING_ID);
       assert.deepEqual(result, { ok: true, sessionId: "sess-old", workspacePath: home });
       assert.equal(sessions.resumes.length, 1);
-      const resumeArg = sessions.resumes[0] as { agentMemory: { homeRoot: string }; officialMcpServers: unknown[] };
+      const resumeArg = sessions.resumes[0] as {
+        agentMemory: { homeRoot: string };
+        officialMcpServers: unknown[];
+        raftBindingId?: string;
+      };
       assert.equal(resumeArg.agentMemory.homeRoot, home);
       assert.equal(resumeArg.officialMcpServers.length, MCP_REFS.length);
+      // pre-会话恢复补写绑定归属（B3 打开入口与值守恢复同款）。
+      assert.equal(resumeArg.raftBindingId, BINDING_ID);
       assert.equal(sessions.creates.length, 0);
+      assert.equal((await stack.service.list())[0]?.mainSessionId, "sess-old");
     }
     // resume 失败 → 重建改绑。
     {
@@ -675,21 +685,62 @@ test("verifyCredential：成功返回身份且临时 profile 全路径即毁", a
       raftAgentId: AGENT_ID,
       token: "sk_agent_preflightok1",
     });
-    assert.deepEqual(result, {
-      ok: true,
-      identity: {
-        agentId: AGENT_ID,
-        agentName: "Fake Agent",
-        serverUrl: "https://raft.example.com",
-        serverId: "server-1",
-      },
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.deepEqual(result.identity, {
+      agentId: AGENT_ID,
+      agentName: "Fake Agent",
+      serverUrl: "https://raft.example.com",
+      serverId: "server-1",
     });
+    // 留空 → 预派发默认路径：数据根 agents/<uuid>/workspace（与创建同一派生函数）。
+    assert.ok(result.homePath.startsWith(join(dataRoot, "agents")));
+    assert.match(
+      result.homePath,
+      /agents[/][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[/]workspace$/,
+    );
     // 临时 profile 用 verify- 前缀且被销毁；本机凭据枚举不包含它。
     assert.equal(cli.loginCalls.length, 1);
     assert.match(cli.loginCalls[0].profileSlug, /^verify-/);
     assert.equal(cli.destroyCalls.length, 1);
     assert.match(cli.destroyCalls[0], /verify-/);
     assert.equal((await service.listLocalCredentials()).length, 0);
+  });
+});
+
+test("verifyCredential：homePath 输入回显 / 形状非法本地拒收", async () => {
+  await withDataRoot(async (dataRoot) => {
+    const cli = fakeCli();
+    const service = createRaftAgentsService({
+      cli,
+      store: createRaftBindingStore(dataRoot),
+      clock: fixedClock,
+      dataRootDir: dataRoot,
+    });
+    // 输入给了就原样回显（确认页显示实际生效路径）。
+    const echoed = await service.verifyCredential({
+      raftOrigin: "https://raft.example.com",
+      raftAgentId: AGENT_ID,
+      token: "sk_agent_preflightok1",
+      homeWorkspacePath: "/tmp/raft-custom-home",
+    });
+    assert.equal(echoed.ok, true);
+    if (echoed.ok) assert.equal(echoed.homePath, "/tmp/raft-custom-home");
+
+    // 相对路径在本地快速拒收（与创建的 homePath 形状规则一致），不动 CLI、不建 profile。
+    const bad = await service.verifyCredential({
+      raftOrigin: "https://raft.example.com",
+      raftAgentId: AGENT_ID,
+      token: "sk_agent_preflightok1",
+      homeWorkspacePath: "relative/not-absolute",
+    });
+    assert.deepEqual(bad, {
+      ok: false,
+      code: "OriginInvalid",
+      detail: "homeWorkspacePath must be an absolute path",
+    });
+    // 形状非法在本地快速拒收：login 只有前一次回显成功，坏路径没有产生新登录。
+    assert.equal(cli.loginCalls.length, 1);
   });
 });
 

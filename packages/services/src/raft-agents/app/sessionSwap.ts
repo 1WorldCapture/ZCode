@@ -43,6 +43,8 @@ export async function createMainSessionAndRebind(
     workspacePath: input.workspacePath,
     agentMemory: input.agentMemory,
     officialMcpServers: input.officialMcpServers,
+    // 创建即盖章绑定归属（tasks-index meta，B2/B3 按绑定归组）。
+    raftBindingId: input.bindingId,
   });
   if (!created.ok) {
     return { ok: false, code: "create-failed", detail: created.detail };

@@ -45,13 +45,14 @@ const LOGIN_TIMEOUT_MS = 45_000;
 const WHOAMI_TIMEOUT_MS = 10_000;
 const VERSION_TIMEOUT_MS = 8_000;
 
-/** 子进程环境：业务变量 + 宿主注入的代理/自定义 CA（设置页配置；读失败按无代理继续）。 */
+/** 子进程环境：宿主注入的代理/自定义 CA + 业务变量（设置页配置；读失败按无代理继续）。
+ * 业务变量最后写（与 bridgeSupervisor 同序）：代理面永不覆盖业务键。 */
 async function cliEnv(
   resolveProxyEnv: (() => Promise<Record<string, string>>) | undefined,
   extra: Record<string, string>,
 ): Promise<Record<string, string>> {
   try {
-    return { ...extra, ...(await resolveProxyEnv?.()) };
+    return { ...(await resolveProxyEnv?.()), ...extra };
   } catch {
     return extra;
   }

@@ -173,6 +173,11 @@ export const raftAgentListItemSchema = z
     runState: raftAgentRunStateSchema,
     homePath: z.string().min(1),
     /**
+     * 主会话编号（B3 嵌入会话视图直达挂载）；null = 懒建未发生——冷恢复统一走
+     * openAgentSession（绑定派生记忆 + 官方 MCP 的恢复/重建入口），不自行 resume。
+     */
+    mainSessionId: z.string().min(1).nullable(),
+    /**
      * 二期 A1 活动投影（可选派生字段，旧读取方不受影响）。pendingApprovals 在
      * yolo 值守下恒 0（无人工审批面）；turn 级粒度待 B2 活动事件接入后追加字段。
      */
@@ -199,6 +204,11 @@ export const raftAgentVerifyCredentialInputSchema = z
     raftOrigin: z.string().trim().min(1),
     raftAgentId: z.string().trim().pipe(raftAgentIdSchema),
     token: z.string().min(1),
+    /**
+     * 可选 Home 路径：给了就形状校验后原样回显；留空返回服务端预派发的默认路径，
+     * 向导保存时把它作为 homeWorkspacePath 显式回传（两侧共用同一派生函数）。
+     */
+    homeWorkspacePath: z.string().trim().optional(),
   })
   .strict();
 export type RaftAgentVerifyCredentialInput = z.infer<typeof raftAgentVerifyCredentialInputSchema>;
@@ -216,6 +226,11 @@ export const raftAgentVerifyResultSchema = z.discriminatedUnion("ok", [
           serverId: z.string().min(1),
         })
         .strict(),
+      /**
+       * 实际生效的 Home 完整路径（B1/A2 验收）：输入给了就回显（形状校验过），
+       * 留空给服务端预派发默认——绑定 UUID 创建时才生成，这里先派发一个具体路径。
+       */
+      homePath: z.string().min(1),
     })
     .strict(),
   z

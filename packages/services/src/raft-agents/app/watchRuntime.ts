@@ -94,6 +94,8 @@ export interface RaftWatchRuntime {
    * 外部调用方应使用排队版 stopWatch。
    */
   stopBridgeNow(bindingId: string): Promise<void>;
+  /** 唤醒自愈失败时置 ErrorPaused(session_unavailable)（界面可见；只动覆盖层，幂等）。 */
+  markSessionUnavailable(bindingId: string): void;
 }
 
 export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWatchRuntime {
@@ -138,9 +140,8 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
       return { ok: true };
     }
 
-    // 前置门（spec §3 顺序红线，watchStartGates）：CLI → MEMORY 门 → 官方 MCP
-    //（fail-closed）。带 reason 的失败置 ErrorPaused 呈现原因（评审线程 b51caf5c：
-    // 不置值 UI 会一直投影成 Starting）；下次 startWatch 成功或 stopWatch 清除。
+    // 前置门（spec §3 顺序红线，watchStartGates）：CLI → MEMORY 门 → 官方 MCP（fail-closed）。
+    // 带 reason 的失败置 ErrorPaused 呈现原因（b51caf5c：不置值 UI 会一直投影成 Starting）。
     const gates = await runWatchStartGates(
       {
         cli: options.cli,
@@ -221,9 +222,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
       logger?.info(undefined, "raft watch: main session created lazily", { bindingId, sessionId });
     } else {
       // 会话恢复（spec §3：先于 bridge 启动）：resume 重发记忆作用域与 MCP 引用——
-      // 冷恢复会重建 runtime，缺了会退回项目记忆且无 Raft 工具。失败置
-      // ErrorPaused(session_unavailable)（评审线程 b51caf5c：不置值 UI 会一直显示
-      // 启动中，用户看不到原因）；下次 startWatch 成功或 stopWatch 清除。
+      // 冷恢复会重建 runtime，缺了会退回项目记忆且无 Raft 工具。失败置 ErrorPaused(session_unavailable)。
       sessionId = locked.sessionId;
       generation = locked.generation;
       const resumed = await options.sessions.resumeAgentSession({
@@ -231,13 +230,13 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
         sessionId: locked.sessionId,
         agentMemory: { homeRoot: binding.homeWorkspacePath, agentName: binding.displayName },
         officialMcpServers,
+        raftBindingId: binding.bindingId, // pre-会话恢复补写归属（懒建已盖章）
       });
       if (!resumed.ok) {
         // resume 失败 = 会话行已不存在。历史主因是空壳预建会话从未越过统一持久化
         // 边界（无输入即无 session 行，见 SPEC「主会话重建」2026-10-01 更正）——二期 A1
         // 改懒建后不再产生；本分支留存兜底 db 被清/会话被他途归档等场景。Home 记忆
-        // 才是持久层，主会话是可重建的运行时资源——重建并改绑（对话上下文丢弃、
-        // 记忆保留）。新会话代次重置为 1：旧 fencing 随旧 sessionId 一起失效。
+        // 才是持久层，主会话可重建——重建并改绑（丢上下文、留记忆），代次重置 1。
         logger?.warn(undefined, "raft watch: session resume failed, rebuilding main session", {
           bindingId,
           oldSessionId: locked.sessionId,
@@ -387,6 +386,14 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
     async stopBridgeNow(bindingId) {
       await options.supervisor.stop(bindingId);
       overlay.delete(bindingId);
+    },
+
+    markSessionUnavailable(bindingId) {
+      const pinned = overlay.get(bindingId);
+      if (pinned && pinned !== "Running") return; // 已暂停则保留首个故障原因
+      overlay.set(bindingId, { kind: "ErrorPaused", reason: "session_unavailable" });
+      options.activity?.record(bindingId, "error");
+      logger?.error(undefined, "raft watch: main session unrecoverable, paused", { bindingId });
     },
   };
 }
