@@ -18,6 +18,12 @@
 安全红线（全程有效）：token 不出现在日志 / argv / 模型上下文 / Agent Home / UI store / 频道；
 唤醒与 drain 文本不含消息正文与凭据形态；不做生产服务测试。
 
+**打包核对制度**（2026-10-01 起，PM 定稿）：报"打好"之前必须附三项证据——
+① 安装包文件构建时间**晚于**打包分支最新提交时间；② 挂载 dmg 后在其 app.asar 中
+grep 到本次改动的标志字符串（如 `verifyCredential`、`getEnvironmentHealth`）；③ 写明
+对应的分支提交号。三项缺一不可，防止再出现"报捷的 dmg 是旧构建"（10-01 事故：dmg
+为上午产物、分支头下午才齐，6.2 验的是旧界面）。
+
 ## 1. 十条验收场景（spec §13）
 
 每条记录：通过与否 / 证据（截图或日志行）。
@@ -116,7 +122,7 @@
 Frontend 补拍截图：两种删除结果提示、未装命令行提示。
 
 ### 6.1 命令行识别（装 fork CLI）
-- [ ] 用 GitHub Release 那条命令安装我们 fork 的 raft 命令行；不设 `ZCODE_RAFT_CLI` 启动打包版 ZCode → 向导与开始值守均识别（无 CliMissing），bridge 用装好的 CLI 拉起。
+- [x] 用 GitHub Release 那条命令安装我们 fork 的 raft 命令行；不设 `ZCODE_RAFT_CLI` 启动打包版 ZCode → 向导与开始值守均识别（无 CliMissing），bridge 用装好的 CLI 拉起。（2026-10-01 通过，证据见 §6 验收记录 R6.1）
 
 ### 6.2 四页接入向导（A2）
 - [ ] 新建凭据模式：origin / agentId / token 走完向导。
@@ -154,4 +160,9 @@ Frontend 补拍截图：两种删除结果提示、未装命令行提示。
 
 ### 6.10 绑定文件损坏提示（R3）
 - [ ] 停 ZCode 后损坏 bindings.json → 启动后列表显示损坏提示（ZCode Alert 样式，含备份路径指引），按引导恢复后列表正常。
+
+### 6.11 二期验收记录（task #17；执行：lyonliang 点界面 / Dev-developer 盯日志 / grokbot 盯服务端）
+
+- **R6.1 命令行识别 — 通过（2026-10-01 16:41）**：lyonliang 用 GitHub Release tgz 安装 fork CLI（`npm install -g …botiverse-raft-0.0.24-zcode.1.tgz` → `/opt/homebrew/bin/raft`），**未设 `ZCODE_RAFT_CLI`**，重开打包版 ZCode → 三个绑定（TestAgent-1/2/3，desiredState 均 Running）恢复运行中。证据：ps 三条 bridge 进程 16:41 均以 `node /opt/homebrew/bin/raft` 拉起（argv 含 `--expected-agent`/`--adapter-instance`/wake+activity endpoint，无凭据形态）；服务端 grokbot 核对 3× `events/claim` 200 + 含消息批次紧跟 `events/ack` 200、空批次不确认——新"领取→确认"接口已启用且成对出现。
+  - 顺带验证（安装前）：打包版对三个 Running 绑定如实显示"异常暂停 · Raft CLI 不可用"（CliMissing 预期降级，lyonliang 截图 d9b2de04），与手动暂停可区分——覆盖 6.2"未装命令行"的列表态表现（向导内提示另验）。
 
