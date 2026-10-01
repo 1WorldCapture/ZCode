@@ -400,30 +400,29 @@ createBinding(input: { raftOrigin, raftAgentId, homePath }
 ### 复用替换（审核第 14–22 项）
 
 - **步骤条（14）**：`RemoteConnectionWizardSidebar` 增加可选 `steps` 参数（缺省保持原四步），接入向导侧栏传自己的步骤列表，两处共用同一组件。
-- **记忆查看（15）**：文件行图标复用 `@/lib/fileDisplay.js` 的 `FileDisplayIcon`；内容渲染复用 `MarkdownPreviewContent`（纯文本回退保留）。`MemorySettingsViewer` 整体不可直接复用——它绑定工作区记忆目录（ProjectMemoryWorkspaceSummary/搜索/作用域），Agent 记忆面是绑定级只读接口，形状不同。
+- **记忆查看（15）**：文件行图标复用 `@/lib/fileDisplay.js` 的 `FileDisplayIcon`；内容经 `components/ai-elements/message.tsx` 的 `MessageResponse` 渲染（记忆文件是 Markdown，与聊天回复同一渲染管线）。`MemorySettingsViewer` 整体不可直接复用——它绑定工作区记忆目录（ProjectMemoryWorkspaceSummary/搜索/作用域），Agent 记忆面是绑定级只读接口，形状不同。
 - **Home 路径（16）**：向导 Home 输入旁加「浏览」按钮，走 `platform.selectDirectory()`（与设置页 DataBaseDirControl 同路径）。
 - **安装命令（17）**：CLI 安装命令块复用 `components/ai-elements/snippet.tsx`（自带复制按钮），不再裸 `<pre>`。
 - **文件大小（18）**：`formatSize` 删除，复用 `resource-manager/resourceUsageView.ts` 的 `formatBytes`。
 - **状态文案用色（19）**：异常暂停文案色由写死 `text-amber-600 dark:text-amber-400` 改为既有 `text-warning` 语义色。
 - **加载/空/错误态（20）**：列表与记忆的加载态用 `components/ui/spinner.tsx`，错误态用 `components/ui/alert.tsx`；空态保持轻量文案（PluginInstallEmptyState 语义是"插件市场"，不贴合适用）。
-- **详情属性列表（21）**：详情页 `<dl>` 属性行改用 `settings/SettingsPageParts.tsx` 的 `SettingsRow`/`SettingsGroupCard`。
+- **详情属性列表（21）不换**：保持详情页现有 `<dl>` 属性行，不改用 `SettingsRow`。原因：`SettingsRow` 是 control 导向（label + 192px 控件右栏），面向可交互表单行；详情页是只读属性列表（长 URL/路径需完整展示换行），主干先例（BotsDialog、ProviderSettingsCard）就是在 `SettingsGroupCard` 内直接用 `<dl>`。评审（grokbot）已认可此判断。
 - **通用文案（22）**：close/loading/next/back/cancel 删除 `agentCenter.*` 重复键，改用既有 `common.*` 键。
 
-### 第 13 项（Agent 中心挂载方式）——方案（待评审）
+### 第 13 项（Agent 中心挂载方式）——已定稿：方案 B（评审通过，已落地）
 
-**结论建议：方案 B（保留覆盖层，补齐桌面窗口外壳）。**
+**结论：方案 B（保留覆盖层，补齐桌面窗口外壳）。** PM 与 grokbot 评审通过；决定性理由是「没打开工作区也要能用 Agent 中心」方案 A 做不到，且设置页就是「覆盖层 + 页内桌面外壳」的成熟先例。
 
-- **方案 A：扩展 WorkspaceMainView 机制**（与「自动化」「插件商店」同级）
+- **方案 A（否决）：扩展 WorkspaceMainView 机制**（与「自动化」「插件商店」同级）
   - 做法：`workspaceMainView` 联合类型加 `"agents"`，侧边栏入口、面包屑、桌面拖拽区、红绿灯避让全部继承。
-  - 阻碍：① Agent 中心是**机器级全局资源**（绑定不属于任何工作区），WorkspaceMainView 是 workspace tab 内的主视图，无 workspace 打开时没有宿主——而「没打开工作区也能用 Agent 中心」是一期定下的需求；② 全局视图状态（Root/App/tabStore/contextUsage）改动面大，回归风险集中在主干工作区流程。
-- **方案 B：保留覆盖层，对齐 SettingsPage 桌面外壳（推荐）**
-  - 先例：`WorkspaceSettingsLayer → SettingsPage` 就是覆盖层 + 页内桌面外壳的成熟模式（`isDesktop/isMacDesktop/isWindowsDesktop/windowsWindowControlsRightPaddingPx` 透传，页头拖拽区、mac 红绿灯避让、Windows 控件间距都在 SettingsPage 内实现）。Agent 中心语义上更接近「设置」而非「工作区主视图」，覆盖层与先例一致。
-  - 做法：`AgentCenterLayer` 增加同样的桌面 props 并在页头补拖拽区/避让；`Root.tsx`（无 workspace 独立全屏）与 `RootWorkspaceContent.tsx`（workspace 内）两个挂载点透传。
-  - 顺带修复审核缺陷行：Agent 标签页关闭再打开应回到列表页——`handleCloseAgentCenter` 时重置 `agentCenterStore.view` 为 list（而非停在上次页面）；`contextUsage` 等只判断设置页的处补 Agent 层同等判断。
+  - 阻碍：① Agent 中心是**机器级全局资源**（绑定不属于任何工作区），WorkspaceMainView 是 workspace tab 内的主视图，无 workspace 打开时没有宿主；② 全局视图状态（Root/App/tabStore/contextUsage）改动面大，回归风险集中在主干工作区流程。
+- **方案 B 落地内容**：
+  - `AgentCenterLayer` 接受 `isDesktop/isMacDesktop/isWindowsDesktop`，页头（升为 h-12，对齐 WorkspaceHeader/SettingsPage 页头）即拖拽区（`[app-region:drag]`），mac 让出红绿灯安全区（`pl-[72px]`），Windows/Linux 在页头内联 `DesktopWindowControls`（覆盖层会盖住 workspace 自己的窗控，必须自带）；右侧按钮区 `[app-region:no-drag]`。
+  - 两个挂载点透传：`Root.tsx`（无 workspace 独立全屏）与 `RootWorkspaceContent.tsx`（workspace 内）。
+  - 顺带修复审核第四节缺陷行（grokbot 评审附带三点）：① 关闭再打开回到列表页——`handleCloseAgentCenter` 时重置 `agentCenterStore` 视图；② `Root.tsx` 无 workspace 时的兜底默认工作区创建条件、加载中 children 显示条件补 `isAgentsTabActive`（原先只认设置页）；③ `contextUsage.tsx` 的 `isWorkspaceVisible` 判断补 `isAgentsTab`。
+  - B3 约束（grokbot 提出）：嵌入会话视图不与工作区内会话视图抢同一会话订阅，B3 方案中落实。
   - 代价：M，改动局限于 agents 层与两个挂载点；不触碰 WorkspaceMainView 主干逻辑。
-
-待 @Dev-Backend-grokbot 与 PM 评审定稿后实施。
 
 ### 验收（R3 部分）
 
-自动化：向导核验错误码映射单测；记忆面板序号防串单测（慢请求后至不覆盖新选择）。人工：四步向导与记忆查看截图对照本节；替换项不改动既有 RemoteConnectionWizardSidebar 默认行为（设置页远程连接向导截图无回归）。
+自动化：向导核验错误码映射单测；记忆面板序号防串单测（慢请求后至不覆盖新选择）。人工：四步向导与记忆查看截图对照本节；替换项不改动既有 RemoteConnectionWizardSidebar 默认行为（设置页远程连接向导截图无回归）；第 13 项——桌面（mac/Windows）下 Agent 中心页头可拖拽窗口、mac 红绿灯不压标题、Windows/Linux 页头有窗控、无 workspace 独立全屏可用，关闭再打开回到列表页，Agents tab 激活时不触发兜底默认工作区创建、contextUsage 不在 Agent 中心下方误显示。

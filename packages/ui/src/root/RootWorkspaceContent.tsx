@@ -193,7 +193,12 @@ export function RootWorkspaceContent({
           variant="panel"
           className="absolute inset-0 z-10"
         >
-          <AgentCenterLayer onClose={onCloseAgentCenter} />
+          <AgentCenterLayer
+            onClose={onCloseAgentCenter}
+            isDesktop={isDesktop}
+            isMacDesktop={isMacDesktop}
+            isWindowsDesktop={isWindowsDesktop}
+          />
         </ScopedErrorBoundary>
       ) : null}
 

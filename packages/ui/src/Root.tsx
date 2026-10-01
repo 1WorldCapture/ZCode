@@ -45,6 +45,7 @@ import {
   type WorkspaceTabState,
 } from "@/store/tabStore.js";
 import { AgentCenterLayer } from "@/agents/AgentCenterLayer.js";
+import { useAgentCenterStore } from "@/agents/agentCenterStore.js";
 import { logger } from "@/logger.js";
 import { RootShell } from "@/root/RootShell.js";
 import { RootWorkspaceContent } from "@/root/RootWorkspaceContent.js";
@@ -802,6 +803,7 @@ function RootInner({
       isStartupProviderLoginEntryOpen ||
       workspaceShellPath ||
       isSettingsTabActive ||
+      isAgentsTabActive ||
       !allowOpenWorkspace ||
       didRequestFallbackWorkspaceRef.current
     ) {
@@ -846,6 +848,7 @@ function RootInner({
   }, [
     allowOpenWorkspace,
     handleSelectConversationWorkspace,
+    isAgentsTabActive,
     isBootstrappingInitialWorkspace,
     isResolvingProviderStartupState,
     isResolvingStartupAuthState,
@@ -882,6 +885,8 @@ function RootInner({
   };
   const handleCloseAgentCenter = useCallback(() => {
     // 关闭 Agent 中心只关 tab，不触碰 Agent 值守状态（UI 生命周期与 Host 生命周期分离）。
+    // 视图复位到列表页：下次打开不落在上次的详情/向导中间态（R3 第 13 项评审结论）。
+    useAgentCenterStore.getState().backToList();
     tabStoreApi.getState().closeTab(AGENTS_TAB_ID);
   }, [tabStoreApi]);
   const handleWelcomeScreenComplete = useCallback(
@@ -1028,7 +1033,7 @@ function RootInner({
       {directoryBrowserDialog}
       <OccupationOnboarding
         showWindowControls={Boolean(isWindowsDesktop || (isDesktop && !isMacDesktop))}
-        showChildrenWhileLoading={!workspaceShellPath && isSettingsTabActive}
+        showChildrenWhileLoading={!workspaceShellPath && (isSettingsTabActive || isAgentsTabActive)}
         isMacDesktop={isMacDesktop}
         isWindowsDesktop={isWindowsDesktop}
       >
@@ -1050,7 +1055,12 @@ function RootInner({
               variant="panel"
               className="h-full"
             >
-              <AgentCenterLayer onClose={handleCloseAgentCenter} />
+              <AgentCenterLayer
+                onClose={handleCloseAgentCenter}
+                isDesktop={isDesktop}
+                isMacDesktop={isMacDesktop}
+                isWindowsDesktop={isWindowsDesktop}
+              />
             </ScopedErrorBoundary>
           ) : null
         ) : (
