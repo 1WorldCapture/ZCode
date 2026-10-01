@@ -3,6 +3,9 @@ import test, { beforeEach } from "node:test";
 import {
   pauseAgent,
   refreshAgents,
+  removeAgent,
+  resetAgent,
+  restartAgent,
   startAgent,
   submitConnect,
 } from "../src/agents/agentCenterActions.js";
@@ -35,6 +38,11 @@ function fakeService(overrides: Record<string, unknown> = {}) {
       calls.push(`set:${id}:${desired}`);
     },
     createBinding: async () => ({ ok: false as const, code: "TokenInvalid" as const }),
+    restartBinding: async () => ({ ok: true as const }),
+    resetBinding: async () => ({ ok: true as const }),
+    removeBinding: async () => {
+      /* no-op */
+    },
     ...overrides,
   };
   return { service: service as never, calls };
@@ -128,4 +136,30 @@ test("复用凭据模式：existingProfileSlug 原样传给 createBinding，输�
     !JSON.stringify(useAgentCenterStore.getState()).includes("token"),
     "复用模式全程不接触 token",
   );
+});
+
+test("管理动作：重启/重置成功刷新；失败置 actionFailed；删除固定 deleteHome:true", async () => {
+  const { service, calls } = fakeService();
+  assert.equal(await restartAgent(service, "b1"), true);
+  assert.equal(await resetAgent(service, "b1"), true);
+  assert.deepEqual(calls, ["list", "list"]);
+  assert.equal(useAgentCenterStore.getState().actionFailed, false);
+
+  const failing = fakeService({
+    restartBinding: async () => ({ ok: false as const, code: "SessionCreateFailed" as const }),
+    resetBinding: async () => Promise.reject(new Error("boom")),
+  });
+  assert.equal(await restartAgent(failing.service, "b1"), false);
+  assert.equal(await resetAgent(failing.service, "b1"), false);
+  assert.equal(useAgentCenterStore.getState().actionFailed, true);
+
+  let removeArgs: unknown = null;
+  const removable = fakeService({
+    removeBinding: async (bindingId: string, opts: unknown) => {
+      removeArgs = { bindingId, opts };
+    },
+  });
+  assert.equal(await removeAgent(removable.service, "b1"), true);
+  assert.deepEqual(removeArgs, { bindingId: "b1", opts: { deleteHome: true } });
+  assert.deepEqual(removable.calls, ["list"]);
 });

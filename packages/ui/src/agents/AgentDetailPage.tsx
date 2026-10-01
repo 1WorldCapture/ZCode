@@ -14,12 +14,14 @@ import { usePlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import { useAgentCenterStore } from "@/agents/agentCenterStore.js";
+import { AgentManageSection } from "@/agents/AgentManageSection.js";
 import { AgentMemoryPanel } from "@/agents/AgentMemoryPanel.js";
 import { pauseAgent, startAgent } from "@/agents/agentCenterActions.js";
 import { useRaftAgentsService } from "@/agents/useAgentCenterSync.js";
 import { isErrorPaused } from "@/agents/types.js";
 import {
   connectionStateTextClass,
+  formatActivityKind,
   formatConnectionState,
   formatRunState,
   runStateTextClass,
@@ -145,6 +147,32 @@ export function AgentDetailPage({ bindingId }: { bindingId: string }) {
               {formatRunState(intl.formatMessage, item.runState)}
             </dd>
           </div>
+          {item.activity ? (
+            <>
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <dt className="text-ui-caption text-foreground-subtlest">
+                  {intl.formatMessage({ id: "agentCenter.activity.lastActivity" })}
+                </dt>
+                <dd className="text-ui-base text-foreground-subtle">
+                  {item.activity.lastActivityAt
+                    ? `${item.activity.lastActivityKind ? formatActivityKind(intl.formatMessage, item.activity.lastActivityKind) : ""} · ${new Date(item.activity.lastActivityAt).toLocaleString()}`
+                    : intl.formatMessage({ id: "agentCenter.activity.none" })}
+                </dd>
+              </div>
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <dt className="text-ui-caption text-foreground-subtlest">
+                  {intl.formatMessage({ id: "agentCenter.activity.memoryLoaded" })}
+                </dt>
+                <dd className="text-ui-base text-foreground-subtle">
+                  {intl.formatMessage({
+                    id: item.activity.memoryLoaded
+                      ? "agentCenter.activity.memoryLoaded.yes"
+                      : "agentCenter.activity.memoryLoaded.no",
+                  })}
+                </dd>
+              </div>
+            </>
+          ) : null}
           <div className="flex min-w-0 flex-col gap-1">
             <dt className="text-ui-caption text-foreground-subtlest">
               {intl.formatMessage({ id: "agentCenter.homePath" })}
@@ -170,6 +198,7 @@ export function AgentDetailPage({ bindingId }: { bindingId: string }) {
           </div>
         </dl>
         <AgentMemoryPanel bindingId={item.bindingId} />
+        <AgentManageSection bindingId={item.bindingId} />
         <div className="flex h-64 items-center justify-center px-6">
           <p className="max-w-80 text-center text-ui-caption text-foreground-subtlest">
             {intl.formatMessage({ id: "agentCenter.detail.sessionPlaceholder" })}

@@ -107,6 +107,31 @@ const enUS: Record<string, string> = {
   "agentCenter.memory.error.OutsideMemorySurface":
     "This file is outside the memory surface",
   "agentCenter.memory.error.Unreadable": "Couldn't read the file",
+  "agentCenter.manage.title": "Manage",
+  "agentCenter.manage.restart": "Restart",
+  "agentCenter.manage.reset": "Reset",
+  "agentCenter.manage.remove": "Delete",
+  "agentCenter.manage.restart.confirmTitle": "Restart this Agent?",
+  "agentCenter.manage.restart.confirmDescription":
+    "Work in progress will be interrupted. The Agent stops watching, creates a fresh main session and resumes watching; its memory is kept.",
+  "agentCenter.manage.restart.confirm": "Restart",
+  "agentCenter.manage.reset.confirmTitle": "Reset this Agent?",
+  "agentCenter.manage.reset.confirmDescription":
+    "Work in progress will be interrupted. The memory under Home (MEMORY.md, AGENTS.md, notes/) is cleared and rebuilt from the initial template; everything else in Home is untouched.",
+  "agentCenter.manage.reset.confirm": "Reset",
+  "agentCenter.manage.remove.confirmTitle": "Delete this Agent?",
+  "agentCenter.manage.remove.confirmDescription":
+    "This stops watching and deletes the binding, the local credential and the entire Home directory (including code under projects/). This can't be undone. The token on the Raft server is NOT revoked — revoke it there too if you want a complete removal.",
+  "agentCenter.manage.remove.confirm": "Delete",
+  "agentCenter.activity.lastActivity": "Last activity",
+  "agentCenter.activity.none": "No activity yet",
+  "agentCenter.activity.memoryLoaded": "Memory",
+  "agentCenter.activity.memoryLoaded.yes": "Loaded",
+  "agentCenter.activity.memoryLoaded.no": "Not loaded",
+  "agentCenter.activity.kind.wake": "Wake",
+  "agentCenter.activity.kind.drain_submitted": "Processing submitted",
+  "agentCenter.activity.kind.message_sent": "Message sent",
+  "agentCenter.activity.kind.error": "Error",
   "startPlan.recommendation.subagentDescription":
     "Your Start Plan has quota available for {model}. Switch this subagent’s model to the Start Plan?",
   "startPlan.recommendation.preferenceSaveFailed":

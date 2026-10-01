@@ -105,3 +105,22 @@ export function runStateTextClass(state: RaftAgentRunState): string {
 export function connectionStateTextClass(state: RaftAgentConnectionState): string {
   return state === "credential_invalid" ? "text-destructive" : "text-foreground-subtlest";
 }
+
+/** 活动类型投影（B1 状态扩展，A1 接口形状）：最近一次活动的类别展示。 */
+export type AgentActivityKind = "wake" | "drain_submitted" | "message_sent" | "error";
+
+export function formatActivityKind(
+  formatMessage: ReturnType<typeof useZCodeIntl>["intl"]["formatMessage"],
+  kind: AgentActivityKind,
+): string {
+  switch (kind) {
+    case "wake":
+      return formatMessage({ id: "agentCenter.activity.kind.wake" });
+    case "drain_submitted":
+      return formatMessage({ id: "agentCenter.activity.kind.drain_submitted" });
+    case "message_sent":
+      return formatMessage({ id: "agentCenter.activity.kind.message_sent" });
+    case "error":
+      return formatMessage({ id: "agentCenter.activity.kind.error" });
+  }
+}

@@ -39,6 +39,77 @@ export const startAgent = (service: IRaftAgentsService, bindingId: string) =>
 export const pauseAgent = (service: IRaftAgentsService, bindingId: string) =>
   setDesired(service, bindingId, "ReadyStopped");
 
+/**
+ * 重启值守（B1）：停值守 → 新建主会话（记忆保留）→ 恢复。进行中 turn 被放弃。
+ * 失败只置 actionFailed，状态以服务返回为准（成功后由刷新投影）。
+ */
+export async function restartAgent(
+  service: IRaftAgentsService,
+  bindingId: string,
+): Promise<boolean> {
+  const store = useAgentCenterStore.getState();
+  store.setActionFailed(false);
+  try {
+    const result = await service.restartBinding(bindingId);
+    if (!result.ok) {
+      store.setActionFailed(true);
+      return false;
+    }
+  } catch (error) {
+    logger.warn("[AgentCenter] 重启 Agent 失败", { bindingId, error });
+    store.setActionFailed(true);
+    return false;
+  }
+  await refreshAgents(service);
+  return true;
+}
+
+/**
+ * 重置（B1）：同重启，但先清空 Home 记忆面并按初始模板重建（其他内容不动）。
+ */
+export async function resetAgent(
+  service: IRaftAgentsService,
+  bindingId: string,
+): Promise<boolean> {
+  const store = useAgentCenterStore.getState();
+  store.setActionFailed(false);
+  try {
+    const result = await service.resetBinding(bindingId);
+    if (!result.ok) {
+      store.setActionFailed(true);
+      return false;
+    }
+  } catch (error) {
+    logger.warn("[AgentCenter] 重置 Agent 失败", { bindingId, error });
+    store.setActionFailed(true);
+    return false;
+  }
+  await refreshAgents(service);
+  return true;
+}
+
+/**
+ * 删除（B1）：二次确认后调用；deleteHome 清除 Home 目录（含 projects/）与本地 profile，
+ * 不撤销 Raft 侧 token（确认文案已提示用户）。成功后刷新快照；
+ * 详情页因绑定消失自动回列表。
+ */
+export async function removeAgent(
+  service: IRaftAgentsService,
+  bindingId: string,
+): Promise<boolean> {
+  const store = useAgentCenterStore.getState();
+  store.setActionFailed(false);
+  try {
+    await service.removeBinding(bindingId, { deleteHome: true });
+  } catch (error) {
+    logger.warn("[AgentCenter] 删除 Agent 失败", { bindingId, error });
+    store.setActionFailed(true);
+    return false;
+  }
+  await refreshAgents(service);
+  return true;
+}
+
 /** 提交接入表单；成功返回 true 并回到列表。token 只在这次调用里存在，不进 store。 */
 export async function submitConnect(
   service: IRaftAgentsService,
