@@ -11,6 +11,12 @@
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
 
+import {
+  shouldSpawnInDetachedProcessGroup,
+  terminateProcessTree,
+  terminateProcessTreeAndWait,
+  type ProcessTreeTerminatorOptions,
+} from "../../process/processTreeTerminator.js";
 import type {
   BridgeBindingRef,
   BridgeExitInfo,
@@ -112,18 +118,45 @@ export function createBridgeSupervisor(options: BridgeSupervisorOptions): Bridge
     ];
   }
 
-  async function terminate(entry: Running): Promise<void> {
+  /** 进程树回收选项：POSIX 下 spawn 已 detached，pid 即本 supervisor 拥有的独立进程组。 */
+  function treeOptions(child: ChildProcess, forceAfterMs: number): ProcessTreeTerminatorOptions {
+    return {
+      forceAfterMs,
+      ...(process.platform !== "win32" && typeof child.pid === "number"
+        ? { ownedProcessGroupId: child.pid }
+        : {}),
+      ...(options.logger
+        ? {
+            log: {
+              debug: (...args: unknown[]) =>
+                options.logger?.info("bridge process tree", { detail: args.map(String).join(" ") }),
+              warn: (...args: unknown[]) =>
+                options.logger?.warn("bridge process tree", { detail: args.map(String).join(" ") }),
+            },
+          }
+        : {}),
+    };
+  }
+
+  /**
+   * 进程树整体回收（复用既有 process/processTreeTerminator，替换原先的裸
+   * child.kill）：bridge CLI 可能再派生子进程，只杀直接子进程会留孤儿
+   * （SPEC T2 原已知限制由此消除）。SIGTERM → 宽限 → SIGKILL 语义不变；
+   * stop() 仍等 entry.exited（锁释放 + 端点关闭 + 通知完成之后才 resolve）。
+   */
+  async function terminate(id: string, entry: Running): Promise<void> {
     entry.stopRequested = true;
-    entry.child.kill("SIGTERM");
-    const timer = setTimeout(() => {
-      // 宽限期内没退出：强杀。
-      entry.child.kill("SIGKILL");
-    }, stopGraceMs);
-    try {
-      await entry.exited;
-    } finally {
-      clearTimeout(timer);
+    const termination = await terminateProcessTreeAndWait(
+      entry.child,
+      treeOptions(entry.child, stopGraceMs),
+    );
+    if (termination.remainingPids.length > 0) {
+      options.logger?.warn("bridge 进程树回收有残留 pid", {
+        bindingId: id,
+        remainingPids: [...new Set(termination.remainingPids)].join(","),
+      });
     }
+    await entry.exited;
   }
 
   return {
@@ -153,6 +186,9 @@ export function createBridgeSupervisor(options: BridgeSupervisorOptions): Bridge
               RAFT_CHANNEL_TOKEN: endpoint.token,
             }),
             stdio: ["ignore", "pipe", "pipe"],
+            // POSIX 下进独立进程组：stop/terminateAllNow 才能按组回收整棵进程树
+            // （bridge CLI 派生的孙进程不留孤儿）；Windows 保持非 detached，taskkill /T 处理。
+            detached: shouldSpawnInDetachedProcessGroup(),
             windowsHide: true,
           });
         } catch (error) {
@@ -252,18 +288,20 @@ export function createBridgeSupervisor(options: BridgeSupervisorOptions): Bridge
     async stop(bindingId) {
       const entry = running.get(bindingId);
       if (!entry) return;
-      await terminate(entry);
+      await terminate(bindingId, entry);
     },
 
     async stopAll() {
-      await Promise.all([...running.values()].map((entry) => terminate(entry)));
+      await Promise.all([...running.entries()].map(([id, entry]) => terminate(id, entry)));
     },
 
     terminateAllNow() {
-      // 同步收口路径（disposeHostResourcesBestEffort）不能 await：直接强杀，清理由 close 事件异步完成。
+      // 同步收口路径（disposeHostResourcesBestEffort）不能 await：同步发树级 SIGTERM 并立即
+      // 排定 SIGKILL（forceAfterMs 0，保持 timer 引用让它在进程退出前落地）；
+      // 锁释放与端点关闭仍由 close 事件链异步完成。
       for (const entry of running.values()) {
         entry.stopRequested = true;
-        entry.child.kill("SIGKILL");
+        terminateProcessTree(entry.child, { ...treeOptions(entry.child, 0), keepForceTimerRef: true });
       }
     },
 

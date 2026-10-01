@@ -1,14 +1,14 @@
 /**
  * 绑定记录文件存储：`<ZCodeDataRoot>/raft/bindings.json`。
  *
- * 读写都走 withFileLock + 原子写（tmp+rename，0600）；损坏文件隔离后
- * 重建空集（与 settingService 的读加固模式一致）。绑定数据不含任何
- * 凭据，权限要求跟随应用管理数据的统一约定。
+ * 读写都走 withFileLock + 原子写（tmp+rename，0600）；损坏文件用共享库
+ * backupCorruptFile 保全证据（内容寻址、0600）后删除原文件完成隔离，
+ * 按空集处理（绑定记录丢失是可恢复的，不能让应用起不来）。
  */
-import { rename, mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { raftAgentsConfigFileSchema, type RaftAgentBinding } from "@zcode/shared";
-import { withFileLock, atomicWritePrivateTextFile } from "@zcode/shared/node";
+import { withFileLock, atomicWritePrivateTextFile, backupCorruptFile } from "@zcode/shared/node";
 
 import type { RaftBindingStorePort } from "../app/ports.js";
 
@@ -35,13 +35,13 @@ export function createRaftBindingStore(dataRootDir: string): RaftBindingStorePor
           const parsed = raftAgentsConfigFileSchema.parse(JSON.parse(raw));
           return parsed.bindings;
         } catch {
-          // 损坏文件隔离为 .corrupt-<ts>.json 后按空集处理：
-          // 绑定记录丢失是可恢复的（重新接入即可），不能让应用起不来。
-          const backup = `${filePath}.corrupt-${Date.now()}.json`;
+          // 损坏文件：先备份保全证据，再隔离原文件（避免每次读取重复解析失败）；
+          // 备份失败则不删原件，下次读取重试同一收敛路径。之后按空集返回。
           try {
-            await rename(filePath, backup);
+            await backupCorruptFile(filePath);
+            await rm(filePath, { force: true });
           } catch {
-            // 隔离失败也继续按空集返回。
+            // 保全/隔离失败也继续按空集返回。
           }
           return [];
         }
