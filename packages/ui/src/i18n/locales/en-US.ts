@@ -58,8 +58,6 @@ const enUS: Record<string, string> = {
   "agentCenter.form.token": "Agent Token",
   "agentCenter.form.homePath": "Home path",
   "agentCenter.form.homePathPlaceholder": "Leave empty to use the default directory",
-  "agentCenter.form.error.ProfileInUse":
-    "This local credential is already used by another connection. Pick a different one",
   "agentCenter.detail.raftServer": "Raft server",
   "agentCenter.detail.connectionState": "Connection state",
   "agentCenter.detail.runState": "Run state",

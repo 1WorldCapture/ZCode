@@ -52,6 +52,7 @@ function setupErrorMessageId(code: RaftAgentSetupErrorCode): string {
     case "IdentityMismatch":
     case "CredentialCheckFailed":
     case "PathConflict":
+    case "HomeOverlapsCredentials":
     case "SlugConflict":
     case "AlreadyBound":
     case "ProvisioningFailed":

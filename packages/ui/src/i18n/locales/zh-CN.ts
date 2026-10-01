@@ -57,7 +57,6 @@ const zhCN: Record<string, string> = {
   "agentCenter.form.token": "Agent Token",
   "agentCenter.form.homePath": "Home 路径",
   "agentCenter.form.homePathPlaceholder": "留空则使用默认目录",
-  "agentCenter.form.error.ProfileInUse": "该本机凭据已被另一个接入占用，请选择其他凭据",
   "agentCenter.detail.raftServer": "Raft 服务",
   "agentCenter.detail.connectionState": "连接状态",
   "agentCenter.detail.runState": "运行状态",
