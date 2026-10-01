@@ -383,6 +383,7 @@ createBinding(input: { raftOrigin, raftAgentId, homePath }
 - **重置确认**：同上中断提示；另明确 Home 记忆面（MEMORY.md、AGENTS.md、notes/）清空并按初始模板重建，Home 其他内容不受影响。
 - **删除确认**：写明删除绑定与本地凭据；Home 目录会被删除（**包括 projects/ 下 clone 的代码**），但**目录守卫**成立时例外——Home 无 ZCode 归属标记（用户在向导里指定的既有目录）只清记忆面、保留目录；操作不可恢复；**Raft 服务侧 token 不会被撤销**（需用户在服务端自行撤销）。删除完成后按 `removeBinding` 返回的 Home 处置四态如实 toast：`deleted` → "已删除 Agent 及其 Home 目录"；`kept_memory_cleared` → "已删除 Agent；Home 目录已保留，仅清空了记忆文件"；`untouched` → 细分：`reason: refused` → "已删除 Agent；Home 目录未改动，请手动处理"；`reason: not_requested` → "已删除 Agent；Home 目录按你的选择保留"（grokbot 定稿：未勾选不得用"请手动处理"）；`failed` → "已删除 Agent；Home 目录可能已部分删除，请手动检查"（detail 只进日志，不上屏）。
 - **状态完整显示**：详情页在运行状态下列出活动投影——最近活动（类别 + 时间，类别 = wake/drain_submitted/message_sent/error）与记忆状态（memoryLoaded）。`activity` 为列表投影的可选扩展字段（A1 第 5 条），旧数据无字段时不渲染这些行。
+- **B2 活动字段显示（PM 指定，2026-10-01）**：三处新增——① **处理中**：`phase=working` 时显示当前事项（`currentItem`，服务端已 180 字截断）与待处理数（`pendingCount>0` 时「待处理 N 项」）；② **等审批醒目提示**：`pendingApprovals>0` 时用 Alert `warning` 变体醒目提示（yolo 值守下恒 0，A3 处理后再确认接入后才有真实数据，显示逻辑先行）；③ **最近错误**：`lastError` 非空时显示错误码 + 时间（`code` 为 null 只显示时间）。列表行加同源的轻量一行（phase/待处理/错误），详情页为全量。字段 optional（旧投影缺省）一律不渲染对应行。
 
 ### 接口对接（A1 形状）
 
@@ -392,7 +393,7 @@ createBinding(input: { raftOrigin, raftAgentId, homePath }
 
 - 删除固定 `deleteHome: true`（lyonliang 已拍板：删除即清 Home）；UI 不暴露保留 Home 的删除入口。
 - 三个动作成功后都刷新列表快照；删除后详情页因绑定消失自动回列表。
-- 权限模式维持现状（白名单内自动执行），本期不做"等审批"入口；`pendingApprovals` 字段投影恒 0，仅作语义完整预留。
+- 权限模式维持现状（白名单内自动执行），本期不做"等审批"入口；`pendingApprovals` 显示逻辑就绪（>0 醒目提示），yolo 值守下投影恒 0，真实数据等 A3 处理后再确认。
 
 ### 验收（B1 部分）
 

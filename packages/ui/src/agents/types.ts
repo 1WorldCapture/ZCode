@@ -13,7 +13,10 @@ export {
   type RaftAgentSetupErrorCode,
 } from "@zcode/shared";
 
-import type { RaftAgentRunState } from "@zcode/shared";
+import type { RaftAgentListItem, RaftAgentRunState } from "@zcode/shared";
+
+/** 列表投影的活动块（B2 实时字段为 optional，旧投影缺省）。 */
+export type RaftAgentActivity = NonNullable<RaftAgentListItem["activity"]>;
 
 /** ErrorPaused 原因类型；shared 内联在 runState schema 里，这里做导出命名。 */
 export type RaftAgentErrorPauseReason = Extract<

@@ -143,6 +143,15 @@ const enUS: Record<string, string> = {
   "agentCenter.activity.kind.drain_submitted": "Processing submitted",
   "agentCenter.activity.kind.message_sent": "Message sent",
   "agentCenter.activity.kind.error": "Error",
+  "agentCenter.activity.phase.working": "Working",
+  "agentCenter.activity.currentItem": "Current item",
+  "agentCenter.activity.pendingCount": "{count} pending",
+  "agentCenter.activity.pendingApprovals.short": "{count} awaiting approval",
+  "agentCenter.activity.pendingApprovals.title": "{count} item(s) awaiting approval",
+  "agentCenter.activity.pendingApprovals.body":
+    "The agent is waiting for your approval on the Raft server; the affected work will not proceed until approved.",
+  "agentCenter.activity.lastError": "Last error",
+  "agentCenter.activity.lastError.noCode": "Last error · {time}",
   "startPlan.recommendation.subagentDescription":
     "Your Start Plan has quota available for {model}. Switch this subagent’s model to the Start Plan?",
   "startPlan.recommendation.preferenceSaveFailed":

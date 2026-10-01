@@ -8,6 +8,7 @@
  */
 import { useEffect } from "react";
 import { ArrowLeft, FolderOpen, Play, Square } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert.js";
 import { Button } from "@/components/ui/button.js";
 import { toast } from "@/components/ui/toast.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
@@ -124,6 +125,19 @@ export function AgentDetailPage({ bindingId }: { bindingId: string }) {
         </p>
       ) : null}
       <div className="min-w-0 flex-1 overflow-y-auto">
+        {item.activity && item.activity.pendingApprovals > 0 ? (
+          <Alert variant="warning" className="mx-6 mt-4">
+            <AlertTitle>
+              {intl.formatMessage(
+                { id: "agentCenter.activity.pendingApprovals.title" },
+                { count: item.activity.pendingApprovals },
+              )}
+            </AlertTitle>
+            <AlertDescription>
+              {intl.formatMessage({ id: "agentCenter.activity.pendingApprovals.body" })}
+            </AlertDescription>
+          </Alert>
+        ) : null}
         <dl className="flex flex-col gap-3 border-b border-border px-6 py-4">
           <div className="flex min-w-0 flex-col gap-0.5">
             <dt className="text-ui-caption text-foreground-subtlest">
@@ -171,6 +185,43 @@ export function AgentDetailPage({ bindingId }: { bindingId: string }) {
                   })}
                 </dd>
               </div>
+              {item.activity.phase === "working" ? (
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <dt className="text-ui-caption text-foreground-subtlest">
+                    {intl.formatMessage({ id: "agentCenter.activity.phase.working" })}
+                  </dt>
+                  <dd className="min-w-0 text-ui-base text-foreground-subtle">
+                    <span className="truncate">
+                      {item.activity.currentItem ||
+                        intl.formatMessage({ id: "common.loading" })}
+                    </span>
+                    {item.activity.pendingCount ? (
+                      <span className="text-foreground-subtlest">
+                        {" · "}
+                        {intl.formatMessage(
+                          { id: "agentCenter.activity.pendingCount" },
+                          { count: item.activity.pendingCount },
+                        )}
+                      </span>
+                    ) : null}
+                  </dd>
+                </div>
+              ) : null}
+              {item.activity.lastError ? (
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <dt className="text-ui-caption text-foreground-subtlest">
+                    {intl.formatMessage({ id: "agentCenter.activity.lastError" })}
+                  </dt>
+                  <dd className="text-ui-base text-destructive">
+                    {item.activity.lastError.code
+                      ? `${item.activity.lastError.code} · ${new Date(item.activity.lastError.at).toLocaleString()}`
+                      : intl.formatMessage(
+                          { id: "agentCenter.activity.lastError.noCode" },
+                          { time: new Date(item.activity.lastError.at).toLocaleString() },
+                        )}
+                  </dd>
+                </div>
+              ) : null}
             </>
           ) : null}
           <div className="flex min-w-0 flex-col gap-1">

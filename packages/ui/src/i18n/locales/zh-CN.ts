@@ -130,6 +130,15 @@ const zhCN: Record<string, string> = {
   "agentCenter.activity.kind.drain_submitted": "已投递处理",
   "agentCenter.activity.kind.message_sent": "已发送消息",
   "agentCenter.activity.kind.error": "出错",
+  "agentCenter.activity.phase.working": "处理中",
+  "agentCenter.activity.currentItem": "当前事项",
+  "agentCenter.activity.pendingCount": "待处理 {count} 项",
+  "agentCenter.activity.pendingApprovals.short": "等审批 {count} 项",
+  "agentCenter.activity.pendingApprovals.title": "有 {count} 项操作等待审批",
+  "agentCenter.activity.pendingApprovals.body":
+    "Agent 在等待你在 Raft 服务端审批这些操作，审批前对应工作不会继续。",
+  "agentCenter.activity.lastError": "最近错误",
+  "agentCenter.activity.lastError.noCode": "最近错误 · {time}",
   "startPlan.recommendation.subagentDescription":
     "你的体验套餐中，{model} 仍有可用额度，是否将此子智能体的模型切换到体验套餐？",
   "startPlan.recommendation.preferenceSaveFailed": "未能保存“不再提示”，本次仍按你的选择继续。",

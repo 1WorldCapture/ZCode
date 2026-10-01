@@ -13,7 +13,7 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useAgentCenterStore } from "@/agents/agentCenterStore.js";
 import { pauseAgent, startAgent } from "@/agents/agentCenterActions.js";
 import { useRaftAgentsService } from "@/agents/useAgentCenterSync.js";
-import { isErrorPaused } from "@/agents/types.js";
+import { isErrorPaused, type RaftAgentActivity } from "@/agents/types.js";
 import {
   connectionStateTextClass,
   formatConnectionState,
@@ -146,6 +146,7 @@ export function AgentListPage() {
                       </span>
                     </span>
                   </span>
+                  <ActivityLiveLine activity={item.activity} />
                 </button>
                 <div className="flex shrink-0 items-center opacity-0 transition-opacity group-hover/agent-row:opacity-100 group-focus-within/agent-row:opacity-100 [@media(hover:none)]:opacity-100">
                   {canPause ? (
@@ -177,6 +178,58 @@ export function AgentListPage() {
         })}
       </ul>
     </div>
+  );
+}
+
+/**
+ * 列表行的 B2 活动轻量行（详情页为全量）：处理中事项、待处理数、等审批
+ * 醒目提示（warning 色，>0 才显示）、最近错误（错误码 + 时间）。
+ * B2 字段是 optional（旧投影缺省），四项都为空时整行不渲染。
+ */
+function ActivityLiveLine({ activity }: { activity: RaftAgentActivity | undefined }) {
+  const { intl } = useZCodeIntl();
+  if (
+    !activity ||
+    (activity.phase !== "working" &&
+      !activity.pendingCount &&
+      activity.pendingApprovals === 0 &&
+      !activity.lastError)
+  ) {
+    return null;
+  }
+  return (
+    <span className="flex min-w-0 flex-wrap items-center gap-x-2 text-ui-caption">
+      {activity.phase === "working" ? (
+        <span className="min-w-0 truncate text-foreground-subtle">
+          {activity.currentItem ??
+            intl.formatMessage({ id: "agentCenter.activity.phase.working" })}
+        </span>
+      ) : null}
+      {activity.pendingCount ? (
+        <span className="shrink-0 text-foreground-subtle">
+          {intl.formatMessage(
+            { id: "agentCenter.activity.pendingCount" },
+            { count: activity.pendingCount },
+          )}
+        </span>
+      ) : null}
+      {activity.pendingApprovals > 0 ? (
+        <span className="shrink-0 text-warning" role="status">
+          {intl.formatMessage(
+            { id: "agentCenter.activity.pendingApprovals.short" },
+            { count: activity.pendingApprovals },
+          )}
+        </span>
+      ) : null}
+      {activity.lastError ? (
+        <span className="min-w-0 truncate text-destructive">
+          {activity.lastError.code ??
+            intl.formatMessage({ id: "agentCenter.activity.lastError" })}
+          {" · "}
+          {new Date(activity.lastError.at).toLocaleString()}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
