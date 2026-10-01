@@ -247,4 +247,5 @@ test("buildWakePrompt：只含来源头与工具引导，不含消息正文", ()
   assert.ok(text.includes("eventId=evt-9"));
   assert.ok(text.includes(BINDING_ID), "含适配实例标识");
   assert.ok(text.includes("raft_message_send"));
+  assert.ok(text.includes("不要在命令行里直接调用 raft 命令"), "含 CLI 直调守卫（D5 防绕过）");
 });

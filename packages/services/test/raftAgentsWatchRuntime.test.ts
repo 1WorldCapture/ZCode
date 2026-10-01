@@ -399,6 +399,7 @@ test("幂等键与文本：代次参与 commandId；prompt 含绑定/代次与�
   assert.ok(text.includes(BINDING_ID));
   assert.ok(text.includes("代次=3"));
   assert.ok(text.includes("raft_message_send"));
+  assert.ok(text.includes("不要在命令行里直接调用 raft 命令"), "含 CLI 直调守卫（D5 防绕过）");
   assert.ok(text.includes("backlog drain"));
   assert.ok(!text.includes("sk_agent_"));
 });
