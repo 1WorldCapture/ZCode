@@ -250,7 +250,8 @@ export function createAgentHomeAdapter(): AgentHomePort {
         given = await lstat(input.homeWorkspacePath);
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
-        if (code === "ENOENT") return { ok: true, homeDeleted: false }; // 幂等
+        // 幂等：目录已不存在，终态等价于已删除。
+        if (code === "ENOENT") return { ok: true, home: "deleted" as const };
         return { ok: false, code: "Refused" as const, detail: code };
       }
       if (given.isSymbolicLink()) {
@@ -298,18 +299,18 @@ export function createAgentHomeAdapter(): AgentHomePort {
       }
       if (!owned) {
         // 非自有目录（用户自选 / 旧绑定无标记 / 标记不匹配）：只清记忆三处与标记，
-        // 保留目录本身，homeDeleted=false 由界面如实提示"已保留你的目录"。
+        // 保留目录本身，home="kept_memory_cleared" 由界面如实提示"已保留你的目录"。
         try {
           await clearMemorySurfaceAt(homeReal);
           await rm(join(homeReal, HOME_OWNERSHIP_MARKER), { force: true });
-          return { ok: true, homeDeleted: false };
+          return { ok: true, home: "kept_memory_cleared" as const };
         } catch (error) {
           return { ok: false, code: "Failed" as const, detail: String(error) };
         }
       }
       try {
         await rm(homeReal, { recursive: true, force: true });
-        return { ok: true, homeDeleted: true };
+        return { ok: true, home: "deleted" as const };
       } catch (error) {
         return { ok: false, code: "Failed" as const, detail: String(error) };
       }

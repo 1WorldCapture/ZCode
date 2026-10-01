@@ -228,7 +228,7 @@ test("deleteHome：归属成立（标记匹配或默认位置）整删；不成�
       dataRootDir: dataRoot,
       bindingId: "b-1",
     });
-    assert.deepEqual(legacyResult, { ok: true, homeDeleted: true });
+    assert.deepEqual(legacyResult, { ok: true, home: "deleted" });
     await assert.rejects(stat(legacy));
 
     // 自选路径 + 标记匹配 → 整删。
@@ -240,10 +240,10 @@ test("deleteHome：归属成立（标记匹配或默认位置）整删；不成�
       dataRootDir: dataRoot,
       bindingId: "b-2",
     });
-    assert.deepEqual(claimedResult, { ok: true, homeDeleted: true });
+    assert.deepEqual(claimedResult, { ok: true, home: "deleted" });
     await assert.rejects(stat(claimed));
 
-    // 自选路径无标记（用户目录）→ 保留目录，清记忆三处，homeDeleted=false。
+    // 自选路径无标记（用户目录）→ 保留目录，清记忆三处，home="kept_memory_cleared"。
     const userHome = join(dir, "user-home");
     await mkdir(join(userHome, "notes", "deep"), { recursive: true });
     await mkdir(join(userHome, "projects", "repo"), { recursive: true });
@@ -256,7 +256,7 @@ test("deleteHome：归属成立（标记匹配或默认位置）整删；不成�
       dataRootDir: dataRoot,
       bindingId: "b-2",
     });
-    assert.deepEqual(keptResult, { ok: true, homeDeleted: false });
+    assert.deepEqual(keptResult, { ok: true, home: "kept_memory_cleared" });
     await assert.rejects(readFile(join(userHome, "MEMORY.md")));
     await assert.rejects(readFile(join(userHome, "notes", "deep", "a.md")));
     assert.equal(await readFile(join(userHome, "projects", "repo", "file.txt"), "utf8"), "project artifact");
@@ -272,17 +272,17 @@ test("deleteHome：归属成立（标记匹配或默认位置）整删；不成�
       dataRootDir: dataRoot,
       bindingId: "b-2",
     });
-    assert.deepEqual(mismatchResult, { ok: true, homeDeleted: false });
+    assert.deepEqual(mismatchResult, { ok: true, home: "kept_memory_cleared" });
     await assert.rejects(readFile(join(mismatch, MARKER)));
     assert.ok((await stat(mismatch)).isDirectory());
 
-    // 目录不存在 → 幂等成功。
+    // 目录不存在 → 幂等成功（终态等价于已删除）。
     const missing = await adapter.deleteHome({
       homeWorkspacePath: join(dir, "nope"),
       dataRootDir: dataRoot,
       bindingId: "b-2",
     });
-    assert.deepEqual(missing, { ok: true, homeDeleted: false });
+    assert.deepEqual(missing, { ok: true, home: "deleted" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

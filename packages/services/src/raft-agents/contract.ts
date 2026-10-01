@@ -17,6 +17,7 @@ import {
   type RaftAgentMemoryContent,
   type RaftAgentMemoryFile,
   type RaftAgentOpenSessionResult,
+  type RaftAgentRemoveHomeOutcome,
   type RaftAgentSetupResult,
   type RaftAgentVerifyCredentialInput,
   type RaftAgentVerifyResult,
@@ -33,6 +34,7 @@ export type {
   RaftAgentMemoryContent,
   RaftAgentMemoryFile,
   RaftAgentOpenSessionResult,
+  RaftAgentRemoveHomeOutcome,
   RaftAgentSetupResult,
   RaftAgentVerifyCredentialInput,
   RaftAgentVerifyResult,
@@ -56,10 +58,11 @@ export interface IRaftAgentsService {
   createBinding(input: RaftAgentBindingInput): Promise<RaftAgentSetupResult>;
   /**
    * 移除绑定记录；deleteHome 同时删除 Home 目录与本地 profile（不撤销 Raft 侧 token，D4）。
-   * 返回 homeDeleted 如实区分"整目录已删"与"归属不成立只清记忆面、保留目录"
-   *（评审定稿：Home 是用户自选目录/旧绑定无归属标记时不得整删，界面按此提示）。
+   * 返回 Home 处置四态（RaftAgentRemoveHomeOutcome）：deleted（整删/本就不存在）、
+   * kept_memory_cleared（归属不成立只清记忆面、保留目录）、untouched（未请求/守卫拒绝，
+   * 未动过）、failed（中途失败，可能已部分删除）——界面按态如实提示。
    */
-  removeBinding(bindingId: string, opts: { deleteHome: boolean }): Promise<{ homeDeleted: boolean }>;
+  removeBinding(bindingId: string, opts: { deleteHome: boolean }): Promise<RaftAgentRemoveHomeOutcome>;
   /** 更新值守意图；Running 的实际效果（bridge/会话）在 T2/T3 接入。 */
   setDesiredState(bindingId: string, desired: "ReadyStopped" | "Running"): Promise<void>;
   /**
