@@ -13,6 +13,7 @@ import {
   backlogDrainCommandId,
   buildBacklogDrainPrompt,
 } from "../src/raft-agents/app/prompts.js";
+import { createRaftActivityFeed, type RaftActivityFeed } from "../src/raft-agents/app/activityFeed.js";
 import { createRaftWatchRuntime, type RaftMemoryGatePort } from "../src/raft-agents/app/watchRuntime.js";
 import type { RaftBindingStorePort, RaftSessionPort, RaftSessionSendOutcome } from "../src/raft-agents/app/ports.js";
 import type { BridgeBindingRef, BridgeStartResult, BridgeExitInfo, BridgeSupervisorPort } from "../src/raft-agents/app/bridgePorts.js";
@@ -170,6 +171,7 @@ function makeRuntime(overrides: {
   cli?: typeof okCli;
   memory?: RaftMemoryGatePort;
   resolveOfficialMcpServers?: () => Promise<ZCodeOfficialMcpServerRef[] | undefined>;
+  feed?: RaftActivityFeed;
 } = {}) {
   const store = overrides.store ?? fakeStore([makeBinding()]);
   const supervisor = overrides.supervisor ?? fakeSupervisor();
@@ -183,6 +185,7 @@ function makeRuntime(overrides: {
     memory: overrides.memory,
     resolveOfficialMcpServers: overrides.resolveOfficialMcpServers ?? (async () => MCP_REFS),
     clock: { nowIso: () => "2026-09-30T12:00:00.000Z" },
+    ...(overrides.feed ? { feed: overrides.feed } : {}),
   });
   return { runtime, store, supervisor, sessions };
 }
@@ -370,6 +373,29 @@ test("stopWatch：等 bridge 退出并清覆盖层；disposeAllAndWait 停全部
   await runtime.disposeAllAndWait();
   assert.equal(supervisor.stopAllCalls(), 1);
   assert.equal(runtime.resolveRunState(store.current()[0]), undefined);
+});
+
+test("B2 活动摘要：bridge 起来后挂接主会话订阅并记连接，drain 计入待处理；停值守退订并记断开", async () => {
+  const subscribed: string[] = [];
+  const disposed: string[] = [];
+  const feed = createRaftActivityFeed({
+    sessions: {
+      subscribeActivity(params) {
+        subscribed.push(params.sessionId);
+        return { dispose: () => disposed.push(params.sessionId) };
+      },
+    },
+  });
+  const { runtime } = makeRuntime({ feed });
+  await runtime.startWatch(BINDING_ID);
+  assert.deepEqual(subscribed, ["sess-7"]);
+  assert.equal(feed.resolveLive(BINDING_ID)?.pendingCount, 1, "积压 drain 提交成功计入待处理");
+  await runtime.stopWatch(BINDING_ID);
+  assert.deepEqual(disposed, ["sess-7"]);
+  assert.deepEqual(
+    feed.drain(BINDING_ID, 10).events.map((e) => e.hookEventName),
+    ["SessionStart", "SessionEnd"],
+  );
 });
 
 test("recoverAllDesiredRunning：只恢复 desiredState=Running 的绑定，彼此独立", async () => {

@@ -27,6 +27,7 @@ import type { RaftAgentBinding, ZCodeOfficialMcpServerRef } from "@zcode/shared"
 import type { ServiceLogger } from "#src/logger/serviceLogger.js";
 
 import type { RaftActivityTracker } from "./activity.js";
+import type { RaftActivityFeed } from "./activityFeed.js";
 import { buildWakePrompt, wakeCycleId } from "./prompts.js";
 import type {
   RaftBindingStorePort,
@@ -47,6 +48,8 @@ export interface RaftWakeDeliveryOptions {
   ) => Promise<ZCodeOfficialMcpServerRef[] | undefined>;
   /** targetLost 自愈失败回调：置 ErrorPaused(session_unavailable)（值守层实现）。 */
   onSessionUnrecoverable?: (bindingId: string) => void;
+  /** 二期 B2：待处理计数（唤醒已投递进会话、尚未开始处理）。 */
+  feed?: Pick<RaftActivityFeed, "noteWakeAccepted">;
   logger?: ServiceLogger;
 }
 
@@ -138,6 +141,7 @@ export function createRaftWakeDelivery(options: RaftWakeDeliveryOptions): WakeHa
 
       if (outcome.ok) {
         options.activity?.record(bindingId, "wake");
+        if (!outcome.duplicate) options.feed?.noteWakeAccepted(bindingId);
         // 日志纪律（spec §7）：只记 messageId 与计数形态，不记正文（唤醒本就无正文）。
         options.logger?.info(undefined, "raft wake delivered", {
           bindingId,

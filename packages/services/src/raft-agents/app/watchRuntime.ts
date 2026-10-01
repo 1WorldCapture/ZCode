@@ -68,6 +68,7 @@ export interface RaftWatchRuntimeOptions {
   resolveOfficialMcpServers: (binding: RaftAgentBinding) => Promise<ZCodeOfficialMcpServerRef[] | undefined>;
   /** 二期 A1：活动追踪（drain 提交 / 记忆门结果 / 值守失败）。 */
   activity?: RaftActivityTracker;
+  feed?: import("./activityFeed.js").RaftActivityFeed; // 二期 B2 活动摘要（会话订阅、bridge 连接、待处理计数）
   clock?: ClockPort;
   logger?: ServiceLogger;
 }
@@ -109,10 +110,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
   function queue<T>(bindingId: string, fn: () => Promise<T>): Promise<T> {
     const prev = inflight.get(bindingId) ?? Promise.resolve();
     const run = prev.then(fn, fn);
-    const settled = run.then(
-      () => undefined,
-      () => undefined,
-    );
+    const settled = run.then(() => undefined, () => undefined);
     inflight.set(bindingId, settled);
     void settled.then(() => {
       if (inflight.get(bindingId) === settled) inflight.delete(bindingId);
@@ -304,6 +302,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
     }
 
     overlay.set(bindingId, "Running");
+    options.feed?.attach(bindingId, { workspacePath: binding.homeWorkspacePath, sessionId });
 
     // D8 积压 drain：bridge 起来后立即投一次（无 messageId，代次幂等键）。
     const drain = await options.sessions.sendQueuedText({
@@ -323,6 +322,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
       });
     } else {
       options.activity?.record(bindingId, "drain_submitted");
+      options.feed?.noteWakeAccepted(bindingId);
       logger?.info(undefined, "raft watch started", {
         bindingId,
         generation,
@@ -334,6 +334,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
   }
 
   async function doStop(bindingId: string): Promise<void> {
+    options.feed?.detach(bindingId, { bridgeWasRunning: options.supervisor.isRunning(bindingId) }); // B2
     await options.supervisor.stop(bindingId);
     overlay.delete(bindingId);
   }
@@ -384,8 +385,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
     },
 
     async stopBridgeNow(bindingId) {
-      await options.supervisor.stop(bindingId);
-      overlay.delete(bindingId);
+      await doStop(bindingId);
     },
 
     markSessionUnavailable(bindingId) {

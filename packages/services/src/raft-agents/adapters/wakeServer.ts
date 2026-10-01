@@ -6,8 +6,8 @@
  * - 成功 200 `{ok:true, runtimeSession}`（须为 application/json，且 CommandInbox 接受后才返回）。
  * - 忙碌 409/429 `{ok:false, failureClass:"busy", retryAfterMs}`；凭据 401/403；
  *   协议不匹配 426/501；无会话 404/410；其余 injection_failed。
- * - GET /<bindingId>/activity/drain：返回 `{schema:"raft-activity-drain.v1", events:[], dropped:0}`
- *   （一期空集；200 但 schema 不符会被 bridge 记 ProtocolError，必须按 schema 返回）。
+ * - GET /<bindingId>/activity/drain：返回 `{schema:"raft-activity-drain.v1", events, dropped}`
+ *   （二期 B2 起为主会话活动，取走即清；200 但 schema 不符会被 bridge 记 ProtocolError）。
  *
  * token：每绑定独立、随机生成、只存内存不落盘；open 重入即换代（旧 bridge 自然失效）。
  */
@@ -16,6 +16,9 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 
 import type { WakeEndpointPort } from "../app/bridgePorts.js";
 import type { RaftWakeRequest, WakeDelivery, WakeHandlerPort } from "../app/ports.js";
+
+/** 单次 drain 返回上限（bridge 传 max 时取二者较小）。 */
+const DRAIN_MAX_EVENTS = 200;
 
 /** 仅监听回环地址：唤醒面不对外网暴露。 */
 const LOOPBACK_HOST = "127.0.0.1";
@@ -105,6 +108,8 @@ function readBody(req: IncomingMessage, maxBytes = 64_000): Promise<string> {
 
 export interface WakeServerOptions {
   handler: WakeHandlerPort;
+  /** 二期 B2：活动转发缓冲（bridge 经 /activity/drain 取走转发 Raft）；未注入返回空集。 */
+  activity?: { drain(bindingId: string, max: number): { events: unknown[]; dropped: number } };
   /** 回环端口；省略 0（随机），listen 后经 listeningAddress 取实际地址。 */
   port?: number;
 }
@@ -156,8 +161,14 @@ export function createWakeServer(
       return;
     }
     if (isDrain) {
-      // 一期空集（spec §8.4）：必须按 schema 返回，否则 bridge 记 ProtocolError。
-      sendJson(res, 200, { schema: "raft-activity-drain.v1", events: [], dropped: 0 });
+      // 必须按 schema 返回，否则 bridge 记 ProtocolError。B2 起返回主会话活动（取走即清）。
+      const maxParam = Number(url.searchParams.get("max"));
+      const max = Number.isFinite(maxParam) && maxParam > 0 ? Math.min(maxParam, DRAIN_MAX_EVENTS) : DRAIN_MAX_EVENTS;
+      const drained = (bindingId !== undefined ? options.activity?.drain(bindingId, max) : undefined) ?? {
+        events: [],
+        dropped: 0,
+      };
+      sendJson(res, 200, { schema: "raft-activity-drain.v1", events: drained.events, dropped: drained.dropped });
       return;
     }
     let raw: string;
