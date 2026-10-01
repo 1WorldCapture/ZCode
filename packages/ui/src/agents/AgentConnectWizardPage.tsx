@@ -5,12 +5,14 @@
  * 状态只存在于本组件生命周期内（SPEC 不变量：不持久化）；来回切换不丢已填内容。
  *
  * 第 4 步先调 verifyCredential 只核验不保存，展示服务端返回的身份供用户确认，
- * 确认后才 createBinding。向导任一提交点返回 CliMissing 时切换为安装命令提示
- * （占位文案，发布方式由 A3 给出后替换；向导不执行任何安装动作）。
+ * 确认后才 createBinding。向导挂载即预检测宿主环境（R6，SPEC 9f51d48）：CLI
+ * 缺失/版本过旧切安装命令提示页（已填内容保留，可「上一步」回向导、「重新检测」
+ * 重跑探测，就绪回第 1 步）；探测失败＝未知不阻断，任一提交点的 CliMissing
+ * 兜底保留。向导不执行任何安装动作。
  *
  * token 只存在于本组件的本次提交内：直传模式随提交结束即清，复用模式 UI 全程不接触。
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { Snippet, SnippetCopyButton, SnippetInput } from "@/components/ai-elements/snippet.js";
@@ -27,10 +29,13 @@ import type { RaftAgentSetupErrorCode } from "@/agents/types.js";
 import {
   buildConnectInput,
   buildOccupiedBindingNames,
+  cliMissingDescriptionId,
   draftErrorId,
   resolveEffectiveHomePath,
   setupErrorMessageId,
+  wizardEnvPageFromCli,
   WIZARD_STEP_COUNT,
+  type WizardEnvPage,
   type WizardStep,
 } from "@/agents/agentConnectWizardModel.js";
 import {
@@ -69,13 +74,44 @@ export function AgentConnectWizardPage() {
   // list() 失败不阻塞凭据列表——名字缺失时条目回退到通用"已被占用"文案。
   const [occupiedNames, setOccupiedNames] = useState<Map<string, string>>(new Map());
   const [fieldError, setFieldError] = useState<string | null>(null);
-  const [cliMissing, setCliMissing] = useState(false);
+  // 环境提示页（R6/SPEC 9f51d48）：向导挂载即预检测宿主环境，CLI 缺失或版本过旧
+  // 时接管渲染（已填内容保留）。null = 就绪或未知——未知（探测 reject）不阻断
+  // 向导，留给第 4 步核验的 CliMissing 兜底（现有路径）。
+  const [envPage, setEnvPage] = useState<WizardEnvPage | null>(null);
+  const [envChecking, setEnvChecking] = useState(false);
   // 第 4 步：核验状态与结果。
   const [verifying, setVerifying] = useState(false);
   const [identity, setIdentity] = useState<VerifyIdentity | null>(null);
   const [verifyError, setVerifyError] = useState<RaftAgentSetupErrorCode | null>(null);
   // 核验成功返回的实际生效 Home 路径（输入了回显输入，留空是服务端预派发默认）。
   const [verifiedHomePath, setVerifiedHomePath] = useState<string | null>(null);
+
+  // 宿主环境预检测（R6）：挂载跑一次（严格模式双跑由 ref 挡住），「重新检测」
+  // 复用同一函数。检测只读；期间第 1 步正常可填（不阻塞输入）。探测 reject =
+  // 未知：不动 envPage——挂载时保持 null（向导可用），重测时留在提示页可再点。
+  const envCheckStarted = useRef(false);
+  const runEnvironmentCheck = useCallback(async () => {
+    if (!service) return;
+    setEnvChecking(true);
+    try {
+      const health = await service.getEnvironmentHealth();
+      setEnvPage(wizardEnvPageFromCli(health.cli));
+      if (health.cli.status === "ok") {
+        // SPEC 9f51d48：重测就绪回向导第 1 步（挂载时本就是 0，无操作）。
+        setStep(0);
+      }
+    } catch (error) {
+      logger.warn("[AgentCenter] 宿主环境预检测失败（留待第 4 步核验兜底）", { error });
+    } finally {
+      setEnvChecking(false);
+    }
+  }, [service]);
+
+  useEffect(() => {
+    if (!service || envCheckStarted.current) return;
+    envCheckStarted.current = true;
+    void runEnvironmentCheck();
+  }, [service, runEnvironmentCheck]);
 
   // 进入第 2 步时拉取本机凭据列表（复用选择器数据源，A1 接口）；并行拉 list()
   // 投影算占用者名字（R7）——同一份绑定记录，UI 侧 join，服务层零改动。
@@ -124,6 +160,13 @@ export function AgentConnectWizardPage() {
     setStep((current) => Math.max(0, current - 1) as WizardStep);
   };
 
+  // 环境提示页的「上一步」：先摘掉提示页再回退（原实现只动 step、提示页还挂着，
+  // 点了没有可见效果——R6 顺手修复）。
+  const goBackFromEnvPage = () => {
+    setEnvPage(null);
+    goBack();
+  };
+
   const handleNext = () => {
     setFieldError(null);
     const errorId = draftErrorId(
@@ -161,7 +204,7 @@ export function AgentConnectWizardPage() {
       });
       if (!result.ok) {
         if (result.code === "CliMissing") {
-          setCliMissing(true);
+          setEnvPage("CliMissing");
           return;
         }
         setVerifyError(result.code);
@@ -192,7 +235,7 @@ export function AgentConnectWizardPage() {
     setToken("");
     void submitConnect(service, input).then((ok) => {
       if (!ok && useAgentCenterStore.getState().submitError?.code === "CliMissing") {
-        setCliMissing(true);
+        setEnvPage("CliMissing");
       }
     });
   };
@@ -227,8 +270,8 @@ export function AgentConnectWizardPage() {
         )
       : null);
 
-  // ── CLI 缺失：安装命令提示态（占位，不执行安装）──
-  if (cliMissing) {
+  // ── 环境提示页（R6）：CLI 缺失/版本过旧接管渲染；只读检测，不执行安装 ──
+  if (envPage) {
     return (
       <div className="flex h-full flex-col">
         <WizardHeader />
@@ -237,8 +280,8 @@ export function AgentConnectWizardPage() {
             <h2 className="text-ui-lg font-semibold text-foreground">
               {intl.formatMessage({ id: "agentCenter.wizard.cliMissing.title" })}
             </h2>
-            <p className="text-ui-sm text-foreground-subtle">
-              {intl.formatMessage({ id: "agentCenter.wizard.cliMissing.description" })}
+            <p className="text-ui-sm text-foreground-subtle" data-testid="wizard-env-page">
+              {intl.formatMessage({ id: cliMissingDescriptionId(envPage) })}
             </p>
             <Snippet code={CLI_INSTALL_COMMAND}>
               <SnippetInput aria-label={intl.formatMessage({ id: "agentCenter.wizard.cliMissing.installCommand" })} />
@@ -248,8 +291,22 @@ export function AgentConnectWizardPage() {
               {intl.formatMessage({ id: "agentCenter.wizard.cliMissing.versionNote" })}
             </p>
             <div className="flex items-center gap-2">
-              <Button type="button" variant="ghost" size="sm" onClick={goBack}>
+              {/* 上一步：回向导继续填（已填内容全在向导 state，SPEC 9f51d48）。 */}
+              <Button type="button" variant="ghost" size="sm" onClick={goBackFromEnvPage}>
                 {intl.formatMessage({ id: "common.back" })}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={envChecking}
+                onClick={() => void runEnvironmentCheck()}
+              >
+                {intl.formatMessage({
+                  id: envChecking
+                    ? "agentCenter.wizard.cliMissing.detecting"
+                    : "agentCenter.wizard.cliMissing.redetect",
+                })}
               </Button>
             </div>
           </div>

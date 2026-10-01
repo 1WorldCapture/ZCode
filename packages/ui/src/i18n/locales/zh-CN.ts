@@ -82,6 +82,10 @@ const zhCN: Record<string, string> = {
   "agentCenter.wizard.cliMissing.versionNote":
     "CLI 版本升级时安装地址会变化，以最新发布为准；安装完成后回到向导重试。",
   "agentCenter.wizard.cliMissing.installCommand": "CLI 安装命令",
+  "agentCenter.wizard.cliMissing.redetect": "重新检测",
+  "agentCenter.wizard.cliMissing.detecting": "正在检测本机环境…",
+  "agentCenter.wizard.cliMissing.versionUnsupportedDescription":
+    "检测到本机 Raft CLI 版本过旧，请升级后重试（同一命令会安装最新版）：",
   "agentCenter.wizard.reuse.title": "复用本机已有凭据",
   "agentCenter.wizard.reuse.occupied": "该凭据已被其他接入占用，不可重复接入",
   "agentCenter.wizard.reuse.occupiedBy": "该凭据已被「{name}」占用，不可重复接入",

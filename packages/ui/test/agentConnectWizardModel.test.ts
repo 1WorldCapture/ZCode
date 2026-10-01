@@ -3,9 +3,11 @@ import test from "node:test";
 import {
   buildConnectInput,
   buildOccupiedBindingNames,
+  cliMissingDescriptionId,
   draftErrorId,
   resolveEffectiveHomePath,
   WIZARD_STEP_COUNT,
+  wizardEnvPageFromCli,
   type WizardDraft,
 } from "../src/agents/agentConnectWizardModel.js";
 
@@ -108,4 +110,22 @@ test("占用者名字映射（R7）：bindingId → displayName，供置灰条�
   assert.equal(names.get("b-1"), "TestAgent-1");
   assert.equal(names.get("b-2"), "TestAgent-4");
   assert.equal(names.get("b-missing"), undefined);
+});
+
+test("环境预检测页面决策（R6）：ok 留在向导，缺失/版本过旧切提示页", () => {
+  assert.equal(wizardEnvPageFromCli({ status: "ok" }), null);
+  assert.equal(wizardEnvPageFromCli({ status: "CliMissing" }), "CliMissing");
+  assert.equal(
+    wizardEnvPageFromCli({ status: "CliVersionUnsupported" }),
+    "CliVersionUnsupported",
+  );
+
+  assert.equal(
+    cliMissingDescriptionId("CliMissing"),
+    "agentCenter.wizard.cliMissing.description",
+  );
+  assert.equal(
+    cliMissingDescriptionId("CliVersionUnsupported"),
+    "agentCenter.wizard.cliMissing.versionUnsupportedDescription",
+  );
 });

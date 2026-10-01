@@ -89,6 +89,10 @@ const enUS: Record<string, string> = {
   "agentCenter.wizard.cliMissing.versionNote":
     "The install URL changes with CLI releases; use the latest published one. Come back and retry once installed.",
   "agentCenter.wizard.cliMissing.installCommand": "CLI install command",
+  "agentCenter.wizard.cliMissing.redetect": "Check again",
+  "agentCenter.wizard.cliMissing.detecting": "Checking the local environment…",
+  "agentCenter.wizard.cliMissing.versionUnsupportedDescription":
+    "The local Raft CLI is too old. Update it and retry (the same command installs the latest version):",
   "agentCenter.wizard.reuse.title": "Reuse a local credential",
   "agentCenter.wizard.reuse.occupied":
     "This credential is already used by another connection and can't be reused",

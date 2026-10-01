@@ -108,3 +108,28 @@ export function buildOccupiedBindingNames(
 ): Map<string, string> {
   return new Map(items.map((item) => [item.bindingId, item.displayName]));
 }
+
+/**
+ * Wizard environment page states (R6, SPEC 9f51d48): when the host CLI probe
+ * comes back not-ok the wizard switches to the install/update hint page while
+ * keeping every filled field. Structural mirror of the CLI health status in
+ * the service contract — swapped to the contract-derived type once it lands.
+ */
+export type WizardEnvPage = "CliMissing" | "CliVersionUnsupported";
+
+/** Map the CLI health status to the page decision: null = ready, stay in wizard. */
+export function wizardEnvPageFromCli(
+  cli: { readonly status: "ok" | WizardEnvPage },
+): WizardEnvPage | null {
+  return cli.status === "ok" ? null : cli.status;
+}
+
+/** Hint page copy: missing CLI explains installing, an old one explains upgrading (same command). */
+export function cliMissingDescriptionId(page: WizardEnvPage): string {
+  switch (page) {
+    case "CliMissing":
+      return "agentCenter.wizard.cliMissing.description";
+    case "CliVersionUnsupported":
+      return "agentCenter.wizard.cliMissing.versionUnsupportedDescription";
+  }
+}
