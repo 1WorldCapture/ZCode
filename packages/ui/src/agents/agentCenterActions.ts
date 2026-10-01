@@ -16,7 +16,9 @@ export async function refreshAgents(service: IRaftAgentsService): Promise<void> 
     // list() 抛错后探一次存储健康：损坏是有形状的状态（fail-closed，原文件保留
     // 等手动恢复），给出定向提示而不是笼统的加载失败。探测本身失败则照旧兜底。
     try {
-      const health = await service.getStorageHealth();
+      // getEnvironmentHealth 一次返回存储 + CLI 态；此处只消费存储部分
+      // （向导进入时的 CLI 检测由向导自身调用同一接口完成）。
+      const { storage: health } = await service.getEnvironmentHealth();
       if (health.status === "corrupt") {
         store.setCorruptStorage({ backupPath: health.backupPath });
         return;

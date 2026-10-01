@@ -17,6 +17,7 @@ export const RAFT_TOOLS_SERVER_INSTRUCTIONS = [
   "这些工具以你自己的 Raft 身份操作 Raft（读消息、发消息、处理任务）；身份已固定，无法更改。",
   "收到唤醒后先用 raft_message_check 读取你的收件箱，再决定回复或处理任务。",
   "回复只能通过 raft_message_send 发出，并明确 target；普通输出不会发送到 Raft。",
+  "私信（dm:@名字）直接用 raft_message_send 发送，首条消息会自动创建私信；读不到未创建的私信不是错误。不确定频道或成员名时先用 raft_server_info / raft_channel_members 查。",
   "发送前如果目标里有你没读过的新消息，消息会被存为草稿而不发出：先阅读返回的新消息，再决定发原稿（sendDraft:true）、改稿重发或放弃。",
   "发送结果不确定时不要重发，说明情况并等待人核对。",
   "完成任务后把状态置为 in_review，由人验收；你不能把任务置为 done。",
@@ -60,6 +61,12 @@ const toolSchemas = {
       status: z.enum(["in_progress", "in_review"]).describe("只能置为 in_progress 或 in_review；完成由人验收"),
     })
     .strict(),
+  raft_server_info: z.object({}).strict(),
+  raft_channel_members: z
+    .object({
+      target: z.string().describe("频道名，如 '#dev'"),
+    })
+    .strict(),
 } as const;
 
 type ToolKey = keyof typeof toolSchemas;
@@ -71,6 +78,8 @@ const toolDescriptions: Record<ToolKey, string> = {
   raft_task_list: "列出频道里的任务，或你自己的任务。",
   raft_task_claim: "认领一个或多个任务（按任务编号）。",
   raft_task_update: "更新任务状态（只能置为 in_progress 或 in_review）。",
+  raft_server_info: "查看你所在服务器的频道与成员（agent 和人）等只读信息。不确定频道名、想找某个人时先用它。",
+  raft_channel_members: "列出某个频道的成员（agent 和人）。",
 };
 
 const toolNameToInternal: Record<ToolKey, RaftToolName> = {
@@ -80,6 +89,8 @@ const toolNameToInternal: Record<ToolKey, RaftToolName> = {
   raft_task_list: "task_list",
   raft_task_claim: "task_claim",
   raft_task_update: "task_update",
+  raft_server_info: "server_info",
+  raft_channel_members: "channel_members",
 };
 
 export function listRaftTools(): Tool[] {

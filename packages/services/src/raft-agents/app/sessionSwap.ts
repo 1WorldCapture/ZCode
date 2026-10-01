@@ -19,6 +19,11 @@ export interface RaftSessionSwapDeps {
   lock: RaftStoreWriteLock;
   sessions: RaftSessionPort;
   clock?: { nowIso(): string };
+  /**
+   * 主会话编号变化广播（与 onBindingsChanged 同源）：改绑落盘成功后 fire 一次，
+   * 覆盖所有换会话路径（懒建/恢复失败重建/管理动作/打开会话兜底）。缺省不广播。
+   */
+  emitBindingsChanged?: (next: RaftAgentBinding[]) => void;
 }
 
 export type RaftSessionSwapResult =
@@ -63,7 +68,10 @@ export async function createMainSessionAndRebind(
       mainSessionRef: { sessionId: created.sessionId, sessionGeneration: 1 },
       updatedAt: clock.nowIso(),
     };
-    await deps.store.writeAll(bindings.map((b) => (b.bindingId === input.bindingId ? next : b)));
+    const nextAll = bindings.map((b) => (b.bindingId === input.bindingId ? next : b));
+    await deps.store.writeAll(nextAll);
+    // 写入成功、编号确实变了才广播一次（concurrent 分支不 fire，避免重复通知）。
+    deps.emitBindingsChanged?.(nextAll);
     return true;
   });
   if (!bound) {

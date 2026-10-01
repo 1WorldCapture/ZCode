@@ -25,6 +25,7 @@ import {
   normalizeRaftOrigin,
 } from "../domain/binding.js";
 import type { RaftProvisioningStep } from "../contract.js";
+import { resolveCredentialToken } from "./credentialToken.js";
 import { loginAndVerifyIdentity } from "./loginVerify.js";
 import { cleanupProfileQuietly } from "./profileCleanup.js";
 import type {
@@ -89,33 +90,17 @@ export async function createRaftAgentBinding(
     // 输入形状错误按字段分流：OriginInvalid / AgentIdInvalid；homePath 形状仍归 OriginInvalid。
     return { ok: false, code: preflight.error };
   }
-  // token 来源二选一（二期 A2）：直传，或复用本机已有凭据。复用时 token 从该
-  // profile 的 credential.json 读出、用后即弃（不进日志/返回值）；绑定仍生成
-  // 自己的 ZCode slug，原 profile 不动、不受 ZCode 删除语义波及。
-  let token: string;
-  if ("token" in input) {
-    token = input.token.trim();
-  } else {
-    const occupiedBy = (await store.readAll()).find(
-      (b) => b.profileSlug === input.existingProfileSlug,
-    );
-    if (occupiedBy) {
-      return { ok: false, code: "ProfileInUse", detail: occupiedBy.displayName };
-    }
-    if (!deps.profilesCatalog) {
-      return { ok: false, code: "CredentialCheckFailed", detail: "credential reuse not wired" };
-    }
-    const resolved = await deps.profilesCatalog.resolveProfileToken({
-      profileSlug: input.existingProfileSlug,
-    });
-    if (!resolved.ok) {
-      return { ok: false, code: "CredentialCheckFailed", detail: resolved.code };
-    }
-    token = resolved.token.trim();
+  // token 来源二选一（二期 A2）：与 verifyCredential 共用同一条解析规则——
+  // 直传，或复用本机已有凭据（token 从 credential.json 读出、用后即弃）。
+  // 绑定仍生成自己的 ZCode slug，原 profile 不动、不受 ZCode 删除语义波及。
+  const credential = await resolveCredentialToken(
+    { store: deps.store, profilesCatalog: deps.profilesCatalog },
+    input,
+  );
+  if (!credential.ok) {
+    return { ok: false, code: credential.code, detail: credential.detail };
   }
-  if (!/^sk_agent_[A-Za-z0-9_-]+$/.test(token)) {
-    return { ok: false, code: "TokenInvalid" };
-  }
+  const token = credential.token;
 
   // 步骤 1：CLI 检测（缺失/版本不符 → 明确报错，不自动安装）。
   const resolution = await cli.resolve();

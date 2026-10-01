@@ -115,6 +115,14 @@ export interface ZCodeProtocolSessionRecord {
   restoreWarning?: { message: string; type: string };
   /** 冷恢复候选只供初始投影；新的选模事件立即清除，不能替代 Runtime 执行绑定。 */
   restoredModelSelection?: ModelSelection;
+  /**
+   * 会话级 Agent 配置快照（R5）：创建/恢复时从参数提取。行落库后由 onSessionEvent
+   * 持久化为 session_entry，供 v4 冷恢复（无 host 参数通道）在
+   * activateSessionForResume 回填；普通会话为 undefined。
+   */
+  agentSessionConfig?: import("./agent-session-config.js").AgentSessionConfigSnapshot;
+  /** entry 写入已发起（无论成败）的进程内标记，防止事件流逐条重复触发。 */
+  agentSessionConfigEntryPersisted?: boolean;
 }
 
 export interface ZCodeProtocolClientRequestOptions {

@@ -49,6 +49,8 @@ export interface RaftAgentManagementOptions {
   activity?: RaftActivityTracker;
   clock?: ClockPort;
   logger?: ServiceLogger;
+  /** 主会话编号变化广播（与 onBindingsChanged 同源；重启/重置/打开会话换会话后 fire）。 */
+  emitBindingsChanged?: (next: RaftAgentBinding[]) => void;
 }
 
 export interface RaftAgentManagement {
@@ -66,7 +68,13 @@ function agentMemoryOf(binding: RaftAgentBinding): ZCodeAgentMemory {
 export function createRaftAgentManagement(options: RaftAgentManagementOptions): RaftAgentManagement {
   const logger = options.logger;
   const clock: ClockPort = options.clock ?? { nowIso: () => new Date().toISOString() };
-  const swapDeps = { store: options.store, lock: options.lock, sessions: options.sessions, clock };
+  const swapDeps = {
+    store: options.store,
+    lock: options.lock,
+    sessions: options.sessions,
+    clock,
+    emitBindingsChanged: options.emitBindingsChanged,
+  };
 
   /**
    * 新建主会话并锁内条件改绑（共享段）。并发方已改写引用（如用户同时点了开始

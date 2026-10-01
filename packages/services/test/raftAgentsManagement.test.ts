@@ -159,7 +159,13 @@ function fakeSupervisor(startScript: BridgeStartResult[] = [{ ok: true, pid: 432
 }
 
 /** 组一个近似宿主栈的小型装配（真实 store/memory/activity + 假件 cli/sessions/supervisor）。 */
-async function buildStack(dataRoot: string, sessions: ReturnType<typeof fakeSessions>, supervisor: ReturnType<typeof fakeSupervisor>, cli: RaftCliPort) {
+async function buildStack(
+  dataRoot: string,
+  sessions: ReturnType<typeof fakeSessions>,
+  supervisor: ReturnType<typeof fakeSupervisor>,
+  cli: RaftCliPort,
+  emitBindingsChanged?: (next: RaftAgentBinding[]) => void,
+) {
   const store = createRaftBindingStore(dataRoot);
   const lock = createRaftStoreWriteLock();
   const memory = createAgentHomeAdapter();
@@ -175,6 +181,7 @@ async function buildStack(dataRoot: string, sessions: ReturnType<typeof fakeSess
     resolveOfficialMcpServers,
     activity,
     clock: fixedClock,
+    emitBindingsChanged,
   });
   const management = createRaftAgentManagement({
     store,
@@ -185,6 +192,7 @@ async function buildStack(dataRoot: string, sessions: ReturnType<typeof fakeSess
     resolveOfficialMcpServers,
     activity,
     clock: fixedClock,
+    emitBindingsChanged,
   });
   const service = createRaftAgentsService({
     cli,
@@ -267,6 +275,59 @@ test("restartBinding：Stopped 绑定换会话但不恢复值守；未知绑定 
       (await stack.service.restartBinding("11111111-2222-4333-8444-555555555555")).code,
       "NotFound",
     );
+  });
+});
+
+test("换会话广播：restart/reset 的改绑落盘与换代 +1 各 fire 一次（编号如实、全量列表）", async () => {
+  await withDataRoot(async (dataRoot) => {
+    const sessions = fakeSessions([
+      { ok: true, sessionId: "sess-new" },
+      { ok: true, sessionId: "sess-newer" },
+    ]);
+    const supervisor = fakeSupervisor();
+    // 记录每次广播的 (sessionId, generation) 投影，验证顺序与代次语义。
+    const events: Array<Array<{ sessionId: string | null; generation: number }>> = [];
+    const emit = (next: RaftAgentBinding[]) => {
+      events.push(
+        next.map((b) => ({
+          sessionId: b.mainSessionRef?.sessionId ?? null,
+          generation: b.mainSessionRef?.sessionGeneration ?? 0,
+        })),
+      );
+    };
+    const stack = await buildStack(dataRoot, sessions, supervisor, fakeCli(), emit);
+    const home = join(dataRoot, "agents", BINDING_ID, "workspace");
+    await stack.memory.initialize({ bindingId: BINDING_ID, displayName: "t11", homeWorkspacePath: home });
+    await stack.store.writeAll([makeBinding(home)]);
+
+    // Running 绑定 restart：swap 落盘（gen 1）→ 段外恢复 startWatch 换代 +1（gen 2）。
+    assert.equal((await stack.service.restartBinding(BINDING_ID)).ok, true);
+    // reset 同构：再换 sess-newer，swap（gen 1）→ 恢复（gen 2）。
+    assert.equal((await stack.service.resetBinding(BINDING_ID)).ok, true);
+
+    assert.deepEqual(events.flat(), [
+      { sessionId: "sess-new", generation: 1 },
+      { sessionId: "sess-new", generation: 2 },
+      { sessionId: "sess-newer", generation: 1 },
+      { sessionId: "sess-newer", generation: 2 },
+    ]);
+    // 每次广播都是全量列表（与 setDesiredState/createBinding 的 fire 语义一致）。
+    for (const batch of events) assert.equal(batch.length, 1);
+  });
+});
+
+test("换会话广播：创建失败不 fire（编号没变就不通知）", async () => {
+  await withDataRoot(async (dataRoot) => {
+    const sessions = fakeSessions([{ ok: false, code: "failed", detail: "boom" }]);
+    const supervisor = fakeSupervisor();
+    const events: RaftAgentBinding[][] = [];
+    const stack = await buildStack(dataRoot, sessions, supervisor, fakeCli(), (next) => events.push(next));
+    const home = join(dataRoot, "agents", BINDING_ID, "workspace");
+    await stack.store.writeAll([makeBinding(home)]);
+
+    const result = await stack.service.restartBinding(BINDING_ID);
+    assert.equal(result.ok, false);
+    assert.equal(events.length, 0);
   });
 });
 

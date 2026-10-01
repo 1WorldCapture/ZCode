@@ -71,6 +71,8 @@ export interface RaftWatchRuntimeOptions {
   feed?: import("./activityFeed.js").RaftActivityFeed; // 二期 B2 活动摘要（会话订阅、bridge 连接、待处理计数）
   clock?: ClockPort;
   logger?: ServiceLogger;
+  /** 主会话编号变化广播（与 onBindingsChanged 同源；懒建/重建/换代 +1 落盘后 fire）。 */
+  emitBindingsChanged?: (next: RaftAgentBinding[]) => void;
 }
 
 export interface RaftWatchRuntime {
@@ -172,7 +174,10 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
         mainSessionRef: { ...binding.mainSessionRef, sessionGeneration: generation },
         updatedAt: clock.nowIso(),
       };
-      await options.store.writeAll(bindings.map((b) => (b.bindingId === bindingId ? next : b)));
+      const nextAll = bindings.map((b) => (b.bindingId === bindingId ? next : b));
+      await options.store.writeAll(nextAll);
+      // 代次 +1 同属主会话编号变化（写入成功后广播；sessionId 未变，界面按需判等）。
+      options.emitBindingsChanged?.(nextAll);
       return { binding: next, sessionId: binding.mainSessionRef.sessionId, generation };
     });
     if ("code" in locked && locked.code !== "LazySessionCreate") {
@@ -192,7 +197,13 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
     if ("code" in locked) {
       logger?.info(undefined, "raft watch: no main session yet, creating lazily", { bindingId });
       const swapped = await createMainSessionAndRebind(
-        { store: options.store, lock: options.lock, sessions: options.sessions, clock },
+        {
+          store: options.store,
+          lock: options.lock,
+          sessions: options.sessions,
+          clock,
+          emitBindingsChanged: options.emitBindingsChanged,
+        },
         {
           bindingId,
           workspacePath: binding.homeWorkspacePath,
@@ -241,7 +252,13 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
           reason: resumed.detail,
         });
         const swapped = await createMainSessionAndRebind(
-          { store: options.store, lock: options.lock, sessions: options.sessions, clock },
+          {
+            store: options.store,
+            lock: options.lock,
+            sessions: options.sessions,
+            clock,
+            emitBindingsChanged: options.emitBindingsChanged,
+          },
           {
             bindingId,
             workspacePath: binding.homeWorkspacePath,

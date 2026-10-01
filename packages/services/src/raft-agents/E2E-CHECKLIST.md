@@ -1,4 +1,4 @@
-# 端到端验收清单（第一期，task #8 / task #10）
+# 端到端验收清单（一期 task #8 / task #10；二期场景见 §6，task #17）
 
 依据：`work/zcode-raft-phase1-spec.md` §13 十条验收场景 + §14 已知限制 + 评审遗留项。
 集成分支：`feat/raft-agent-binding`（含 `feat/raft-agent-ui` 全部内容）。
@@ -17,6 +17,12 @@
 
 安全红线（全程有效）：token 不出现在日志 / argv / 模型上下文 / Agent Home / UI store / 频道；
 唤醒与 drain 文本不含消息正文与凭据形态；不做生产服务测试。
+
+**打包核对制度**（2026-10-01 起，PM 定稿）：报"打好"之前必须附三项证据——
+① 安装包文件构建时间**晚于**打包分支最新提交时间；② 挂载 dmg 后在其 app.asar 中
+grep 到本次改动的标志字符串（如 `verifyCredential`、`getEnvironmentHealth`）；③ 写明
+对应的分支提交号。三项缺一不可，防止再出现"报捷的 dmg 是旧构建"（10-01 事故：dmg
+为上午产物、分支头下午才齐，6.2 验的是旧界面）。
 
 ## 1. 十条验收场景（spec §13）
 
@@ -109,4 +115,54 @@
 **至此 §13 十条场景 S1–S10 全部通过。** 剩余：桌面安装包冒烟（打包中）。
 - 备注（更正）：TestAgent-1 回复中提到 commit 号 fd8c6b2 **不是幻觉**——出自 Dev-developer 15:13:36 发在 99a13660 线程的消息（ab00f41c），其补复正是在该线程内，属读线程上下文的合法引用。
 - 记忆无串核验（S7 附加项）：直读 TestAgent-1 的 Home 记忆文件（`~/.zcode/agents/f2b0a9f0…/workspace/notes/work-log.md`）——内容全为自身经历（自身 10 次工具失败、自身 held 草稿、自身补复）+ 频道公开消息可得的事实（"第六层"/fd8c6b2 引用来源见上）；"send 结果不确定时的处理经验"为其亲历（TestAgent-2 的同类经验在各自 Home，互不渗透）；其记忆还记有"未代答发给 TestAgent-2 的消息（验收要求身份不串）"。**结论：无串记忆。**
+
+## 6. 二期验收场景（task #17 C1；打包分支 `release/raft-phase2` = feat/raft-agent-ui d84d875 + feat/raft-agent-binding dca49a9）
+
+环境同 §0，差异：桌面安装包（本节产物）；装 fork 命令行后**不再设 `ZCODE_RAFT_CLI`**；Raft 服务端为 A3 部署后的栈。安全红线沿用 §0（token 不进日志/argv/模型上下文/Home/UI store/频道）。
+Frontend 补拍截图：两种删除结果提示、未装命令行提示。
+
+### 6.1 命令行识别（装 fork CLI）
+- [x] 用 GitHub Release 那条命令安装我们 fork 的 raft 命令行；不设 `ZCODE_RAFT_CLI` 启动打包版 ZCode → 向导与开始值守均识别（无 CliMissing），bridge 用装好的 CLI 拉起。（2026-10-01 通过，证据见 §6 验收记录 R6.1）
+
+### 6.2 四页接入向导（A2）
+- [ ] 新建凭据模式：origin / agentId / token 走完向导。
+- [ ] 复用凭据模式：从本机凭据列表选择 → 走核验（临时 verify- profile，用户 profile 不动）。
+- [ ] 确认页显示核验出的身份（agentId / 名称 / 服务器）与实际生效 Home 路径。
+- [ ] 未装命令行时向导给安装提示（可复制安装命令）。
+- [ ] 全程 token 不在任何页面明文回显。
+
+### 6.3 管理动作（B1）
+- [ ] 重启：值守会话换代重启，记忆保留。
+- [ ] 重置：主会话按设计重建，列表状态如实。
+- [ ] 删除：二次确认 + "Raft 侧 token 不撤销"提示；勾删 / 不勾删 Home 的结果提示（untouched / refused / failed / deleted 四态）如实区分。
+
+### 6.4 记忆只读查看（A1）
+- [ ] 详情页打开记忆文件：Markdown 渲染、只读（无编辑入口）。
+
+### 6.5 活动摘要（B2）
+- [ ] ZCode 详情页：当前事项、待处理、最近错误三块如实刷新。
+- [ ] Raft 网页活动面板：只显示工具名、成败、耗时、错误码——无消息正文、无凭据形态。
+
+### 6.6 嵌入会话视图（B3）
+- [ ] 详情页嵌入视图能看到真实会话过程（工具调用与回复实时出现）。
+- [ ] 同一会话在工作区与 Agent 中心同时打开：一条订阅、互不顶掉。
+
+### 6.7 R5 冷恢复（task #23 / dca49a9）
+- [ ] 开着嵌入会话视图时重启工作区进程 → 界面重连后会话恢复：仍带 Agent Home 记忆（非项目记忆）、Raft 工具可用、"向用户提问/计划模式"三工具仍不可用、文件工具仍限 Home（越界被拒）。
+
+### 6.8 A3 处理途中强杀
+- [ ] agent 处理消息途中强杀 ZCode → 重启后该消息不丢、不重复回复。
+
+### 6.9 工具面（A1b + cli-guard）
+- [ ] agent 能用命令行跑 git（Bash 可用）。
+- [ ] "向用户提问"与"计划模式"工具不可用。
+- [ ] agent 不在命令行里直接调 raft（会话日志无 Bash 调 raft CLI；走 raft_* 工具）。
+
+### 6.10 绑定文件损坏提示（R3）
+- [ ] 停 ZCode 后损坏 bindings.json → 启动后列表显示损坏提示（ZCode Alert 样式，含备份路径指引），按引导恢复后列表正常。
+
+### 6.11 二期验收记录（task #17；执行：lyonliang 点界面 / Dev-developer 盯日志 / grokbot 盯服务端）
+
+- **R6.1 命令行识别 — 通过（2026-10-01 16:41）**：lyonliang 用 GitHub Release tgz 安装 fork CLI（`npm install -g …botiverse-raft-0.0.24-zcode.1.tgz` → `/opt/homebrew/bin/raft`），**未设 `ZCODE_RAFT_CLI`**，重开打包版 ZCode → 三个绑定（TestAgent-1/2/3，desiredState 均 Running）恢复运行中。证据：ps 三条 bridge 进程 16:41 均以 `node /opt/homebrew/bin/raft` 拉起（argv 含 `--expected-agent`/`--adapter-instance`/wake+activity endpoint，无凭据形态）；服务端 grokbot 核对 3× `events/claim` 200 + 含消息批次紧跟 `events/ack` 200、空批次不确认——新"领取→确认"接口已启用且成对出现。
+  - 顺带验证（安装前）：打包版对三个 Running 绑定如实显示"异常暂停 · Raft CLI 不可用"（CliMissing 预期降级，lyonliang 截图 d9b2de04），与手动暂停可区分——覆盖 6.2"未装命令行"的列表态表现（向导内提示另验）。
 

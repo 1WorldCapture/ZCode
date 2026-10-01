@@ -14,6 +14,8 @@ import {
   raftAgentIdSchema,
   type RaftAgentBinding,
   type RaftAgentBindingInput,
+  type RaftAgentCliHealth,
+  type RaftAgentEnvironmentHealth,
   type RaftAgentListItem,
   type RaftAgentLocalCredential,
   type RaftAgentMemoryContent,
@@ -33,6 +35,7 @@ import { RaftBindingStoreCorruptError } from "../domain/bindingStoreError.js";
 import type { RaftActivityTracker } from "./activity.js";
 import type { RaftActivityFeed } from "./activityFeed.js";
 import { createRaftAgentBinding, defaultRaftAgentHomePath } from "./bindingCreate.js";
+import { resolveCredentialToken } from "./credentialToken.js";
 import type { AgentHomePort } from "./agentHomePorts.js";
 import type { RaftAgentManagement } from "./management.js";
 import { loginAndVerifyIdentity } from "./loginVerify.js";
@@ -66,6 +69,12 @@ export interface RaftAgentsServiceOptions {
    * 回调内的异步与异常由宿主自行处理，同步抛错只记日志。
    */
   onDesiredStateChanged?: (params: { bindingId: string; desired: RaftAgentBinding["desiredState"] }) => void;
+  /**
+   * 外部注入的绑定变化 emitter（宿主栈共享）：缺省自建私有。宿主把同一只传给
+   * watchRuntime/management 的 emitBindingsChanged，使换会话（懒建/重建/重启/重置/
+   * 打开会话兜底/换代 +1）的落盘也广播到 onBindingsChanged——renderer 可纯事件驱动。
+   */
+  bindingsEmitter?: Emitter<RaftAgentBinding[]>;
   // ── 二期 A1 注入面（宿主组合根 wire；缺省退化为一期行为）──
   /** 完整 AgentHomePort：记忆只读视图 + removeBinding(deleteHome) 的 Home 删除。 */
   memory?: AgentHomePort;
@@ -83,7 +92,7 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
   const { cli, store, clock } = options;
   const log = options.logger ?? createServiceLogger("raft-agents");
   const win32 = process.platform === "win32";
-  const bindingsChanged = new Emitter<RaftAgentBinding[]>();
+  const bindingsChanged = options.bindingsEmitter ?? new Emitter<RaftAgentBinding[]>();
   const provisioningSteps = options.provisioningSteps ?? [];
 
   /**
@@ -164,26 +173,47 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
     };
   }
 
+  async function probeStorageHealth(): Promise<RaftAgentStorageHealth> {
+    try {
+      await store.readAll();
+      return { status: "ok" };
+    } catch (error) {
+      if (error instanceof RaftBindingStoreCorruptError) {
+        return { status: "corrupt", storePath: error.storePath, backupPath: error.backupPath ?? null };
+      }
+      throw error;
+    }
+  }
+
+  async function probeCliHealth(cli: RaftCliPort): Promise<RaftAgentCliHealth> {
+    try {
+      const resolution = await cli.resolve();
+      if (resolution.ok) {
+        return { status: "ok", cliPath: resolution.cliPath, version: resolution.version };
+      }
+      return { status: resolution.code, detail: resolution.detail ?? null };
+    } catch (error) {
+      // resolve() 语义上不抛（子进程失败已归类）；兜底收敛为 CliMissing，
+      // 前置检查的异常不能打断整个 Agent 中心。
+      return { status: "CliMissing", detail: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   return {
     async list(): Promise<RaftAgentListItem[]> {
       return (await store.readAll()).map(toListItem);
     },
 
     /**
-     * 存储健康态活探测：读一遍 store，corrupt 转形状、其他异常原样抛。
-     * list() 失败后界面改调这里（专用码 + 备份路径），不必解析异常文本。
-     * 备份内容寻址且排他创建，轮询重复探测不会堆积副本。
+     * 宿主环境健康探测：存储态（读一遍 store，corrupt 转形状、其他异常原样抛）
+     * 与 CLI 态（resolve()：PATH/env 解析 + 版本门禁，不碰凭据）并行一次返回。
+     * 存储备份内容寻址且排他创建，轮询重复探测不会堆积副本。CLI 侧 resolve
+     * 抛出的异常收敛为 CliMissing 形状——前置检查不能把 Agent 中心整个打断。
      */
-    async getStorageHealth(): Promise<RaftAgentStorageHealth> {
-      try {
-        await store.readAll();
-        return { status: "ok" };
-      } catch (error) {
-        if (error instanceof RaftBindingStoreCorruptError) {
-          return { status: "corrupt", storePath: error.storePath, backupPath: error.backupPath ?? null };
-        }
-        throw error;
-      }
+    async getEnvironmentHealth(): Promise<RaftAgentEnvironmentHealth> {
+      const storage = await probeStorageHealth();
+      const cli = await probeCliHealth(options.cli);
+      return { storage, cli };
     },
 
     async createBinding(input: RaftAgentBindingInput): Promise<RaftAgentSetupResult> {
@@ -288,33 +318,17 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
       if (!raftAgentIdSchema.safeParse(agentId).success) {
         return { ok: false, code: "AgentIdInvalid" };
       }
-      // 凭据来源二选一（与 createBinding 复用路径同款）：直传，或复用本机凭据
-      // （服务侧读出、读完即弃）。核验统一走临时 verify- profile 链，用户 profile
-      // 不被触碰——两种接入模式的确认页都能先核验身份再显示（线程 bbb29be1）。
-      let token: string | undefined;
-      if (input.token !== undefined) {
-        token = input.token.trim();
-      } else if (input.existingProfileSlug !== undefined) {
-        const occupiedBy = (await store.readAll()).find(
-          (b) => b.profileSlug === input.existingProfileSlug,
-        );
-        if (occupiedBy) {
-          return { ok: false, code: "ProfileInUse", detail: occupiedBy.displayName };
-        }
-        if (!options.profilesCatalog) {
-          return { ok: false, code: "CredentialCheckFailed", detail: "credential reuse not wired" };
-        }
-        const resolved = await options.profilesCatalog.resolveProfileToken({
-          profileSlug: input.existingProfileSlug,
-        });
-        if (!resolved.ok) {
-          return { ok: false, code: "CredentialCheckFailed", detail: resolved.code };
-        }
-        token = resolved.token.trim();
+      // 凭据来源二选一：与 createBinding 共用 resolveCredentialToken（同一条规则，
+      // 不各改各的）。核验统一走临时 verify- profile 链，用户 profile 不被触碰
+      // ——两种接入模式的确认页都能先核验身份再显示（线程 bbb29be1）。
+      const credential = await resolveCredentialToken(
+        { store, profilesCatalog: options.profilesCatalog },
+        input,
+      );
+      if (!credential.ok) {
+        return { ok: false, code: credential.code, detail: credential.detail };
       }
-      if (token === undefined || !/^sk_agent_[A-Za-z0-9_-]+$/.test(token)) {
-        return { ok: false, code: "TokenInvalid" };
-      }
+      const token = credential.token;
       // 实际生效 Home（评审线程 a517415a，B1/A2 验收）：输入给了就按创建同款规则
       // 校验后回显；留空给预派发默认——绑定 UUID 创建时才生成，这里先派发一个
       // 具体路径，向导保存时作为显式输入回传（与创建共用 defaultRaftAgentHomePath）。

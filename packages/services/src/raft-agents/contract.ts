@@ -11,6 +11,8 @@ import {
   ServiceChannels,
   type RaftAgentBinding,
   type RaftAgentBindingInput,
+  type RaftAgentCliHealth,
+  type RaftAgentEnvironmentHealth,
   type RaftAgentListItem,
   type RaftAgentLocalCredential,
   type RaftAgentManagementResult,
@@ -29,6 +31,8 @@ import { createServiceDescriptor } from "#src/descriptors.js";
 export type {
   RaftAgentBinding,
   RaftAgentBindingInput,
+  RaftAgentCliHealth,
+  RaftAgentEnvironmentHealth,
   RaftAgentListItem,
   RaftAgentLocalCredential,
   RaftAgentManagementResult,
@@ -52,10 +56,11 @@ export interface IRaftAgentsService {
   /** 列表投影（绑定记录 + 运行状态派生）。 */
   list(): Promise<RaftAgentListItem[]>;
   /**
-   * 绑定存储健康态探测：list() 抛错时界面改调这里拿有形状的原因（corrupt 带
-   * storePath/backupPath），不必解析异常文本。健康时为 {status:"ok"}。
+   * 宿主环境健康探测：存储态（list() 抛错时界面拿有形状的原因，corrupt 带
+   * storePath/backupPath）+ CLI 态（PATH/env 解析 + 版本门禁，不碰凭据）一次返回。
+   * Agent 中心与接入向导进入时各调一次即可完成前置检查；装好 CLI 后可重调刷新。
    */
-  getStorageHealth(): Promise<RaftAgentStorageHealth>;
+  getEnvironmentHealth(): Promise<RaftAgentEnvironmentHealth>;
   /**
    * 单表单接入：CLI 检测 → 登录（stdin token）→ 身份核验 → 唯一性校验 → 持久化。
    * 各步幂等；失败保留已完成步骤，返回错误码供表单展示。全程不启动 bridge、

@@ -6,6 +6,9 @@
  */
 import { join } from "node:path";
 
+import { Emitter } from "@zcode/rpc";
+import type { RaftAgentBinding } from "@zcode/shared";
+
 import { getZCodeDataRootDir } from "#src/paths.js";
 
 import type { IRaftAgentsService, RaftProvisioningStep } from "./contract.js";
@@ -112,6 +115,17 @@ export function createDefaultRaftHostStack(options: {
 }): RaftHostStack {
   const dataRootDir = options.dataRootDir ?? getZCodeDataRootDir();
   const logger = options.logger;
+  // 共享绑定变化 emitter：service 的 onBindingsChanged 与换会话写入（懒建/重建/
+  // 重启/重置/打开会话兜底/换代 +1）经同一只广播，renderer 可纯事件驱动。
+  const bindingsChanged = new Emitter<RaftAgentBinding[]>();
+  const emitBindingsChanged = (next: RaftAgentBinding[]): void => {
+    try {
+      bindingsChanged.fire(next);
+    } catch (error) {
+      // 监听器异常不应冒充换会话失败：此刻新会话已建、改绑已落盘（复核意见）。
+      logger?.warn(undefined, "raft bindings-changed listener failed (tolerated)", { error: String(error) });
+    }
+  };
   const cli = createRaftCliAdapter({ resolveProxyEnv: options.resolveProxyEnv });
   const lock = createRaftStoreWriteLock();
   const store = createRaftBindingStore(dataRootDir);
@@ -174,6 +188,7 @@ export function createDefaultRaftHostStack(options: {
     activity,
     feed,
     logger,
+    emitBindingsChanged,
   });
 
   // 二期 A1 管理动作编排：重启/重置/打开会话/删除前置拆除。
@@ -186,6 +201,7 @@ export function createDefaultRaftHostStack(options: {
     resolveOfficialMcpServers,
     activity,
     logger,
+    emitBindingsChanged,
   });
 
   const service = createRaftAgentsService({
@@ -194,6 +210,7 @@ export function createDefaultRaftHostStack(options: {
     clock: { nowIso: () => new Date().toISOString() },
     dataRootDir,
     logger,
+    bindingsEmitter: bindingsChanged,
     // 二期 A1 懒建：provisioning 只保留 Home 步骤——主会话改为首次开始值守时创建
     //（watchRuntime 懒建分支），避免空壳预建会话从未落库的角落（SPEC 更正记录）。
     provisioningSteps: [createAgentHomeProvisioningStep(memory)],
