@@ -252,7 +252,10 @@ export function AgentDetailPage({ bindingId }: { bindingId: string }) {
         </dl>
         <AgentMemoryPanel bindingId={item.bindingId} />
         <AgentManageSection bindingId={item.bindingId} />
-        <AgentHomeSessionView bindingId={item.bindingId} />
+        <AgentHomeSessionView
+          bindingId={item.bindingId}
+          mainSessionId={item.mainSessionId}
+        />
       </div>
     </div>
   );

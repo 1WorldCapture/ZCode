@@ -13,6 +13,10 @@
  * 同 topic 二次 subscribe 会顶掉工作区的路由（zcodeAgentService 的注册表
  * 按 ownership key 替换），造成两边订阅拉锯。
  *
+ * 会话跟随（验收修复）：重启/重置/懒建兜底等换会话路径由服务层 sessionSwap
+ * 落盘成功后广播（069377d），list 投影的 mainSessionId 随之更新；本视图按
+ * shouldReopenSession 判定重开（编号变了才重开，懒建回填同一编号不重开）。
+ *
  * 覆盖层限制：focused=false（全局快捷键不灌进 Agent 中心）、telemetryVisible=false
  * （覆盖层在 workspace telemetry attachment 之外）；onOpen* 系列回调依赖 app-shell
  * 容器（code viewer / 副屏 tab），覆盖层没有这些宿主能力，一期不下发——点子代理、
@@ -28,6 +32,7 @@ import { SessionPane } from "@/v4/SessionPane.js";
 import { V4PaneConversationProvider } from "@/v4/V4ConversationContext.js";
 import type { PaneWorkspaceScope } from "@/v4/paneLayoutStore.js";
 import { useRaftAgentsService } from "@/agents/useAgentCenterSync.js";
+import { shouldReopenSession } from "@/agents/agentSessionViewLogic.js";
 import type { RaftAgentOpenSessionErrorCode } from "@/agents/types.js";
 
 /** 详情页专属 paneId（paneLayoutTree 保留 id 之外；详情页同时只挂一个会话视图）。 */
@@ -38,7 +43,13 @@ interface OpenedSession {
   workspacePath: string;
 }
 
-export function AgentHomeSessionView({ bindingId }: { bindingId: string }) {
+export function AgentHomeSessionView({
+  bindingId,
+  mainSessionId,
+}: {
+  bindingId: string;
+  mainSessionId: string | null;
+}) {
   const { intl } = useZCodeIntl();
   const service = useRaftAgentsService();
   const [opened, setOpened] = useState<OpenedSession | null>(null);
@@ -52,8 +63,14 @@ export function AgentHomeSessionView({ bindingId }: { bindingId: string }) {
     [opened],
   );
 
+  // 重开判定用「当前已打开的会话」而不是放进依赖：打开成功本身会改 opened，
+  // 若把它作为依赖会让 effect 再跑一轮（shouldReopenSession 已挡住，但多一次
+  // 无谓的 rerender）；派生布尔进依赖即可。
+  const openedSessionId = opened?.sessionId ?? null;
+  const reopenNeeded = shouldReopenSession(mainSessionId, openedSessionId);
+
   useEffect(() => {
-    if (!service) return undefined;
+    if (!service || !reopenNeeded) return undefined;
     let cancelled = false;
     setOpened(null);
     setErrorCode(null);
@@ -74,7 +91,7 @@ export function AgentHomeSessionView({ bindingId }: { bindingId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [service, bindingId, attempt]);
+  }, [service, bindingId, mainSessionId, reopenNeeded, attempt]);
 
   if (errorCode) {
     return (
