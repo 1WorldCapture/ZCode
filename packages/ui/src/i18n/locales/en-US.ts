@@ -84,6 +84,7 @@ const enUS: Record<string, string> = {
   "agentCenter.wizard.error.identityRequired":
     "Enter the Agent ID and token, or pick a local credential",
   "agentCenter.wizard.cliMissing.title": "Raft CLI not found",
+  "agentCenter.wizard.cliMissing.versionUnsupportedTitle": "Raft CLI version is too old",
   "agentCenter.wizard.cliMissing.description":
     "Connecting requires the Raft CLI installed on this machine. Run the following command in a terminal:",
   "agentCenter.wizard.cliMissing.versionNote":

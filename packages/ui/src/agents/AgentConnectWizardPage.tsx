@@ -30,6 +30,7 @@ import {
   buildConnectInput,
   buildOccupiedBindingNames,
   cliMissingDescriptionId,
+  cliMissingTitleId,
   credentialUnavailableReason,
   draftErrorId,
   resolveEffectiveHomePath,
@@ -281,7 +282,7 @@ export function AgentConnectWizardPage() {
         <div className="flex min-w-0 flex-1 items-center justify-center overflow-y-auto px-6">
           <div className="flex w-full max-w-lg flex-col gap-4 py-8">
             <h2 className="text-ui-lg font-semibold text-foreground">
-              {intl.formatMessage({ id: "agentCenter.wizard.cliMissing.title" })}
+              {intl.formatMessage({ id: cliMissingTitleId(envPage) })}
             </h2>
             <p className="text-ui-sm text-foreground-subtle" data-testid="wizard-env-page">
               {intl.formatMessage({ id: cliMissingDescriptionId(envPage) })}

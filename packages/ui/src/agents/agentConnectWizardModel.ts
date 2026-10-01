@@ -151,3 +151,13 @@ export function cliMissingDescriptionId(page: WizardEnvPage): string {
       return "agentCenter.wizard.cliMissing.versionUnsupportedDescription";
   }
 }
+
+/** Hint page heading tracks the detected state — "not found" is false when the CLI exists but is old. */
+export function cliMissingTitleId(page: WizardEnvPage): string {
+  switch (page) {
+    case "CliMissing":
+      return "agentCenter.wizard.cliMissing.title";
+    case "CliVersionUnsupported":
+      return "agentCenter.wizard.cliMissing.versionUnsupportedTitle";
+  }
+}

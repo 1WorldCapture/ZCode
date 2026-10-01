@@ -4,6 +4,7 @@ import {
   buildConnectInput,
   buildOccupiedBindingNames,
   cliMissingDescriptionId,
+  cliMissingTitleId,
   credentialUnavailableReason,
   draftErrorId,
   resolveEffectiveHomePath,
@@ -128,6 +129,13 @@ test("环境预检测页面决策（R6）：ok 留在向导，缺失/版本过�
   assert.equal(
     cliMissingDescriptionId("CliVersionUnsupported"),
     "agentCenter.wizard.cliMissing.versionUnsupportedDescription",
+  );
+
+  // 标题随检测态区分：CLI 存在只是过旧时,"未检测到"是错误表述。
+  assert.equal(cliMissingTitleId("CliMissing"), "agentCenter.wizard.cliMissing.title");
+  assert.equal(
+    cliMissingTitleId("CliVersionUnsupported"),
+    "agentCenter.wizard.cliMissing.versionUnsupportedTitle",
   );
 });
 

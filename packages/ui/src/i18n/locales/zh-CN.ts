@@ -78,6 +78,7 @@ const zhCN: Record<string, string> = {
   "agentCenter.wizard.error.originRequired": "请填写服务地址",
   "agentCenter.wizard.error.identityRequired": "请填写 Agent ID 和 Token，或选择一个本机凭据",
   "agentCenter.wizard.cliMissing.title": "未检测到 Raft CLI",
+  "agentCenter.wizard.cliMissing.versionUnsupportedTitle": "Raft CLI 版本过旧",
   "agentCenter.wizard.cliMissing.description": "接入需要本机安装 Raft CLI，请在终端执行以下命令：",
   "agentCenter.wizard.cliMissing.versionNote":
     "CLI 版本升级时安装地址会变化，以最新发布为准；安装完成后回到向导重试。",
