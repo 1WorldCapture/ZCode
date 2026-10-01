@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F8FAFC"/>
+      <stop offset="1" stop-color="#DBE4EE"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gloss)"/>
+  <rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#64748B" stroke-opacity="0.30" stroke-width="4"/>
+  <!-- left angle bracket -->
+  <path d="M 386 372 L 260 512 L 386 652" fill="none" stroke="#4F46E5" stroke-width="74" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- right angle bracket -->
+  <path d="M 638 372 L 764 512 L 638 652" fill="none" stroke="#4F46E5" stroke-width="74" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- tiny dot: the "tiny" in TinyCode -->
+  <rect x="462" y="462" width="100" height="100" rx="28" fill="#4F46E5"/>
+</svg>

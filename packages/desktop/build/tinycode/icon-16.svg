@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F8FAFC"/>
+      <stop offset="1" stop-color="#DBE4EE"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#gloss)"/>
+  <!-- 16px variant: narrower bracket span (80 instead of 146) frees the center;
+       gap between bracket edge (358) and dot (464) = 106 units = ~1.7px at 16px -->
+  <path d="M 310 372 L 230 512 L 310 652" fill="none" stroke="#4F46E5" stroke-width="96" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 714 372 L 794 512 L 714 652" fill="none" stroke="#4F46E5" stroke-width="96" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="464" y="464" width="96" height="96" rx="26" fill="#4F46E5"/>
+</svg>
