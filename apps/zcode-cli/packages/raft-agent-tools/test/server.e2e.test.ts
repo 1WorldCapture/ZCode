@@ -62,7 +62,7 @@ test("stdio 端到端：真实 MCP 客户端调用构建产物，check 先落盘
     const cli = join(dir, "fake-raft.mjs");
     await writeFile(
       cli,
-      `#!/usr/bin/env node\nprocess.stdout.write("[target=#dev msg=aaaa1111 time=t type=human] @lyon: hi\\nNo more new inbox messages.\\n");`,
+      `#!/usr/bin/env node\nif (process.argv.includes("--version")) { process.stdout.write("Raft CLI: 0.0.24\\n"); process.exit(0); }\nprocess.stdout.write("[target=#dev msg=aaaa1111 time=t type=human] @lyon: hi\\nNo more new inbox messages.\\n");`,
     );
     await chmod(cli, 0o755);
     const transport = new StdioClientTransport({
@@ -108,7 +108,7 @@ test("stdio 端到端（legacy 握手）：2025-era initialize 也必须连上�
     const cli = join(dir, "fake-raft.mjs");
     await writeFile(
       cli,
-      `#!/usr/bin/env node\nprocess.stdout.write("[target=#dev msg=bbbb2222 time=t type=human] @lyon: yo\\nNo more new inbox messages.\\n");`,
+      `#!/usr/bin/env node\nif (process.argv.includes("--version")) { process.stdout.write("Raft CLI: 0.0.24\\n"); process.exit(0); }\nprocess.stdout.write("[target=#dev msg=bbbb2222 time=t type=human] @lyon: yo\\nNo more new inbox messages.\\n");`,
     );
     await chmod(cli, 0o755);
     const transport = new StdioClientTransport({
@@ -150,7 +150,7 @@ test("插件宿主路径：按宿主方式 import 构建产物并调用 main()�
     const cli = join(dir, "fake-raft.mjs");
     await writeFile(
       cli,
-      `#!/usr/bin/env node\nprocess.stdout.write("[target=#dev msg=cccc3333 time=t type=human] @lyon: host\\nNo more new inbox messages.\\n");`,
+      `#!/usr/bin/env node\nif (process.argv.includes("--version")) { process.stdout.write("Raft CLI: 0.0.24\\n"); process.exit(0); }\nprocess.stdout.write("[target=#dev msg=cccc3333 time=t type=human] @lyon: host\\nNo more new inbox messages.\\n");`,
     );
     await chmod(cli, 0o755);
     const host = join(dir, "host.mjs");
