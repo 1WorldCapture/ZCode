@@ -42,7 +42,11 @@ export function AgentCenterLayer({
 
   return (
     <div
-      className="absolute inset-0 z-10 flex flex-col bg-background"
+      // 覆盖层根补主题正文色：根上只有 bg-background 时，记忆区正文与嵌入会话
+      // 视图等未显式设色的内容会继承壳层的弱化色，深色主题下几乎不可读（验收
+      // 缺陷）。text-foreground 是主题变量，dark/light 自动跟随；独立表面先例
+      // 见 TreemappingPane 根容器。
+      className="absolute inset-0 z-10 flex flex-col bg-background text-foreground"
       data-testid="agent-center-layer"
     >
       <header
