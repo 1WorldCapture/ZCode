@@ -51,7 +51,10 @@ let stdin = "";
 process.stdin.on("data", (c) => (stdin += c));
 process.stdin.on("end", () => {
   appendFileSync(join(dir, "calls.jsonl"), JSON.stringify({ argv, stdin }) + "\\n");
-  if (argv.includes("--version")) { process.stdout.write(version + "\\n"); process.exit(0); }
+  if (argv.includes("--version")) {
+    if (existsSync(join(dir, "version-fail"))) { process.stderr.write("boom\\n"); process.exit(1); }
+    process.stdout.write(version + "\\n"); process.exit(0);
+  }
   const key = argv.slice(2, 4).join(" ");
   const counterFile = join(dir, "count-" + key.replace(/\\W/g, "_"));
   const n = existsSync(counterFile) ? Number(readFileSync(counterFile, "utf8")) : 0;
@@ -301,5 +304,42 @@ test("新命令行 + 未部署补丁的服务端：claim 路由缺失时回落 m
     const calls = await cli.calls();
     assert.equal(calls.filter((c) => c.argv.includes("claim")).length, 1, "回落后不再尝试 claim");
     assert.equal(calls.filter((c) => c.argv.includes("check")).length, 2);
+  });
+});
+
+test("D9：版本探测瞬时失败不缓存、不回落旧路径；恢复后走 claim/ack", async () => {
+  await withDir(async (dir) => {
+    const cli = await makeScriptedCli(dir, "Raft CLI: 0.0.24-zcode.1", {
+      "message claim": [{ status: 0, stdout: "No new messages.\n" }],
+      "message send": [{ status: 0, stdout: "Message sent to #dev. Message ID: m-1\n" }],
+    });
+    const adapter = createCliToolAdapter({ identity: identityFor(dir, cli.script), inboxLog: createInboxLogStore(dir) });
+    await writeFile(join(dir, "version-fail"), "1");
+    const failedCheck = await adapter.invoke({ tool: "message_check" });
+    assert.equal(failedCheck.kind, "error");
+    const failedSend = await adapter.invoke({ tool: "message_send", target: "#dev", content: "x" });
+    assert.equal(failedSend.kind, "error");
+    let calls = await cli.calls();
+    assert.ok(!calls.some((c) => c.argv.includes("check") || c.argv.includes("send")), "探测失败时不得执行旧路径或发送");
+    await rm(join(dir, "version-fail"));
+    assert.equal((await adapter.invoke({ tool: "message_check" })).kind, "ok");
+    calls = await cli.calls();
+    assert.ok(calls.some((c) => c.argv.includes("claim")), "恢复后走 claim");
+    assert.ok(!calls.some((c) => c.argv[0] === "message" && c.argv[1] === "check"));
+    // 结论已缓存：之后不再探测。
+    const probes = calls.filter((c) => c.argv.includes("--version")).length;
+    await adapter.invoke({ tool: "message_check" });
+    assert.equal((await cli.calls()).filter((c) => c.argv.includes("--version")).length, probes);
+  });
+});
+
+test("D9：读不出版本号（空输出）同样视为探测未得结论", async () => {
+  await withDir(async (dir) => {
+    const cli = await makeScriptedCli(dir, "", {
+      "message check": [{ status: 0, stdout: "x\n" }],
+    });
+    const adapter = createCliToolAdapter({ identity: identityFor(dir, cli.script), inboxLog: createInboxLogStore(dir) });
+    assert.equal((await adapter.invoke({ tool: "message_check" })).kind, "error");
+    assert.ok(!(await cli.calls()).some((c) => c.argv[1] === "check"));
   });
 });

@@ -71,6 +71,8 @@ const LOG_RETRY_DELAY_MS = 50;
 const AUX_TIMEOUT_MS = 30_000;
 const PROBE_TIMEOUT_MS = 10_000;
 /** fork 命令行版本后缀：`0.0.24-zcode.1` 起支持 claim/ack/receipt/--idempotency-key。 */
+/** `--version` 的合法输出：以 semver 开头的一行（读不出 = 探测未得结论）。 */
+const SEMVER_LINE = /\d+\.\d+\.\d+/;
 const CLAIM_ACK_VERSION = /-zcode\.(\d+)\b/;
 /** 服务端未部署 claim/ack 补丁时 claim 的失败形态（路由未登记）。 */
 const CLAIM_ROUTE_MISSING = /Unregistered internal route|auth_policy_unregistered_path|HTTP 404/;
@@ -110,18 +112,29 @@ export function createCliToolAdapter(options: CliToolAdapterOptions): CliToolAda
     });
   }
 
-  let claimAckSupport: Promise<boolean> | undefined;
-  /** 能力探测：一次 `--version`，结果缓存；失败按旧命令行处理。 */
-  function supportsClaimAck(): Promise<boolean> {
-    claimAckSupport ??= run(["--version"], { timeoutMs: PROBE_TIMEOUT_MS }).then(
-      (probe) => {
-        const match = probe.status === 0 ? CLAIM_ACK_VERSION.exec(probe.stdout) : null;
-        return match?.[1] !== undefined && Number(match[1]) >= 1;
-      },
-      () => false,
-    );
+  /**
+   * 能力探测：一次 `--version`。只缓存**明确结论**（读到版本号：支持/不支持）；
+   * 探测超时、失败、抛错或读不出版本号 = unknown，不缓存、下次调用重试——
+   * 冷启动瞬时失败不能让整个进程永久回落旧的取走即确认路径（D9）。
+   */
+  let claimAckSupport: boolean | undefined;
+  async function probeClaimAck(): Promise<boolean | "unknown"> {
+    if (claimAckSupport !== undefined) return claimAckSupport;
+    let probe;
+    try {
+      probe = await run(["--version"], { timeoutMs: PROBE_TIMEOUT_MS });
+    } catch {
+      return "unknown";
+    }
+    if (probe.status !== 0 || !SEMVER_LINE.test(probe.stdout)) return "unknown";
+    const match = CLAIM_ACK_VERSION.exec(probe.stdout);
+    claimAckSupport = match?.[1] !== undefined && Number(match[1]) >= 1;
     return claimAckSupport;
   }
+  const PROBE_UNKNOWN_RESULT: RaftToolResult = {
+    kind: "error",
+    text: "无法确认命令行版本（探测失败或超时），本次未执行，请稍后重试。",
+  };
 
   let delivered: Promise<Set<string>> | undefined;
   const deliveredKey = (target: string, messageId: string) => `${target} ${messageId}`;
@@ -207,7 +220,7 @@ export function createCliToolAdapter(options: CliToolAdapterOptions): CliToolAda
       // 命令行是新的、服务端还没部署补丁：本进程改走第一期路径，不报错。
       if (CLAIM_ROUTE_MISSING.test(joinOutput(claimed))) {
         options.logger?.warn("claim route missing on server; falling back to message check", {});
-        claimAckSupport = Promise.resolve(false);
+        claimAckSupport = false;
         return checkLegacy(["message", "check"], timeoutMs);
       }
       return {
@@ -328,12 +341,14 @@ export function createCliToolAdapter(options: CliToolAdapterOptions): CliToolAda
       if (!built.ok) return { kind: "rejected", reason: built.reason };
 
       if (call.tool === "message_check") {
-        return (await supportsClaimAck())
-          ? checkWithClaim(built.timeoutMs)
-          : checkLegacy(built.argv, built.timeoutMs);
+        const support = await probeClaimAck();
+        if (support === "unknown") return PROBE_UNKNOWN_RESULT;
+        return support ? checkWithClaim(built.timeoutMs) : checkLegacy(built.argv, built.timeoutMs);
       }
       if (call.tool === "message_send") {
-        if (await supportsClaimAck()) {
+        const support = await probeClaimAck();
+        if (support === "unknown") return PROBE_UNKNOWN_RESULT;
+        if (support) {
           return sendWithKey(call, built.argv, built.stdin, built.timeoutMs);
         }
         return toResult(await sendOnce(built.argv, built.stdin, built.timeoutMs));
