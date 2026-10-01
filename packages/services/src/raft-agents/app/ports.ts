@@ -192,7 +192,6 @@ export interface RaftBindingStorePort {
   writeAll(bindings: import("@zcode/shared").RaftAgentBinding[]): Promise<void>;
 }
 
-/** 时钟端口：可测试的当前时间。 */
 /**
  * 主会话活动事件（二期 B2）：由会话适配器从 ZCodeStreamEvent 归一而来。
  * progressText 是本机界面用的一行进度（工具标题/命令等，只在 ZCode 本机展示，
@@ -215,6 +214,7 @@ export type RaftSessionActivityEvent =
   | { kind: "permissionRequested"; at: number }
   | { kind: "permissionResolved"; at: number };
 
+/** 时钟端口：可测试的当前时间。 */
 export interface ClockPort {
   nowIso(): string;
 }
