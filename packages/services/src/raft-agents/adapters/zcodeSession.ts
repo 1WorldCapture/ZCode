@@ -14,6 +14,7 @@ import type {
   ZCodeAgentConversationCommandParams,
   ZCodeAgentCreateSessionParams,
   ZCodeAgentResumeSessionParams,
+  ZCodeAgentSessionTarget,
 } from "#src/zcode-agent/zcodeAgent.js";
 
 import type { RaftSessionPort, RaftSessionSendOutcome } from "../app/ports.js";
@@ -28,6 +29,13 @@ export interface ZcodeSessionAgent {
   createSession(params: ZCodeAgentCreateSessionParams): Promise<{ session: { sessionId: string } }>;
   /** session/resume RPC：冷恢复重建 runtime，agentMemory/officialMcpServers 随请求重发。 */
   resumeSession(params: ZCodeAgentResumeSessionParams): Promise<unknown>;
+  /**
+   * session/close RPC：停 runtime 并归档产品会话。closed=false 表示 Agent 侧未关闭
+   * （如空壳草稿从未落库，本就无可关）——调用方按自己的语义决定是否容忍。
+   */
+  closeSession(
+    params: ZCodeAgentSessionTarget & { expectedPersistence?: "deferred" | "immediate" },
+  ): Promise<boolean>;
 }
 
 function ackToOutcome(ack: CommandAck): RaftSessionSendOutcome {
@@ -130,6 +138,23 @@ export function createZcodeSessionPort(agent: ZcodeSessionAgent): RaftSessionPor
           confineFileToolsToWorkspace: true,
         });
         return { ok: true };
+      } catch (error) {
+        return { ok: false, code: "failed", detail: String(error) };
+      }
+    },
+
+    async closeAgentSession(params) {
+      // 不传 expectedPersistence：主会话虽统一以 deferred 创建，但首个输入落库后
+      // Agent 侧的持久化记录语义与本参数的校验口径未必一致（无落库路径可查），
+      // 删除动作宁可多试一次普通 close，也不因期望不匹配误判失败。
+      try {
+        const closed = await agent.closeSession({
+          workspacePath: params.workspacePath,
+          sessionId: params.sessionId,
+        });
+        // closed=false（如空壳草稿无 session 行，本就无可关）照实上报，
+        // 是否阻断由调用方决定（绑定删除语义优先，见 port 注释）。
+        return closed ? { ok: true } : { ok: false, code: "failed", detail: "closed=false" };
       } catch (error) {
         return { ok: false, code: "failed", detail: String(error) };
       }

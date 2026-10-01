@@ -11,8 +11,8 @@
  * - fencing：本模块只做单读快照，不写绑定记录。会话换代后旧 sessionId 的提交被 V4 判
  *   stale（→ noSession），bridge 退避重试时自然命中新会话；绑定级 fencing 由 wakeServer
  *   的 token 换代承担（旧 bridge 立即失效）。
- * - 不碰消息正文：wake.v1 不带正文（红线），正文只经 agent 会话内的
- *   raft_message_check 工具获取（D5：先落收件日志再给模型）。
+ * - 不碰消息正文：wake.v1 不带正文（红线），drain 文本构建在 prompts.ts；
+ *   正文只经 agent 会话内的 raft_message_check 工具获取（D5：先落收件日志再给模型）。
  * - 停态拒绝投递：desiredState 非 Running 或无 mainSessionRef 时按 noSession 拒绝——
  *   bridge 本不应在此时存活，404 让它退避而不是把文本注进无人值守的会话。
  */
@@ -20,10 +20,11 @@ import type { RaftAgentBinding } from "@zcode/shared";
 
 import type { ServiceLogger } from "#src/logger/serviceLogger.js";
 
+import type { RaftActivityTracker } from "./activity.js";
+import { buildWakePrompt, wakeCycleId } from "./prompts.js";
 import type {
   RaftBindingStorePort,
   RaftSessionPort,
-  RaftWakeRequest,
   WakeHandlerPort,
 } from "./ports.js";
 
@@ -32,30 +33,9 @@ export interface RaftWakeDeliveryOptions {
   sessions: RaftSessionPort;
   /** 传递层失败时建议 bridge 的退避间隔（毫秒）。 */
   busyRetryAfterMs?: number;
+  /** 二期 A1：唤醒成功投递记一次 wake 活动（列表投影来源）。 */
+  activity?: RaftActivityTracker;
   logger?: ServiceLogger;
-}
-
-/** 稳定 wakeCycleId：同一 (bindingId, messageId) 的重复唤醒派生同一 commandId（spec §8.5）。 */
-export function wakeCycleId(bindingId: string, messageId: string): string {
-  return `raft-wake:${bindingId}:${messageId}`;
-}
-
-/**
- * drain 文本：只含 wake.v1 携带的来源头（无正文），引导 agent 走收件工具。
- * 工具名与 raft-agent-tools MCP 包的注册名一致（raft_message_check/read/send）。
- */
-export function buildWakePrompt(wake: RaftWakeRequest): string {
-  return [
-    "【Raft 唤醒】你有新的 Raft 事件需要处理。",
-    `来源：messageId=${wake.messageId} eventId=${wake.eventId} attemptId=${wake.attemptId}`,
-    `时间：${wake.occurredAt}`,
-    `适配实例：${wake.adapterInstance}`,
-    "",
-    "请依次执行：",
-    "1. 用 raft_message_check 检查收件箱（输出会先落收件日志再返回给你）。",
-    "2. 如有未读消息，用 raft_message_read 读取上下文；需要回复时用 raft_message_send 明确 target 发送。",
-    "3. 处理完成后无需主动汇报；没有待办就静默结束，不要发无意义消息。",
-  ].join("\n");
 }
 
 /** 会话就绪判定：值守中且主会话已建立，唤醒才有投递目标。 */
@@ -95,6 +75,7 @@ export function createRaftWakeDelivery(options: RaftWakeDeliveryOptions): WakeHa
       });
 
       if (outcome.ok) {
+        options.activity?.record(bindingId, "wake");
         // 日志纪律（spec §7）：只记 messageId 与计数形态，不记正文（唤醒本就无正文）。
         options.logger?.info(undefined, "raft wake delivered", {
           bindingId,

@@ -1,41 +1,37 @@
 /**
  * 值守编排（T3）：把"开始/停止值守"意图变成 bridge 生命周期 + 会话换代 + 积压 drain。
+ * 链路（spec §3 + §8.5 D8）：前置门（watchStartGates：CLI→MEMORY 门→官方 MCP，
+ * fail-closed）→ 锁内换代 → 会话恢复/懒建（sessionSwap 共享段）→ supervisor.start
+ * → D8 积压 drain（commandId 按 bindingId+启动代次派生，重启后不误判重复）。
  *
- * 链路（spec §3 崩溃恢复顺序 + §8.5 D8）：
- *   CLI 就绪 → MEMORY 门（T5 AgentHomePort.verifyMemoryAvailable；失败即
- *   ErrorPaused(memory_unavailable)，不碰 bridge）→ 官方 MCP 引用解析（fail-closed）→
- *   锁内换代 sessionGeneration+1 并持久化 → 会话恢复（resume 重发 agentMemory +
- *   officialMcpServers——冷恢复重建 runtime 缺了会退回项目记忆且无 Raft 工具；
- *   会话记录已随 agent 进程消亡时自动重建主会话并改绑，见 resume 分支注释）→
- *   supervisor.start → 成功后 D8 积压 drain（commandId 无 messageId，
- *   按 bindingId+启动代次派生，重启后的 drain 不被误判重复）。
- *
- * 设计要点：
- * - 状态覆盖层：ErrorPaused/Running 只存内存，list() 投影时叠加在 desiredState 推导
- *   之上；ErrorPaused 在下次 startWatch 成功或 stopWatch 时清除。bridge 意外退出经
- *   supervisor.onExit 置 ErrorPaused(bridge_exit)（spec §9）。
- * - 换代在锁内：与 RaftAgentsService 共用宿主装配注入的同一把 storeWriteLock，
- *   防"用户停止 vs 编排器换代"的读-改-写竞态。
- * - 每绑定线性化：start/stop 经同一 in-flight 链排队，stop 不会插进 start 的换代与
- *   spawn 之间留下孤儿 bridge；并发的重复 start 合并为同一次执行。
- * - 顺序红线（spec §3）：MEMORY 门与会话恢复都完成之前绝不启动 bridge——bridge
- *   一旦启动就会开始收到积压唤醒，顺序不能反。
+ * 设计要点：ErrorPaused/Running 覆盖层只存内存（list() 投影叠加在 desiredState 之上；
+ * 下次 startWatch 成功或 stopWatch 清除；bridge 意外退出经 onExit 置 bridge_exit，
+ * spec §9）；换代在锁内（与 RaftAgentsService 共用 storeWriteLock，防"用户停止 vs
+ * 编排器换代"竞态）；start/stop 经同一 in-flight 链每绑定线性化（并发重复 start 合并）；
+ * 顺序红线——MEMORY 门与会话恢复都完成之前绝不启动 bridge。
  */
 import type { RaftAgentBinding, RaftAgentRunState, ZCodeOfficialMcpServerRef } from "@zcode/shared";
 
 import type { ServiceLogger } from "#src/logger/serviceLogger.js";
 
-import type { AgentHomePort } from "./agentHomePorts.js";
+import type { RaftActivityTracker } from "./activity.js";
 import type { BridgeSupervisorPort } from "./bridgePorts.js";
+import { backlogDrainCommandId, buildBacklogDrainPrompt } from "./prompts.js";
 import type { ClockPort, RaftBindingStorePort, RaftCliPort, RaftSessionPort } from "./ports.js";
+import { createMainSessionAndRebind } from "./sessionSwap.js";
 import type { RaftStoreWriteLock } from "./storeLock.js";
+import { runWatchStartGates, type RaftMemoryGatePort } from "./watchStartGates.js";
 
-/** 记忆门：T5 AgentHomePort 的 verifyMemoryAvailable 面（四个失败码统一收敛为 ErrorPaused(memory_unavailable)，细节进日志）。 */
-export type RaftMemoryGatePort = Pick<AgentHomePort, "verifyMemoryAvailable">;
+export type { RaftMemoryGatePort };
 
-/** 锁内换代的结果：会话字段在锁内提取（闭包外的可空收窄不可靠）。 */
+/**
+ * 锁内换代的结果：会话字段在锁内提取（闭包外的可空收窄不可靠）。
+ * LazySessionCreate（二期 A1）：mainSessionRef 为空——预建会话改为首次开始才创建，
+ * 锁内只确认意图，创建在锁外完成后再条件改绑（与 resume 失败的重建分支同构）。
+ */
 type StartLockResult =
-  | { code: "BindingNotFound" | "NotRunningIntent" | "NoMainSession" }
+  | { code: "BindingNotFound" | "NotRunningIntent" }
+  | { code: "LazySessionCreate"; binding: RaftAgentBinding }
   | { binding: RaftAgentBinding; sessionId: string; generation: number };
 
 export type RaftWatchStartOutcome =
@@ -45,7 +41,8 @@ export type RaftWatchStartOutcome =
       code:
         | "BindingNotFound"
         | "NotRunningIntent"
-        | "NoMainSession"
+        /** 懒建路径的 createAgentSession 失败（原 NoMainSession 语义已被懒建取代）。 */
+        | "SessionCreateFailed"
         | "MemoryUnavailable"
         | "CliUnavailable"
         | "McpUnavailable"
@@ -69,6 +66,8 @@ export interface RaftWatchRuntimeOptions {
    * 返回 undefined/空 = 插件不可用（fail-closed 不启动）。
    */
   resolveOfficialMcpServers: (binding: RaftAgentBinding) => Promise<ZCodeOfficialMcpServerRef[] | undefined>;
+  /** 二期 A1：活动追踪（drain 提交 / 记忆门结果 / 值守失败）。 */
+  activity?: RaftActivityTracker;
   clock?: ClockPort;
   logger?: ServiceLogger;
 }
@@ -84,25 +83,17 @@ export interface RaftWatchRuntime {
   resolveRunState(binding: RaftAgentBinding): RaftAgentRunState | undefined;
   /** 有序关停（挂 Host service-dispose 阶段）：等全部 bridge 退出后清覆盖层。 */
   disposeAllAndWait(): Promise<void>;
-}
-
-/** D8 积压 drain 的幂等键：代次参与派生，重启后的 drain 不被误判为重复（spec §8.5）。 */
-export function backlogDrainCommandId(bindingId: string, generation: number): string {
-  return `raft-drain:${bindingId}:${generation}`;
-}
-
-/** 积压 drain 文本：值守开始的引导（无 messageId 来源头），不含任何消息正文与凭据。 */
-export function buildBacklogDrainPrompt(input: { bindingId: string; generation: number; nowIso: string }): string {
-  return [
-    "【Raft 值守开始】值守已启动，请先处理积压消息。",
-    `来源：backlog drain（值守启动，无 messageId） 绑定=${input.bindingId} 代次=${input.generation}`,
-    `时间：${input.nowIso}`,
-    "",
-    "请依次执行：",
-    "1. 用 raft_message_check 检查收件箱，处理全部未读（含值守开始前积累的积压）。",
-    "2. 用 raft_message_read 读取上下文；需要回复时用 raft_message_send 明确 target 发送。",
-    "3. 处理完成后静默结束；没有待办不要发无意义消息。",
-  ].join("\n");
+  /**
+   * 二期 A1：管理动作（重启/重置/删除）的独占执行段——与 start/stop 同链线性化，
+   * 保证"停 bridge → 换会话 → 重启"不与用户开始/停止交错。fn 内禁止调用排队版
+   * startWatch/stopWatch（会排在自身之后造成永久挂起）；需要停 bridge 用 stopBridgeNow。
+   */
+  runExclusive<T>(bindingId: string, fn: () => Promise<T>): Promise<T>;
+  /**
+   * 二期 A1：立即停止单个 bridge 并清覆盖层（不排队）——仅供 runExclusive 段内使用；
+   * 外部调用方应使用排队版 stopWatch。
+   */
+  stopBridgeNow(bindingId: string): Promise<void>;
 }
 
 export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWatchRuntime {
@@ -131,6 +122,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
   options.supervisor.onExit((info) => {
     if (info.requested) return;
     overlay.set(info.bindingId, { kind: "ErrorPaused", reason: "bridge_exit" });
+    options.activity?.record(info.bindingId, "error");
     logger?.error(undefined, "raft bridge exited unexpectedly", {
       bindingId: info.bindingId,
       code: info.code,
@@ -146,49 +138,26 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
       return { ok: true };
     }
 
-    // CLI 是硬前置：缺失/版本不符无法拉 bridge，按异常暂停呈现并给出恢复入口。
-    const resolution = await options.cli.resolve();
-    if (!resolution.ok) {
-      overlay.set(bindingId, { kind: "ErrorPaused", reason: "cli_unavailable" });
-      logger?.warn(undefined, "raft watch start blocked: cli unavailable", {
-        bindingId,
-        code: resolution.code,
-        detail: resolution.detail,
-      });
-      return { ok: false, code: "CliUnavailable", detail: resolution.detail };
+    // 前置门（spec §3 顺序红线，watchStartGates）：CLI → MEMORY 门 → 官方 MCP
+    //（fail-closed）。带 reason 的失败置 ErrorPaused 呈现原因（评审线程 b51caf5c：
+    // 不置值 UI 会一直投影成 Starting）；下次 startWatch 成功或 stopWatch 清除。
+    const gates = await runWatchStartGates(
+      {
+        cli: options.cli,
+        memory: options.memory,
+        store: options.store,
+        resolveOfficialMcpServers: options.resolveOfficialMcpServers,
+        activity: options.activity,
+        logger,
+      },
+      bindingId,
+    );
+    if (!gates.ok) {
+      if (!("reason" in gates.failure)) return { ok: false, code: gates.failure.code };
+      overlay.set(bindingId, { kind: "ErrorPaused", reason: gates.failure.reason });
+      return { ok: false, code: gates.failure.code, detail: gates.failure.detail };
     }
-
-    const initial = (await options.store.readAll()).find((b) => b.bindingId === bindingId);
-    if (!initial) {
-      return { ok: false, code: "BindingNotFound" };
-    }
-
-    // MEMORY 门（spec §3：先完成记忆校验再启动 bridge，顺序不能反）。
-    if (options.memory) {
-      const gate = await options.memory.verifyMemoryAvailable({
-        homeWorkspacePath: initial.homeWorkspacePath,
-      });
-      if (!gate.ok) {
-        overlay.set(bindingId, { kind: "ErrorPaused", reason: "memory_unavailable" });
-        logger?.warn(undefined, "raft watch start blocked: memory unavailable", {
-          bindingId,
-          gateCode: gate.code,
-          detail: gate.detail,
-        });
-        return { ok: false, code: "MemoryUnavailable", detail: gate.detail ? `${gate.code}: ${gate.detail}` : gate.code };
-      }
-    }
-
-    // 官方 MCP 引用（fail-closed）：resume 冷恢复必须重发；插件不可用就不启动值守
-    //（没有 Raft 工具的会话收了唤醒也无法处理，fail-fast 比带病值守好）。
-    const officialMcpServers = await options.resolveOfficialMcpServers(initial);
-    if (officialMcpServers === undefined || officialMcpServers.length === 0) {
-      // 置 ErrorPaused(mcp_unavailable)：不置值 UI 会一直投影成 Starting，用户看不到
-      // 原因（评审线程 b51caf5c）；下次 startWatch 成功或 stopWatch 清除。
-      overlay.set(bindingId, { kind: "ErrorPaused", reason: "mcp_unavailable" });
-      logger?.warn(undefined, "raft watch start blocked: official mcp unavailable", { bindingId });
-      return { ok: false, code: "McpUnavailable" };
-    }
+    const officialMcpServers = gates.officialMcpServers;
 
     // 锁内：重读（防 start 期间 setDesiredState）→ 校验 → 换代 → 持久化。
     const locked = await options.lock.withLock(async (): Promise<StartLockResult> => {
@@ -196,7 +165,8 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
       const binding = bindings.find((b) => b.bindingId === bindingId);
       if (!binding) return { code: "BindingNotFound" };
       if (binding.desiredState !== "Running") return { code: "NotRunningIntent" };
-      if (!binding.mainSessionRef) return { code: "NoMainSession" };
+      // 二期 A1 懒建：无预建会话不再失败，改走锁外创建 + 条件改绑。
+      if (!binding.mainSessionRef) return { code: "LazySessionCreate", binding };
       const generation = binding.mainSessionRef.sessionGeneration + 1;
       const next: RaftAgentBinding = {
         ...binding,
@@ -206,7 +176,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
       await options.store.writeAll(bindings.map((b) => (b.bindingId === bindingId ? next : b)));
       return { binding: next, sessionId: binding.mainSessionRef.sessionId, generation };
     });
-    if ("code" in locked) {
+    if ("code" in locked && locked.code !== "LazySessionCreate") {
       logger?.info(undefined, "raft watch start aborted before spawn", { bindingId, code: locked.code });
       return { ok: false, code: locked.code };
     }
@@ -215,72 +185,102 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
     // 清历史 ErrorPaused：本次结果以 supervisor 启动成败为准。
     overlay.delete(bindingId);
 
-    // 会话恢复（spec §3：先于 bridge 启动）：resume 重发记忆作用域与 MCP 引用——
-    // 冷恢复会重建 runtime，缺了会退回项目记忆且无 Raft 工具。失败置
-    // ErrorPaused(session_unavailable)（评审线程 b51caf5c：不置值 UI 会一直显示
-    // 启动中，用户看不到原因）；下次 startWatch 成功或 stopWatch 清除。
-    const resumed = await options.sessions.resumeAgentSession({
-      workspacePath: binding.homeWorkspacePath,
-      sessionId: locked.sessionId,
-      agentMemory: { homeRoot: binding.homeWorkspacePath, agentName: binding.displayName },
-      officialMcpServers,
-    });
-    let sessionId = locked.sessionId;
-    let generation = locked.generation;
-    if (!resumed.ok) {
-      // 会话记录随 agent 进程消亡（内嵌运行时事件存储为内存态）：ZCode 重启后
-      // mainSessionRef 指向的会话不复存在（e2e S6）。Home 记忆才是持久层，主会话是
-      // 可重建的运行时资源——重建并改绑（PM 批准进第一期；对话上下文丢弃、记忆保留，
-      // 语义在 SPEC.md「会话恢复」小节）。新会话代次重置为 1：旧 fencing 随旧 sessionId 一起失效。
-      logger?.warn(undefined, "raft watch: session resume failed, rebuilding main session", {
-        bindingId,
-        oldSessionId: locked.sessionId,
-        reason: resumed.detail,
-      });
-      const created = await options.sessions.createAgentSession({
+    // 懒建分支（二期 A1）：首启创建主会话，共享段做锁内条件改绑（仍空引用才写入，
+    // 防与并发 start/stop/remove 交错双写）。新会话代次 1。create 刚构建过带记忆与
+    // MCP 的 runtime，无需再 resume。
+    let sessionId: string;
+    let generation: number;
+    if ("code" in locked) {
+      logger?.info(undefined, "raft watch: no main session yet, creating lazily", { bindingId });
+      const swapped = await createMainSessionAndRebind(
+        { store: options.store, lock: options.lock, sessions: options.sessions, clock },
+        {
+          bindingId,
+          workspacePath: binding.homeWorkspacePath,
+          agentMemory: { homeRoot: binding.homeWorkspacePath, agentName: binding.displayName },
+          officialMcpServers,
+          expectedSessionId: null,
+          expectedDesiredState: "Running",
+        },
+      );
+      if (!swapped.ok) {
+        if (swapped.code === "concurrent") {
+          logger?.info(undefined, "raft watch: binding changed during lazy create, aborting start", { bindingId });
+          return { ok: false, code: "NotRunningIntent" };
+        }
+        overlay.set(bindingId, { kind: "ErrorPaused", reason: "session_unavailable" });
+        options.activity?.record(bindingId, "error");
+        logger?.warn(undefined, "raft watch start blocked: lazy session create failed", {
+          bindingId,
+          detail: swapped.detail,
+        });
+        return { ok: false, code: "SessionCreateFailed", detail: swapped.detail };
+      }
+      sessionId = swapped.sessionId;
+      generation = 1;
+      logger?.info(undefined, "raft watch: main session created lazily", { bindingId, sessionId });
+    } else {
+      // 会话恢复（spec §3：先于 bridge 启动）：resume 重发记忆作用域与 MCP 引用——
+      // 冷恢复会重建 runtime，缺了会退回项目记忆且无 Raft 工具。失败置
+      // ErrorPaused(session_unavailable)（评审线程 b51caf5c：不置值 UI 会一直显示
+      // 启动中，用户看不到原因）；下次 startWatch 成功或 stopWatch 清除。
+      sessionId = locked.sessionId;
+      generation = locked.generation;
+      const resumed = await options.sessions.resumeAgentSession({
         workspacePath: binding.homeWorkspacePath,
+        sessionId: locked.sessionId,
         agentMemory: { homeRoot: binding.homeWorkspacePath, agentName: binding.displayName },
         officialMcpServers,
       });
-      if (!created.ok) {
-        overlay.set(bindingId, { kind: "ErrorPaused", reason: "session_unavailable" });
-        logger?.warn(undefined, "raft watch start blocked: session rebuild failed", {
+      if (!resumed.ok) {
+        // resume 失败 = 会话行已不存在。历史主因是空壳预建会话从未越过统一持久化
+        // 边界（无输入即无 session 行，见 SPEC「主会话重建」2026-10-01 更正）——二期 A1
+        // 改懒建后不再产生；本分支留存兜底 db 被清/会话被他途归档等场景。Home 记忆
+        // 才是持久层，主会话是可重建的运行时资源——重建并改绑（对话上下文丢弃、
+        // 记忆保留）。新会话代次重置为 1：旧 fencing 随旧 sessionId 一起失效。
+        logger?.warn(undefined, "raft watch: session resume failed, rebuilding main session", {
           bindingId,
-          detail: created.detail,
+          oldSessionId: locked.sessionId,
+          reason: resumed.detail,
         });
-        return { ok: false, code: "SessionResumeFailed", detail: created.detail };
-      }
-      // 锁内改绑：仅在引用仍指向被替换的旧会话时写入（防与并发 start/stop 交错双写）。
-      const relock = await options.lock.withLock(async (): Promise<{ ok: true } | { ok: false }> => {
-        const bindings = await options.store.readAll();
-        const current = bindings.find((b) => b.bindingId === bindingId);
-        if (!current || current.mainSessionRef?.sessionId !== locked.sessionId) return { ok: false };
-        const next: RaftAgentBinding = {
-          ...current,
-          mainSessionRef: { sessionId: created.sessionId, sessionGeneration: 1 },
-          updatedAt: clock.nowIso(),
-        };
-        await options.store.writeAll(bindings.map((b) => (b.bindingId === bindingId ? next : b)));
-        return { ok: true };
-      });
-      if (!relock.ok) {
-        logger?.info(undefined, "raft watch: binding changed during session rebuild, aborting start", {
+        const swapped = await createMainSessionAndRebind(
+          { store: options.store, lock: options.lock, sessions: options.sessions, clock },
+          {
+            bindingId,
+            workspacePath: binding.homeWorkspacePath,
+            agentMemory: { homeRoot: binding.homeWorkspacePath, agentName: binding.displayName },
+            officialMcpServers,
+            expectedSessionId: locked.sessionId,
+          },
+        );
+        if (!swapped.ok) {
+          if (swapped.code === "concurrent") {
+            logger?.info(undefined, "raft watch: binding changed during session rebuild, aborting start", {
+              bindingId,
+            });
+            return { ok: false, code: "NotRunningIntent" };
+          }
+          overlay.set(bindingId, { kind: "ErrorPaused", reason: "session_unavailable" });
+          options.activity?.record(bindingId, "error");
+          logger?.warn(undefined, "raft watch start blocked: session rebuild failed", {
+            bindingId,
+            detail: swapped.detail,
+          });
+          return { ok: false, code: "SessionResumeFailed", detail: swapped.detail };
+        }
+        sessionId = swapped.sessionId;
+        generation = 1;
+        logger?.info(undefined, "raft watch: main session rebuilt", {
           bindingId,
+          oldSessionId: locked.sessionId,
+          newSessionId: swapped.sessionId,
         });
-        return { ok: false, code: "NotRunningIntent" };
       }
-      sessionId = created.sessionId;
-      generation = 1;
-      logger?.info(undefined, "raft watch: main session rebuilt", {
-        bindingId,
-        oldSessionId: locked.sessionId,
-        newSessionId: created.sessionId,
-      });
     }
 
     const started = await options.supervisor.start(
       { bindingId, profileSlug: binding.profileSlug, raftAgentId: binding.raftAgentId },
-      resolution.cliPath,
+      gates.cliPath,
     );
     if (!started.ok) {
       // NotOwner/LockHeld 是多窗口/多实例路由结果，不算本机故障，保留推导态；
@@ -295,6 +295,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
       }
       // EndpointUnavailable/SpawnFailed/EarlyExit → 异常暂停（spec §9）。
       overlay.set(bindingId, { kind: "ErrorPaused", reason: "bridge_exit" });
+      options.activity?.record(bindingId, "error");
       logger?.error(undefined, "raft bridge start failed", {
         bindingId,
         code: started.code,
@@ -322,6 +323,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
         detail: drain.detail,
       });
     } else {
+      options.activity?.record(bindingId, "drain_submitted");
       logger?.info(undefined, "raft watch started", {
         bindingId,
         generation,
@@ -366,6 +368,15 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
     async disposeAllAndWait() {
       await options.supervisor.stopAll();
       overlay.clear();
+    },
+
+    runExclusive(bindingId, fn) {
+      return queue(bindingId, fn);
+    },
+
+    async stopBridgeNow(bindingId) {
+      await options.supervisor.stop(bindingId);
+      overlay.delete(bindingId);
     },
   };
 }

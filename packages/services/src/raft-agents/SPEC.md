@@ -246,7 +246,7 @@ interface IRaftAgentsService {
 - **重置**：同重启，但在新建会话前先清 Home 的**记忆面**（根下 `MEMORY.md`、`AGENTS.md`、`notes/` 整树）并按初始模板重建（复用 T5 初始化的"只写缺失"语义，删除后即全新）。**不动** Home 内其他内容（如 `projects/`）、不动凭据与绑定。
 - **删除**：停值守 → `session/close` 关闭主会话（产品会话归档；不做跨进程删库行）→ 删绑定记录与本地 profile（复用 removeBinding 既有路径）→ 删 Home → 返回 UI 提示所需信息（raftOrigin、agentName），由 UI 展示"请到 Raft 侧撤销 token"。
 
-**2. 预建会话改懒建**：createBinding 不再预建主会话（消除空壳 Session-not-found，见「主会话重建」节更正注记）；`mainSessionRef` 为空的绑定在首次 startWatch 时创建会话（dfcd362 自动重建路径保留为兜底）。
+**2. 预建会话改懒建**：createBinding 不再预建主会话（消除空壳 Session-not-found，见「主会话重建」节更正注记）；`mainSessionRef` 为空的绑定在首次 startWatch 时创建会话（dfcd362 自动重建路径保留为兜底）。原先的预建步骤模块 `app/mainSessionProvisioning.ts` 随之删除（懒建后无生产引用）；懒建与重建共用「锁外创建 + 锁内条件改绑」段（`app/sessionSwap.ts`，三个调用方同语义）。
 
 **3. 宿主侧恢复入口（B3 依赖）**：`openAgentSession(bindingId)` —— 确保主会话存在（懒建）→ `resumeAgentSession`（带 `agentMemory`/`officialMcpServers`，防退回项目记忆）→ 返回会话坐标 `{sessionId, workspacePath}`。渲染层用坐标挂现有会话视图；无论 B3 走"构造 Home 工作区上下文"还是"绑定推导分类"，本入口形状不变。
 

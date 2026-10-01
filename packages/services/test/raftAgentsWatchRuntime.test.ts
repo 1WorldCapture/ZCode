@@ -12,9 +12,8 @@ import type { RaftAgentBinding, ZCodeOfficialMcpServerRef } from "@zcode/shared"
 import {
   backlogDrainCommandId,
   buildBacklogDrainPrompt,
-  createRaftWatchRuntime,
-  type RaftMemoryGatePort,
-} from "../src/raft-agents/app/watchRuntime.js";
+} from "../src/raft-agents/app/prompts.js";
+import { createRaftWatchRuntime, type RaftMemoryGatePort } from "../src/raft-agents/app/watchRuntime.js";
 import type { RaftBindingStorePort, RaftSessionPort, RaftSessionSendOutcome } from "../src/raft-agents/app/ports.js";
 import type { BridgeBindingRef, BridgeStartResult, BridgeExitInfo, BridgeSupervisorPort } from "../src/raft-agents/app/bridgePorts.js";
 import { createRaftStoreWriteLock } from "../src/raft-agents/app/storeLock.js";

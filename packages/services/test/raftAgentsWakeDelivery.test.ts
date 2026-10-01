@@ -9,7 +9,8 @@ import test from "node:test";
 import type { CommandAck } from "@zcode/shared/zcode-protocol-v4";
 import type { RaftAgentBinding } from "@zcode/shared";
 
-import { buildWakePrompt, createRaftWakeDelivery, wakeCycleId } from "../src/raft-agents/app/wakeDelivery.js";
+import { buildWakePrompt, wakeCycleId } from "../src/raft-agents/app/prompts.js";
+import { createRaftWakeDelivery } from "../src/raft-agents/app/wakeDelivery.js";
 import type { RaftBindingStorePort, RaftSessionPort, RaftSessionSendOutcome } from "../src/raft-agents/app/ports.js";
 import type { RaftWakeRequest, WakeDelivery } from "../src/raft-agents/app/ports.js";
 import { createZcodeSessionPort } from "../src/raft-agents/adapters/zcodeSession.js";

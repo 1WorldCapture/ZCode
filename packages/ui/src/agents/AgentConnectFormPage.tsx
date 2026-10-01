@@ -29,6 +29,8 @@ function setupErrorMessageId(code: RaftAgentSetupErrorCode): string {
     case "SlugConflict":
     case "HomeOverlapsCredentials":
     case "AlreadyBound":
+    // 二期 A2：复用凭据被其他绑定占用（A2 向导会给出更细的置灰引导）。
+    case "ProfileInUse":
     case "ProvisioningFailed":
     case "StoreWriteFailed":
       return `agentCenter.form.error.${code}`;

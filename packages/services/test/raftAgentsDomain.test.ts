@@ -130,6 +130,10 @@ test("findBindingConflicts 不同身份不同路径放行", () => {
 test("parseCliVersion/parseCliErrorCode/parseAgentName 按 CLI 契约解析", () => {
   assert.equal(parseCliVersion("Raft CLI: 0.0.24\n"), "0.0.24");
   assert.equal(parseCliVersion("something else"), undefined);
+  // fork 后缀（A3 发布 0.0.24-zcode.1）：取前三段，满足最低版本比较。
+  assert.equal(parseCliVersion("Raft CLI: 0.0.24-zcode.1\n"), "0.0.24");
+  assert.equal(parseCliVersion("Raft CLI: 1.2.3-rc.4"), "1.2.3");
+  assert.equal(parseCliVersion("Raft CLI: 0.0.24-zcode.1.2.3-extra"), undefined);
   assert.equal(parseCliErrorCode("Error: The server did not accept the token.\nCode: INVALID_AGENT_TOKEN\n"), "INVALID_AGENT_TOKEN");
   assert.equal(
     parseAgentName("state: authorized\nLogged in as 'Alice Agent' on https://raft.example. Credential saved to /p.\n"),

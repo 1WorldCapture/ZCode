@@ -50,6 +50,7 @@ const enUS: Record<string, string> = {
   "agentCenter.form.error.HomeOverlapsCredentials":
     "The Home path must not contain or fall inside the Raft credentials directory (raft/profiles). Choose another directory",
   "agentCenter.form.error.AlreadyBound": "This Agent is already connected ({detail})",
+  "agentCenter.form.error.ProfileInUse": "This local credential is already used by another binding ({detail}). Pick another credential or paste a token",
   "agentCenter.form.error.ProvisioningFailed": "Setup failed and can be retried (step: {detail})",
   "agentCenter.form.error.StoreWriteFailed": "Couldn't save. Please retry",
   "agentCenter.form.description":

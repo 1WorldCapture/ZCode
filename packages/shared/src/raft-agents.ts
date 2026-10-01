@@ -62,15 +62,26 @@ export const raftAgentsConfigFileSchema = z
   .strict();
 export type RaftAgentsConfigFile = z.infer<typeof raftAgentsConfigFileSchema>;
 
-/** 表单输入。token 只经 stdin 传给官方 CLI，不进任何持久化结构。 */
-export const raftAgentBindingInputSchema = z
-  .object({
-    raftOrigin: z.string().trim().min(1),
-    raftAgentId: z.string().trim().pipe(raftAgentIdSchema),
-    token: z.string().min(1),
-    homeWorkspacePath: z.string().trim().optional(),
-  })
-  .strict();
+/**
+ * 表单输入（二期 A2 起互斥二选一）：直传 token，或复用本机已有凭据
+ * （existingProfileSlug——服务侧从该 profile 读 token 走与直传完全相同的链路；
+ * 绑定本身仍生成自己的 ZCode slug，原 profile 不动）。token 只经 stdin 传给
+ * 官方 CLI，不进任何持久化结构。
+ */
+const raftAgentBindingInputFields = {
+  raftOrigin: z.string().trim().min(1),
+  raftAgentId: z.string().trim().pipe(raftAgentIdSchema),
+  homeWorkspacePath: z.string().trim().optional(),
+};
+export const raftAgentBindingInputSchema = z.union([
+  z.object({ ...raftAgentBindingInputFields, token: z.string().min(1) }).strict(),
+  z
+    .object({
+      ...raftAgentBindingInputFields,
+      existingProfileSlug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+    })
+    .strict(),
+]);
 export type RaftAgentBindingInput = z.infer<typeof raftAgentBindingInputSchema>;
 
 /** 接入流程错误码（spec：T1 失败语义表）。 */
@@ -92,6 +103,11 @@ export const raftAgentSetupErrorCodeSchema = z.enum([
   "HomeOverlapsCredentials",
   /** 同一 (raftOrigin, serverId, raftAgentId) 身份已有绑定（区别于 slug 碰撞）。 */
   "AlreadyBound",
+  /**
+   * 二期 A2：复用凭据接入时，existingProfileSlug 已被其他绑定引用占用
+   * （与 listLocalCredentials.boundBindingId 同判据；UI 侧置灰，服务侧兜底）。
+   */
+  "ProfileInUse",
   /** Provisioning 步骤失败（步骤名在 detail）；步骤自身应保持幂等可重试。 */
   "ProvisioningFailed",
   "StoreWriteFailed",
@@ -156,6 +172,142 @@ export const raftAgentListItemSchema = z
     connectionState: raftAgentConnectionStateSchema,
     runState: raftAgentRunStateSchema,
     homePath: z.string().min(1),
+    /**
+     * 二期 A1 活动投影（可选派生字段，旧读取方不受影响）。pendingApprovals 在
+     * yolo 值守下恒 0（无人工审批面）；turn 级粒度待 B2 活动事件接入后追加字段。
+     */
+    activity: z
+      .object({
+        lastActivityAt: z.string().nullable(),
+        lastActivityKind: z.enum(["wake", "drain_submitted", "error"]).nullable(),
+        memoryLoaded: z.boolean(),
+        pendingApprovals: z.number().int().min(0),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type RaftAgentListItem = z.infer<typeof raftAgentListItemSchema>;
+
+// -----------------------------------------------
+// 二期 A1：管理动作 / 凭据预核验 / 记忆只读 / 凭据枚举
+// -----------------------------------------------
+
+/** 凭据预核验输入：与接入表单同形（token 只经 stdin 进 CLI，不进任何持久化结构）。 */
+export const raftAgentVerifyCredentialInputSchema = z
+  .object({
+    raftOrigin: z.string().trim().min(1),
+    raftAgentId: z.string().trim().pipe(raftAgentIdSchema),
+    token: z.string().min(1),
+  })
+  .strict();
+export type RaftAgentVerifyCredentialInput = z.infer<typeof raftAgentVerifyCredentialInputSchema>;
+
+/** 预核验结果：成功返回服务端认定的身份；失败码与接入同族（无 Provisioning/Store 系）。 */
+export const raftAgentVerifyResultSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      identity: z
+        .object({
+          agentId: raftAgentIdSchema,
+          agentName: z.string().optional(),
+          serverUrl: z.string().min(1),
+          serverId: z.string().min(1),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      code: z.enum([
+        "CliMissing",
+        "CliVersionUnsupported",
+        "OriginInvalid",
+        "AgentIdInvalid",
+        "TokenInvalid",
+        "IdentityMismatch",
+        "CredentialCheckFailed",
+      ]),
+      detail: z.string().optional(),
+    })
+    .strict(),
+]);
+export type RaftAgentVerifyResult = z.infer<typeof raftAgentVerifyResultSchema>;
+
+/** 记忆面文件条目（只读视图）。path 限定 "MEMORY.md" | "AGENTS.md" | "notes/..."。 */
+export const raftAgentMemoryFileSchema = z
+  .object({
+    path: z.string().min(1),
+    size: z.number().int().min(0),
+    modifiedAt: z.string().min(1),
+  })
+  .strict();
+export type RaftAgentMemoryFile = z.infer<typeof raftAgentMemoryFileSchema>;
+
+/** 记忆文件内容（truncated = 超过单文件上限被截断）。 */
+export const raftAgentMemoryContentSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      content: z.string(),
+      modifiedAt: z.string().min(1),
+      truncated: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      code: z.enum(["NotFound", "OutsideMemorySurface", "Unreadable"]),
+      detail: z.string().optional(),
+    })
+    .strict(),
+]);
+export type RaftAgentMemoryContent = z.infer<typeof raftAgentMemoryContentSchema>;
+
+/** 本机已有凭据条目（apiKey 永不出现；boundBindingId = 已被现有绑定占用）。 */
+export const raftAgentLocalCredentialSchema = z
+  .object({
+    profileSlug: z.string().min(1),
+    serverUrl: z.string().min(1),
+    serverId: z.string().min(1),
+    agentId: raftAgentIdSchema,
+    agentName: z.string().optional(),
+    createdAt: z.string().min(1),
+    boundBindingId: z.string().uuid().nullable(),
+  })
+  .strict();
+export type RaftAgentLocalCredential = z.infer<typeof raftAgentLocalCredentialSchema>;
+
+/** 管理动作（重启/重置）结果。 */
+export const raftAgentManagementResultSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true) }).strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      code: z.enum(["NotFound", "SessionCreateFailed", "MemoryResetFailed"]),
+      detail: z.string().optional(),
+    })
+    .strict(),
+]);
+export type RaftAgentManagementResult = z.infer<typeof raftAgentManagementResultSchema>;
+
+/** 打开会话（B3 恢复入口）结果：返回会话坐标供渲染层挂现有会话视图。 */
+export const raftAgentOpenSessionResultSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      sessionId: z.string().min(1),
+      workspacePath: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      code: z.enum(["NotFound", "McpUnavailable", "SessionCreateFailed", "SessionResumeFailed"]),
+      detail: z.string().optional(),
+    })
+    .strict(),
+]);
+export type RaftAgentOpenSessionResult = z.infer<typeof raftAgentOpenSessionResultSchema>;

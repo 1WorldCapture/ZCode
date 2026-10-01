@@ -4,9 +4,12 @@
  * createDefaultRaftHostStack（T3 宿主接线），类型契约经 contract.ts；
  * 依赖方向保持 compose → app/adapters → contract 单向。
  */
+import { join } from "node:path";
+
 import { getZCodeDataRootDir } from "#src/paths.js";
 
 import type { IRaftAgentsService, RaftProvisioningStep } from "./contract.js";
+import { createRaftActivityTracker } from "./app/activity.js";
 import { createRaftAgentsService, type RaftAgentsServiceOptions } from "./app/raftAgentsService.js";
 import { createRaftWakeDelivery, type RaftWakeDeliveryOptions } from "./app/wakeDelivery.js";
 import {
@@ -14,17 +17,18 @@ import {
   type RaftWatchRuntime,
   type RaftWatchRuntimeOptions,
 } from "./app/watchRuntime.js";
+import { createRaftAgentManagement } from "./app/management.js";
 import type { OwnerGuardPort } from "./app/bridgePorts.js";
 import type { AgentHomePort } from "./app/agentHomePorts.js";
 import type { RaftSessionPort, WakeHandlerPort } from "./app/ports.js";
 import { createRaftStoreWriteLock, type RaftStoreWriteLock } from "./app/storeLock.js";
 import { createAgentHomeProvisioningStep } from "./app/agentHomeProvisioning.js";
-import { createMainSessionProvisioningStep } from "./app/mainSessionProvisioning.js";
 import { buildRaftAgentToolsMcpRef } from "./app/officialMcp.js";
 import { createAgentHomeAdapter } from "./adapters/agentHome.js";
 import { createRaftBindingStore } from "./adapters/bindingStore.js";
 import { createBridgeSupervisor } from "./adapters/bridgeSupervisor.js";
 import { createRaftCliAdapter } from "./adapters/raftCli.js";
+import { createRaftProfilesCatalog } from "./adapters/profilesCatalog.js";
 import { createWakeServer } from "./adapters/wakeServer.js";
 
 type WakeDeliveryLogger = NonNullable<RaftWakeDeliveryOptions["logger"]>;
@@ -51,6 +55,11 @@ export function createDefaultRaftAgentsService(options: DefaultRaftAgentsService
     storeWriteLock: options.storeWriteLock,
     resolveRunState: options.resolveRunState,
     onDesiredStateChanged: options.onDesiredStateChanged,
+    // 二期 A1 注入面：默认组合根也带上记忆/凭据枚举/活动（管理动作需要会话面，
+    // 仅宿主栈装配；此处缺省不 wire management）。
+    memory: createAgentHomeAdapter(),
+    profilesCatalog: createRaftProfilesCatalog(join(dataRootDir, "raft", "profiles")),
+    activity: createRaftActivityTracker(),
   });
 }
 
@@ -74,6 +83,7 @@ export function createDefaultRaftWatchRuntime(
     cli: options.cli ?? createRaftCliAdapter(),
     memory: options.memory,
     resolveOfficialMcpServers: options.resolveOfficialMcpServers,
+    activity: options.activity,
     clock: options.clock,
     logger: options.logger,
   });
@@ -143,6 +153,8 @@ export function createDefaultRaftHostStack(options: {
   const lock = createRaftStoreWriteLock();
   const store = createRaftBindingStore(dataRootDir);
   const memory = options.memory ?? createAgentHomeAdapter();
+  const activity = createRaftActivityTracker();
+  const profilesCatalog = createRaftProfilesCatalog(join(dataRootDir, "raft", "profiles"));
 
   // 官方 MCP 引用：CLI 不可解析 = 插件/环境不可用 → fail-closed（undefined）。
   const resolveOfficialMcpServers = async (binding: Parameters<typeof buildRaftAgentToolsMcpRef>[0]) => {
@@ -159,7 +171,12 @@ export function createDefaultRaftHostStack(options: {
     ];
   };
 
-  const wakeHandler = createRaftWakeDelivery({ store, sessions: options.sessions, logger });
+  const wakeHandler = createRaftWakeDelivery({
+    store,
+    sessions: options.sessions,
+    activity,
+    logger,
+  });
   const wakeServer = createWakeServer({ handler: wakeHandler, port: options.wakePort });
   const supervisor = createBridgeSupervisor({
     dataRootDir,
@@ -178,6 +195,19 @@ export function createDefaultRaftHostStack(options: {
     cli,
     memory,
     resolveOfficialMcpServers,
+    activity,
+    logger,
+  });
+
+  // 二期 A1 管理动作编排：重启/重置/打开会话/删除前置拆除。
+  const management = createRaftAgentManagement({
+    store,
+    lock,
+    sessions: options.sessions,
+    memory,
+    runtime,
+    resolveOfficialMcpServers,
+    activity,
     logger,
   });
 
@@ -187,13 +217,15 @@ export function createDefaultRaftHostStack(options: {
     clock: { nowIso: () => new Date().toISOString() },
     dataRootDir,
     logger,
-    // 顺序硬约束：Home 先于主会话（会话 workspace 与记忆根 = Agent Home）。
-    provisioningSteps: [
-      createAgentHomeProvisioningStep(memory),
-      createMainSessionProvisioningStep({ sessions: options.sessions, resolveOfficialMcpServers, logger }),
-    ],
+    // 二期 A1 懒建：provisioning 只保留 Home 步骤——主会话改为首次开始值守时创建
+    //（watchRuntime 懒建分支），避免空壳预建会话从未落库的角落（SPEC 更正记录）。
+    provisioningSteps: [createAgentHomeProvisioningStep(memory)],
     storeWriteLock: lock,
     resolveRunState: runtime.resolveRunState,
+    memory,
+    profilesCatalog,
+    management,
+    activity,
     onDesiredStateChanged: ({ bindingId, desired }) => {
       // 状态落盘成功后触发编排（锁外、异步）：开始/停止值守。
       void (desired === "Running" ? runtime.startWatch(bindingId) : runtime.stopWatch(bindingId)).catch(
