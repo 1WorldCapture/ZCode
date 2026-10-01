@@ -2449,6 +2449,9 @@ export function createLocalServices(options: {
   // disposeServiceResources（AndWait），恢复在集合建成后异步触发（spec §3 崩溃恢复）。
   const raftStack = createDefaultRaftHostStack({
     sessions: createZcodeSessionPort(zcodeAgentService),
+    // Without a logger the raft runtime (watchRuntime/supervisor/wakeServer) is
+    // silent in host logs — e2e debugging showed wake delivery is unobservable.
+    logger: createServiceLogger("raft-agents"),
   });
   const services = new ServiceCollection()
     .register(IFileService, fileService)

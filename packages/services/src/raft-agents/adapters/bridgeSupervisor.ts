@@ -169,6 +169,13 @@ export function createBridgeSupervisor(options: BridgeSupervisorOptions): Bridge
         const exited = new Promise<void>((resolve) => {
           markExited = resolve;
         });
+        // Per-line redacted logging of bridge stdio (debugging aid; secrets scrubbed).
+        const logBridgeLines = (tag: string, text: string): void => {
+          for (const raw of text.split("\n")) {
+            const line = raw.trim();
+            if (line) options.logger?.info(tag, { bindingId: id, line: redactSecrets(line, endpoint.token) });
+          }
+        };
         const entry: Running = {
           child,
           lock,
@@ -181,10 +188,13 @@ export function createBridgeSupervisor(options: BridgeSupervisorOptions): Bridge
         running.set(id, entry);
 
         child.stderr?.on("data", (chunk: Buffer) => {
-          entry.stderrTail = (entry.stderrTail + chunk.toString("utf8")).slice(-STDERR_TAIL_BYTES);
+          const text = chunk.toString("utf8");
+          entry.stderrTail = (entry.stderrTail + text).slice(-STDERR_TAIL_BYTES);
+          logBridgeLines("bridge stderr", text);
         });
-        // 只消费 stdout（NDJSON 诊断事件）防止管道写满阻塞子进程；第一期不解析内容。
-        child.stdout?.on("data", () => undefined);
+        // 消费 stdout（NDJSON 诊断事件）防止管道写满阻塞子进程；排障期按行
+        // redact 后落日志（PM/grokbot e2e 线程要求：bridge 侧唤醒尝试可观测）。
+        child.stdout?.on("data", (chunk: Buffer) => logBridgeLines("bridge stdout", chunk.toString("utf8")));
 
         // 顺序（T3 约定）：先确认进程已退出，再释放锁、关闭唤醒端点，最后才通知；
         // stop()/stopAll() 等待的 exited 在这些清理完成之后才 resolve。

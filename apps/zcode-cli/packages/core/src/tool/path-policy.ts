@@ -2,7 +2,7 @@
 // Tool Path Policy
 // ============================================================
 
-import { isAbsolute, normalize, resolve } from "node:path";
+import { isAbsolute, normalize, relative, resolve } from "node:path";
 import { CoreErrorType, createCoreError } from "@zcode/contracts";
 
 interface ToolWorkspacePathOptions {
@@ -37,6 +37,25 @@ export function resolveWorkspacePath(options: ToolWorkspacePathOptions): string 
   // Cause: subagents may need to inspect user-requested sibling repos or external files
   // before the filesystem permission adapter grows explicit ask/deny rules for them.
   return resolvedPath;
+}
+
+/**
+ * Containment check for the unattended file-tool scope (`resolveWorkspacePath`
+ * deliberately does not block outside-root paths — see its comment). Both inputs
+ * must already be resolved absolute paths; callers resolve via resolveWorkspacePath
+ * so `..` traversal and cwd-relative inputs are normalized before we compare.
+ * The root itself counts as outside: file tools target files, not the root dir.
+ */
+export function isResolvedPathInsideRoot(resolvedPath: string, rootDir: string): boolean {
+  const root = normalizeAbsoluteDirectory(rootDir, "rootDir");
+  const relativePath = relative(root, normalize(resolvedPath));
+  return (
+    relativePath.length > 0 &&
+    relativePath !== ".." &&
+    !relativePath.startsWith("../") &&
+    !relativePath.startsWith("..\\") &&
+    !isAbsolute(relativePath)
+  );
 }
 
 export function resolveToolWorkingDirectory(

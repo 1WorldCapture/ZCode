@@ -31,7 +31,7 @@ interface IRaftAgentsService {
   list(): Promise<RaftAgentListItem[]>;
   get(bindingId): Promise<RaftAgentBinding | null>;
   createBinding(input: RaftAgentBindingInput): Promise<RaftAgentSetupResult>;  // 后台顺序执行，失败保留已完成步骤
-  removeBinding(bindingId, opts: { deleteHome: boolean }): Promise<void>;      // T1 不撤销 Raft 侧 token（D4）
+  removeBinding(bindingId, opts: { deleteHome: boolean }): Promise<{ homeDeleted: boolean }>;  // T1 不撤销 Raft 侧 token（D4）；A1 起返回 homeDeleted（见删除守卫）
   setDesiredState(bindingId, "ReadyStopped" | "Running"): Promise<void>;       // Running 的实际效果在 T2/T3 接入
 }
 ```
@@ -46,6 +46,7 @@ interface IRaftAgentsService {
 | OriginInvalid                                           | 地址不可规范化            | 无                         |
 | TokenInvalid / IdentityMismatch / CredentialCheckFailed | 登录被拒（CLI Code 分类） | profile 可能残留，重试幂等 |
 | PathConflict / SlugConflict                             | 唯一性校验                | 无                         |
+| HomeOverlapsCredentials                                 | Home 包住/落入 raft/profiles（明文凭据；登录前拒绝） | 无             |
 | StoreWriteFailed                                        | 持久化失败                | 内存态回滚                 |
 
 重试 = 重新提交表单；每步幂等，不产生重复副作用。
@@ -79,7 +80,7 @@ interface IRaftAgentsService {
 3. **task update 只放行 `in_progress` / `in_review`**，拒绝 `done`/`closed`/`todo`（完成由人验收后置 done）。
 4. **`message check` 先落盘再返回**：服务端在返回前已标记送达，消息丢失无法重放。写日志失败有限重试（默认 3 次）；仍失败则**仍把结果返回模型**，同时上报（服务置 ErrorPaused(inbox_log_write_failed)）。空收件箱不写空日志。
 5. **发帖被「新鲜度门」扣成草稿（`SEND_HELD_AS_DRAFT`）**：把 CLI 返回（含回放的新消息）原样交还模型，由模型决定发原稿（`sendDraft:true`）、改稿重发或放弃；适配器不自动重试、不自动 `--send-draft`。
-6. **发帖结果不确定**（超时被杀、`UNKNOWN`/`CANNOT_CONFIRM`）：返回 unknown，不自动重发。
+6. **发帖结果不确定**（超时被杀、`UNKNOWN`/`CANNOT_CONFIRM`）：返回 unknown，不自动重发。2026-09-30 实测注记：官方 CLI 以 `process.exitCode` 结束、残留句柄会把已成功的发送拖到超时，误报 unknown——已由「权威成功行即收口」（`settleWhenStdoutMatches`）消除该误报形态；unknown 语义保留给真正的网络失败，实测中被测 agent 正确执行「读频道核对、确认送达即不重发」。
 7. **日志与隐私**：应用日志只记 messageId 与条数，不记正文；正文只在收件日志文件里。
 
 ### 收件日志存储
@@ -180,6 +181,29 @@ interface IRaftAgentsService {
 - `agentMemory: { homeRoot: string, agentName?: string }`：缺省 = 普通项目记忆会话。**resume 不带会让冷恢复的 Agent 会话退回项目记忆**，所以宿主每次恢复都要再次下发。
 - `officialMcpServers: [{ name: "raft-agent-tools", env: [{name, value}] }]`：官方宿主型 MCP 服务的具名引用。command/args/`isolation:"session"`/`protocolVersion:"2026-07-28"` 由 app-server 用自己的插件 rootPath 拼装并锁定（打包态的 `process.execPath` 与插件宿主前缀参数只在 app-server 进程里有意义，host 侧自己拼会在打包态断裂）。`name` 白名单，未知名字拒绝；`env` 键必须以 `ZCODE_RAFT_` 开头，其余（如 `NODE_OPTIONS`）拒绝；插件缺失或未启用时 fail-closed 抛错，不静默降级为无工具会话。MCP 会话内 server 名为 `raft_agent_tools`。
 
+### 主会话重建（resume 失败时，2026-09-30 PM 批准提前进第一期）
+
+内嵌 agent 运行时的会话事件存储为内存态：ZCode 进程退出（重启/崩溃）后，`mainSessionRef` 指向的主会话不复存在（实测 `Session not found`）。值守开始链在 resume 失败时**自动重建**主会话：
+
+> **2026-10-01 实测更正（二期调查）**：上段"事件存储为内存态"的归因不准确。app-server 启动时无条件打开 sqlite 落盘库（`openStartupSessionStore` → `~/.zcode/cli/db/db.sqlite`，session/message/part/session_input/tool_usage 等表），对所有会话（含 agent 主会话）一视同仁；进程内 event store（`create-app.ts` 缺省 `createInMemorySessionEventStore`）只是 live 视图与 seq 来源，不是持久层。"重启后 `Session not found`"的真实成因是**空壳预建会话从未越过统一持久化边界**——保存绑定时预建、零输入 → 零 session 行（resume 的 `getPersistedSession` 查无行即报此错），叠加修复前的 admission FK 缺陷（10ceaac）。处理过消息的会话均正常落库并跨重启 resume（TestAgent-1 主会话 199 message / 93 tool_usage，多次重启同一 sessionId、代次递增）。自动重建因此只可能在"从未处理过输入"的会话上触发，语义无损（本就没有上下文可丢）。
+
+- 重建走 `createAgentSession`（与接入时同一入口），`agentMemory`/`officialMcpServers` 同语义重发；锁内把 `mainSessionRef` 改绑为新会话、代次重置为 1（旧 fencing 随旧 sessionId 失效），仅在引用仍指向被替换旧会话时写入（防并发双写）。
+- **语义（界面与文档如实说明）：重建后主会话内的对话上下文丢弃，不保留；Home 里的长期记忆（MEMORY.md/notes）不受影响。** Home 记忆是持久层，主会话是可重建的运行时资源。
+- 重建失败（create 也失败）才置 ErrorPaused(session_unavailable) 并不启动 bridge。
+- 日志：重建前后各一条（含原因与新旧 sessionId）。
+
+### 主会话权限模型（无人值守，e2e S4 第五层定稿）
+
+主会话由频道消息驱动、无人审批，权限模型与交互会话不同，三层缺一不可：
+
+1. **`mode: "yolo"`（全自动）**：V4 缺省权限模式对 MCP 工具调用要求人工批准，值守场景没人批准 → 工具调用永久悬挂（`pendingPermissions` 挂起，run4 根因）。yolo 在权限服务里排在项目规则之前放行，是值守会话唯一可用的模式。create 时锁定；每次 `sendText` 投递也显式带 `mode:"yolo"`——mode 会固化进队列输入的 canonical intent，堵住「空草稿会话重启后 resume 派生不出 mode、退回默认 ask 模式」的角落。resume 不传 mode（协议侧从持久化消息派生）。
+2. **`toolAllowlist`（注册级白名单）**：`session/create`/`session/resume` 原生参数，内置与 MCP 工具都按注册面过滤。= Raft 六工具（`mcp__raft_agent_tools__*`，server 名由 app-server 锁定）+ `Read`/`Write`/`Edit`/`Glob`/`Grep`/`TodoWrite`（维护 Home 记忆所需最小集）。**刻意不含 Bash**（唯一任意副作用入口）；**不含 ApplyPatch**（其路径藏在 `patch_text` 里，第 3 层无法低成本校验）。resume 必须重发（否则冷恢复后工具面变宽）。工具集与 `apps/zcode-cli` 的 `official-mcp-hosts.ts` 锁定的 serverKey 两处同步。
+3. **`confineFileToolsToWorkspace`（文件工具边界，新增 wire 参数）**：yolo 与白名单都约束不了「已注册文件工具指向哪里」——现状文件工具对 workspaceRoot 外路径不设防（path-policy 故意放行子代理跨仓需求），yolo 下等于全盘可读写。开启后 `Read`/`Write`/`Edit`/`Glob`/`Grep` 的路径入参（`file_path`/`path`/`cwd`）越出 workspaceRoot（= Agent Home）在**执行边界**拒绝（deny 可恢复，模型可改用根内路径），排在 yolo 放行与 memory 放行之后、不可被 hook/审批改写。**读也一并限**：全盘可读 + `raft_message_send` 即数据外带通道。create 与 resume 同语义重发。
+
+安全性质：频道里的任意消息最多驱动 Agent 读写自己的 Home 与发 Raft 消息。路径判定在 realpath 两侧进行（根与目标都规范化后判包含）：Home 内预置的指向外部的符号链接被解析后拒绝，根本身经符号链接给出（macOS `/var` → `/private/var` 一类）不产生误判。glob 模式键（Glob.pattern / Grep.glob）含 `..` 段或绝对路径前缀直接拒绝（Grep.pattern 是内容正则，不在此列）。配套：T1 创建绑定拒绝「Home 包住或落入 `raft/profiles`（明文凭据）」的路径（`HomeOverlapsCredentials`），否则该限制形同虚设。
+
+已知边界（评审确认，非阻塞，2026-09-30）：① `isAbsolute(pattern)` 在 macOS/Linux 上识别不了 Windows 盘符写法（`C:/...`）——值守只跑在宿主平台，mac 无影响，将来支持 Windows 时补盘符判断；② Home 内指向外部目录的符号链接可能让 Glob `**` 遍历在结果里列出外部文件的名字——只泄露名字，读取时仍被 realpath 判定拦截，二期收紧。
+
 ### 已知限制
 
 - Agent Home 会话必须经 Agent 列表进入（宿主才会带上 `agentMemory` 与 `officialMcpServers`）。若绕过它、把 Home 目录当普通项目直接打开会话，会退回项目记忆且没有 Raft 工具，第一期靠「Home 会话只从 Agent 列表进入、不注册普通 tab」（D7）规避，不做目录猜测。
@@ -209,6 +233,95 @@ interface IRaftAgentsService {
 
 自动化：store/actions 4 项测试（刷新失败不清空旧数据、开始/暂停后刷新、提交失败不回列表、提交中不重复提交、token 不进 store）。**入口位置（顶部一级入口，与自动化/插件市场并排）**；**界面本身（布局、交互、中英文案显示）未经实际运行验证，放 task #8 由有条件的人点一遍**：接入表单各错误提示、列表两种暂停的显示、异常暂停后点开始、详情页打开 Home 文件夹。
 
+## 二期 A1：会话与管理动作的服务层（task #11）
+
+上游依据：二期需求线程（#zcode-raft-integration:a517415a，lyonliang 2026-10-01 拍板）；会话持久化核实结论（2026-10-01 注记见「主会话重建」节）。
+
+### 行为
+
+三个管理动作 + 懒建会话 + 宿主侧恢复入口 + 三个界面接口。全部只在服务层（packages/services/raft-agents），UI 由 B1/A2 接。
+
+**1. 三个管理动作**（lyonliang 语义）：
+- **重启**：停值守（如在运行）→ 新建主会话（同 Home、同 `agentMemory`/`officialMcpServers`）→ 锁内改绑 `mainSessionRef`、代次重置 1 → 原为 Running 则自动恢复值守。旧会话不删除（历史保留，供会话视图回看）。进行中的 turn 被放弃，恢复口径与崩溃一致（收件日志 + 下次 drain 补查）。
+- **重置**：同重启，但在新建会话前先清 Home 的**记忆面**（根下 `MEMORY.md`、`AGENTS.md`、`notes/` 整树）并按初始模板重建（复用 T5 初始化的"只写缺失"语义，删除后即全新）。**不动** Home 内其他内容（如 `projects/`）、不动凭据与绑定。
+- **删除**：停值守 → `session/close` 关闭主会话（产品会话归档；不做跨进程删库行）→ 删绑定记录与本地 profile（复用 removeBinding 既有路径）→ 按归属判定删 Home → 返回 `{homeDeleted}` 与 UI 提示所需信息（raftOrigin、agentName），由 UI 展示"请到 Raft 侧撤销 token"。Home 删除的守卫（评审定稿，线程 cb4426cd）：
+  - 传入路径本身是符号链接 → 拒绝（防 realpath 把删除引到链接目标整树）；
+  - 拒绝文件系统根、用户主目录、数据根目录及各自的上级；
+  - **归属判定**：绑定时在 Home 根写归属标记 `.zcode-agent-home`（内容 = bindingId，目录不存在或为空才写，独占创建），整删仅当标记内容与 bindingId 一致，或 Home 恰为默认位置 `<数据根>/agents/<bindingId>/workspace`（兼容加标记前建的旧绑定）；
+  - 归属不成立（用户自选目录 / 旧绑定无标记 / 标记不匹配）→ 只清记忆面三处 + 标记，**保留目录**，`homeDeleted=false` 由界面如实提示"已保留你的目录"。
+
+**2. 预建会话改懒建**：createBinding 不再预建主会话（消除空壳 Session-not-found，见「主会话重建」节更正注记）；`mainSessionRef` 为空的绑定在首次 startWatch 时创建会话（dfcd362 自动重建路径保留为兜底）。原先的预建步骤模块 `app/mainSessionProvisioning.ts` 随之删除（懒建后无生产引用）；懒建与重建共用「锁外创建 + 锁内条件改绑」段（`app/sessionSwap.ts`，三个调用方同语义）。
+
+**3. 宿主侧恢复入口（B3 依赖）**：`openAgentSession(bindingId)` —— 确保主会话存在（懒建）→ `resumeAgentSession`（带 `agentMemory`/`officialMcpServers`，防退回项目记忆）→ 返回会话坐标 `{sessionId, workspacePath}`。渲染层用坐标挂现有会话视图；无论 B3 走"构造 Home 工作区上下文"还是"绑定推导分类"，本入口形状不变。
+
+**4. 界面接口（四个）**：
+- **凭据预核验（只核验、不保存，A2 向导第 4 步确认摘要用）**：`verifyCredential(input)` —— 用临时 profile 目录走 login + whoami（`destroyProfile` 收尾，无持久残留），返回服务端认定的身份 `{agentId, agentName?, serverUrl, serverId}` 或一期同族错误码（TokenInvalid/IdentityMismatch/CredentialCheckFailed/OriginInvalid/CliMissing…）。token 仍只经 stdin 进 CLI 子进程，不落盘、不进返回值。agentName 取 whoami/login 可得字段；描述类字段 whoami 不提供则不返回，UI 不硬编码占位。
+- **记忆只读**：`listMemoryFiles` / `readMemoryFile`，限定该绑定 Home 的记忆面（根下 `MEMORY.md`/`AGENTS.md` + `notes/**`）；realpath 两侧包含判定（防符号链接逃逸）；单文件内容上限 512KB（超出截断并标志）。无任何写路径。
+- **本机已有凭据枚举**：`listLocalCredentials` 读 `raft/profiles/*/credential.json` 的**非敏感字段**（schemaVersion/serverUrl/serverId/agentId/agentName/createdAt）；`apiKey` 字段在适配器内解析后即弃，不进任何返回值、日志、模型上下文；`boundBindingId` 标记已被现有绑定占用（唯一性约束下不可重复接入）。
+- **状态投影扩展**：`RaftAgentListItem` 增 `activity`（`lastActivityAt`/`lastActivityKind`/`memoryLoaded`/`pendingApprovals`）。`pendingApprovals` 在 yolo 值守下恒 0（无人工审批面）；turn 级粒度（开始/完成）待 B2 活动事件接入后**追加字段**，不改动现有形状。
+
+### 不变量
+
+1. 三个动作都在 store 锁与换代锁内改绑 `mainSessionRef`；改绑仅在与读到的旧值一致时写入（防并发双写，沿 dfcd362 先例）。
+2. 重置/删除的文件操作仅限该绑定 Home 内；重置只碰记忆面三处，删除整 Home 前先过归属守卫（符号链接拒绝 / 受保护根及其上级拒绝 / 归属标记或默认位置判定，见行为 1）；均先 realpath 判定再动手。
+3. `listLocalCredentials` 与 `readMemoryFile` 是纯读接口，不产生子进程、不触网。
+4. 懒建后 `mainSessionRef` 为空是合法持久态（保存未开始的绑定）；wake 链路对空 ref 的绑定不可达（未 Running 无端点）。
+5. 一期安全红线全部延续：token（apiKey）不进返回值/日志/argv/上下文；子进程净化环境；fail-closed 语义不变。
+
+### 失败语义
+
+| 动作 | 失败码 | 语义 |
+| --- | --- | --- |
+| restart/reset | NotFound / SessionCreateFailed | 新会话建不出来时保持原绑定原会话不动（原子性：先建后改绑） |
+| reset | MemoryResetFailed | 记忆面清理失败（部分删除时如实报告；可重试，重置幂等） |
+| delete | NotFound | 绑定不存在 |
+| readMemoryFile | NotFound / OutsideMemorySurface / Unreadable | 越出记忆面在执行边界拒绝 |
+| openAgentSession | NotFound / SessionResumeFailed | resume 失败不自动重建（本接口语义 = 打开已有；空 ref 时先懒建） |
+
+### 验收（A1 部分）
+
+单测覆盖：重启/重置的改绑与代次重置（含 Running 态自动恢复）、重置只清记忆面三处（projects/ 保留）、删除的停值守→关会话→清理顺序与失败中断、删除归属守卫（符号链接拒绝且目标保全 / 受保护根拒绝 / 用户自选目录只清记忆保留 + `homeDeleted=false` / 归属标记或默认位置成立才整删 + `homeDeleted=true`）、懒建（createBinding 无会话副作用、首启创建）、记忆只读的边界（越界路径/符号链接/大小上限）、凭据枚举不含 apiKey、openAgentSession 恢复入口带记忆与 MCP 配置、activity 投影字段。
+
+## 二期 A3：处理后再确认、发送去重与回执（task #13）
+
+上游依据：二期需求线程（#zcode-raft-integration:a517415a）；设计线程 #zcode-raft-integration:59b3e306。服务端与命令行补丁在 fork `1WorldCapture/raft-source` 分支 `feat/agent-api-claim-ack`，命令行版本 `0.0.24-zcode.1`。本节只描述 ZCode 工具适配器（`apps/zcode-cli/packages/raft-agent-tools`）的切换；T4 不变量 4、6 在新命令行下被本节取代，旧命令行下照旧。
+
+### 命令行能力（fork 新增，旧命令不变）
+
+- `raft message claim`：输出与 `message check` 相同的规范文本，**不确认**；有消息时末尾一行固定前缀 `Claim-Ack: <token>`（token 是本批确认 id 的 base64url，不含秘密）。确认前再次 claim 返回同一批（服务重启后也是），语义"至少一次"。
+- `raft message ack`：token（或整行 `Claim-Ack: ...`）从 **stdin** 读入，可重复调用。
+- `raft message send --idempotency-key=<key>`：同一个键已提交过 → 返回原消息，成功行与普通发送完全相同（不过新鲜度门、不再插入）。
+- `raft message receipt <key> --json`：`{"status":"sent","message_id":...}` 或 `{"status":"not_found"}`（未提交，可用同一个键安全重试）。
+
+### 能力探测
+
+适配器首次调用时执行一次 `raft --version`（同样固定 `--profile` 前缀与净化环境），版本串含 `-zcode.N`（N≥1）即启用新流程，结果缓存到进程结束；探测失败或旧版本 → 第一期行为（`message check`、发送不带键），不报错。若命令行是新的但服务端尚未部署补丁（claim 返回"路由未登记"），本进程回落第一期路径。
+
+### 行为
+
+**message_check（claim → 落盘 → ack）**
+1. `message claim` 取一批；按行精确剥除 `Claim-Ack:` 行，该行**不进**模型输出、收件日志、应用日志。
+2. 按消息切块（以 `[target=` 开头的行起一条），用 `(target, msg)` 去重：已记入收件日志的消息不再交给模型（但照样 ack）。已投递集合 = 进程内集合 + 首次调用时从收件日志近 7 天条目载入。
+3. 新消息先写收件日志（有限重试，同 T4）。**写成功才 ack**；写失败 → 不 ack、照常把消息交给模型并上报（下次 claim 会再给，宁重复不丢）。
+4. ack 失败只记告警（不含 token），结果照常返回；下次 claim 重复给到的消息由第 2 步去重。
+5. 本批全是重复 → 返回"没有新消息"；`has_more` 提示改写为"请再次调用 raft_message_check"。
+
+**message_send（键 + 回执 + 一次安全重试）**
+1. 每次工具调用生成一个键 `zcode:<bindingId>:<uuid>`，随 `--idempotency-key=` 发送（`sendDraft` 同样带键）。
+2. 结果不确定（超时被杀且无成功行、`UNKNOWN`/`CANNOT_CONFIRM`）→ `message receipt <key> --json`：`sent` → 按成功返回（附 messageId）；`not_found` → 用**同一个键**原样重试一次（服务端去重保证不会发出两条）；重试仍不确定或回执查询失败 → unknown（同 T4，不再自动重发）。
+3. 被扣成草稿（`SEND_HELD_AS_DRAFT`）不变：交还模型决定，不自动重试。
+
+### 不变量
+
+1. token 与 ack 凭据都不出现在 argv、模型可见输出、收件日志、应用日志；ack 凭据只经 stdin。
+2. 收件日志仍是唯一的"已交给模型"记录；ack 永远晚于成功落盘。
+3. 一次工具调用最多两次发送请求，且共用一个键。
+4. 旧命令行（无 `-zcode.N`）行为与第一期逐字节一致。
+
+### 验收（A3 部分）
+
+单测（假 CLI）：claim 后先落盘再 ack、ack 走 stdin 且 argv 无 token；`Claim-Ack:` 行不进返回文本与日志；落盘失败不 ack；重复 claim 的同批消息第二次不交给模型但仍 ack；发送带键、不确定时查回执（sent 不重发 / not_found 同键重试一次）；旧版本回落第一期行为。
+真机（服务端部署后）：claim 不 ack 再 claim 拿到同一批；去重重发不产生第二条；回执 sent/not_found。
 ## 二期 A2：接入向导、凭据复用与记忆查看（task #12）
 
 上游依据：lyonliang 二期优先项 ①（四页接入向导 / 复用已有凭据 / 记忆查看）；a517415a 线程对齐结论；PM 验收要求（向导第 4 步先核验身份、用户确认后才保存）。

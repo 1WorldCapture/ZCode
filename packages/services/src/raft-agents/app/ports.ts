@@ -116,6 +116,9 @@ export interface RaftSessionPort {
    * officialMcpServers 是官方宿主 MCP 的具名引用（command/args 由 app-server 用自己的
    * 插件 rootPath 拼装，方案 1，线程 f3239b45）；agentMemory 指定记忆作用域 = Agent Home。
    * 两者均为启动期一次性注入，首发后不可补写（协议约束）。
+   * 持久化语义：以 deferred 草稿创建（适配器固定传入），session 行由首个输入（V4
+   * drain/wake）的统一持久化边界写入；immediate 缺省会让 V4 durable admission 跳过
+   * 该边界，session_input 外键失败（e2e S4 根因）。
    */
   createAgentSession(params: {
     workspacePath: string;
@@ -134,6 +137,38 @@ export interface RaftSessionPort {
     agentMemory: import("@zcode/shared").ZCodeAgentMemory;
     officialMcpServers: import("@zcode/shared").ZCodeOfficialMcpServerRef[];
   }): Promise<{ ok: true } | { ok: false; code: "failed"; detail?: string }>;
+  /**
+   * 关闭主会话（二期 A1 删除动作）：session/close RPC——停 runtime 并归档产品会话。
+   * 不做跨进程删库行；失败由调用方决定是否继续（绑定删除的语义优先）。
+   */
+  closeAgentSession(params: { workspacePath: string; sessionId: string }): Promise<{ ok: true } | { ok: false; code: "failed"; detail?: string }>;
+}
+
+/** 本机凭据目录枚举结果（apiKey 已在适配器内丢弃，永不进此结构）。 */
+export interface RaftLocalProfileEntry {
+  profileSlug: string;
+  serverUrl: string;
+  serverId: string;
+  agentId: string;
+  agentName?: string;
+  createdAt: string;
+}
+
+/**
+ * 本机已有凭据枚举端口（二期 A1，向导复用凭据列表的数据源）。
+ * 实现读 raft/profiles 下各 profile 的 credential.json 非敏感字段；解析即弃 apiKey。
+ */
+export interface RaftProfilesCatalogPort {
+  /** 列出本机全部凭据；跳过临时核验目录（verify- 前缀）与解析失败的条目。 */
+  list(): Promise<RaftLocalProfileEntry[]>;
+  /**
+   * 复用凭据接入（二期 A2 服务面）：读出该 profile 的 token。token 只允许直达
+   * 官方 CLI 的 stdin（与表单直传同链路），不进日志/返回值/持久化结构——调用方
+   * 负责用后即弃。slug 做格式校验 + profilesRoot realpath 包含守卫。
+   */
+  resolveProfileToken(params: {
+    profileSlug: string;
+  }): Promise<{ ok: true; token: string } | { ok: false; code: "Missing" | "Unreadable" }>;
 }
 
 /** 绑定记录存储端口（实现见 adapters/bindingStore.ts）。 */

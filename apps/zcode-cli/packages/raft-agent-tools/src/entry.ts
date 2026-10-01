@@ -10,6 +10,9 @@
  *   ZCODE_RAFT_CLI_PATH     官方 raft CLI 入口（宿主已校验版本）
  *   ZCODE_RAFT_INBOX_RETENTION_DAYS 可选，收件日志保留天数（受上限约束）
  */
+import { realpath } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
 import { createCliToolAdapter } from "./cliToolAdapter.js";
@@ -25,7 +28,28 @@ function requireEnv(name: string): string {
   return value;
 }
 
-async function main(): Promise<void> {
+// 直跑判定（与 node-repl-host 的 isDirectMcpEntrypoint 同款）：realpath 两侧比较，
+// 兼容 macOS /var → /private/var 一类别名导致的 file URL 误判。
+async function isDirectMcpEntrypoint(
+  importMetaUrl: string,
+  argvPath: string | undefined,
+): Promise<boolean> {
+  if (!argvPath) return false;
+  try {
+    const [modulePath, executablePath] = await Promise.all([
+      realpath(fileURLToPath(importMetaUrl)),
+      realpath(argvPath),
+    ]);
+    return modulePath === executablePath;
+  } catch {
+    return false;
+  }
+}
+
+// 官方插件宿主（plugin-host-command.ts）import 本模块后调用导出的 main()：main 必须
+// 导出，且被 import 时不得自启（否则宿主调用与顶层自启双重启动；旧形态只自启不导出，
+// 宿主报 "Plugin server does not export main()" 退出子进程，连接闪断——e2e S4 第六层根因）。
+export async function main(): Promise<void> {
   const bindingId = requireEnv("ZCODE_RAFT_BINDING_ID");
   const identity = {
     bindingId,
@@ -54,7 +78,11 @@ async function main(): Promise<void> {
     },
   });
 
-  const handle = serveStdio(() => createRaftToolsServer(adapter), { legacy: "reject" });
+  // 两种 wire era 都要服务：宿主对 session 隔离的官方 MCP 连接实测发 2025-era
+  // initialize（无 _meta envelope），legacy:"reject" 会让握手必然失败——工具声明
+  // 来自 manifest，模型看得到工具但每次调用都悬挂（e2e S4 第四层根因）。
+  // 身份隔离不依赖握手 era（来自注入的 env），放宽到默认双 era 是安全的。
+  const handle = serveStdio(() => createRaftToolsServer(adapter));
   let shutdownStarted = false;
   const shutdown = () => {
     if (shutdownStarted) return;
@@ -76,7 +104,11 @@ async function main(): Promise<void> {
   });
 }
 
-void main().catch((error) => {
-  process.stderr.write(`raft_agent_tools failed: ${error instanceof Error ? error.stack : String(error)}\n`);
-  process.exitCode = 1;
-});
+// 仅直接执行（node dist/mcp/server.js，开发与测试路径）才顶层启动；被插件宿主 import 时
+// 由宿主调用 main()，这里静默返回。
+if (await isDirectMcpEntrypoint(import.meta.url, process.argv[1])) {
+  void main().catch((error) => {
+    process.stderr.write(`raft_agent_tools failed: ${error instanceof Error ? error.stack : String(error)}\n`);
+    process.exitCode = 1;
+  });
+}

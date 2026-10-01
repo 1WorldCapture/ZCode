@@ -162,6 +162,44 @@ test("createBinding 路径前缀冲突被拒且不打网络（fail-closed 前置
   }
 });
 
+test("createBinding Home 包住/落入凭据目录被拒（评审定稿：防值守会话读出明文凭据）", async () => {
+  const dataRoot = await mkdtemp(join(tmpdir(), "raft-agents-"));
+  try {
+    const cli = fakeCli({});
+    const service = await makeService(cli, dataRoot);
+    // Home = 数据根本身（祖先包住 raft/profiles）。
+    const ancestor = await service.createBinding({
+      raftOrigin: "https://raft.example.com",
+      raftAgentId: AGENT_ID,
+      token: "sk_agent_testtoken123",
+      homeWorkspacePath: dataRoot,
+    });
+    assert.equal(ancestor.ok, false);
+    if (!ancestor.ok) assert.equal(ancestor.code, "HomeOverlapsCredentials");
+    // Home 落在 raft/profiles 内（反向包含）同样拒绝。
+    const inside = await service.createBinding({
+      raftOrigin: "https://raft.example.com",
+      raftAgentId: AGENT_ID,
+      token: "sk_agent_testtoken123",
+      homeWorkspacePath: join(dataRoot, "raft", "profiles", "x", "workspace"),
+    });
+    assert.equal(inside.ok, false);
+    if (!inside.ok) assert.equal(inside.code, "HomeOverlapsCredentials");
+    // 拒绝发生在登录前：零网络副作用、无凭据残留。
+    assert.equal(cli.loginCalls.length, 0);
+    assert.equal((await service.list()).length, 0);
+    // 默认 Home（数据根下 agents/<id>/workspace）与凭据目录是兄弟子树，不受影响。
+    const normal = await service.createBinding({
+      raftOrigin: "https://raft.example.com",
+      raftAgentId: AGENT_ID,
+      token: "sk_agent_testtoken123",
+    });
+    assert.equal(normal.ok, true);
+  } finally {
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});
+
 test("createBinding 同身份重复接入：AlreadyBound 快速路径，不再打登录", async () => {
   const dataRoot = await mkdtemp(join(tmpdir(), "raft-agents-"));
   try {

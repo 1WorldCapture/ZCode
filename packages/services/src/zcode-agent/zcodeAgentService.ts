@@ -649,6 +649,11 @@ function buildSessionCreateParams(
     ...(params.toolDenylist !== undefined && !omittedFields.has("toolDenylist")
       ? { toolDenylist: params.toolDenylist }
       : {}),
+    // Raft Agent 安全字段与 agentMemory 同类：不进兼容降级集——旧 app-server 不认时硬失败，
+    // 不能静默建出一个 yolo 全自动却全盘可读写文件的无人值守会话。
+    ...(params.confineFileToolsToWorkspace !== undefined
+      ? { confineFileToolsToWorkspace: params.confineFileToolsToWorkspace }
+      : {}),
     // importedHistory 是导入历史的完整性边界，不能像 thoughtLevel/persistence
     // 那样在旧协议兼容重试里省略，否则会创建一个可切模型但没有历史内容的空 session。
     ...(params.importedHistory !== undefined ? { importedHistory: params.importedHistory } : {}),
@@ -691,6 +696,10 @@ function buildSessionResumeParams(
       : {}),
     ...(params.toolDenylist !== undefined && !omittedFields.has("toolDenylist")
       ? { toolDenylist: params.toolDenylist }
+      : {}),
+    // Raft Agent 安全字段：不进兼容降级集，与 create 路径同一理由。
+    ...(params.confineFileToolsToWorkspace !== undefined
+      ? { confineFileToolsToWorkspace: params.confineFileToolsToWorkspace }
       : {}),
     // resume 不带该 flag 会让冷恢复丢 Off-Peak 工具面（与 toolAllowlist 同因）。
     ...(params.offPeakToolEnabled === true && !omittedFields.has("offPeakToolEnabled")

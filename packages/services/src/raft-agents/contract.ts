@@ -12,7 +12,14 @@ import {
   type RaftAgentBinding,
   type RaftAgentBindingInput,
   type RaftAgentListItem,
+  type RaftAgentLocalCredential,
+  type RaftAgentManagementResult,
+  type RaftAgentMemoryContent,
+  type RaftAgentMemoryFile,
+  type RaftAgentOpenSessionResult,
   type RaftAgentSetupResult,
+  type RaftAgentVerifyCredentialInput,
+  type RaftAgentVerifyResult,
 } from "@zcode/shared";
 
 import { createServiceDescriptor } from "#src/descriptors.js";
@@ -21,7 +28,14 @@ export type {
   RaftAgentBinding,
   RaftAgentBindingInput,
   RaftAgentListItem,
+  RaftAgentLocalCredential,
+  RaftAgentManagementResult,
+  RaftAgentMemoryContent,
+  RaftAgentMemoryFile,
+  RaftAgentOpenSessionResult,
   RaftAgentSetupResult,
+  RaftAgentVerifyCredentialInput,
+  RaftAgentVerifyResult,
 } from "@zcode/shared";
 
 /**
@@ -40,10 +54,40 @@ export interface IRaftAgentsService {
    * 不读收件箱、不发消息（spec §4）。
    */
   createBinding(input: RaftAgentBindingInput): Promise<RaftAgentSetupResult>;
-  /** 移除绑定记录；deleteHome 同时删除 Home 目录与本地 profile（不撤销 Raft 侧 token，D4）。 */
-  removeBinding(bindingId: string, opts: { deleteHome: boolean }): Promise<void>;
+  /**
+   * 移除绑定记录；deleteHome 同时删除 Home 目录与本地 profile（不撤销 Raft 侧 token，D4）。
+   * 返回 homeDeleted 如实区分"整目录已删"与"归属不成立只清记忆面、保留目录"
+   *（评审定稿：Home 是用户自选目录/旧绑定无归属标记时不得整删，界面按此提示）。
+   */
+  removeBinding(bindingId: string, opts: { deleteHome: boolean }): Promise<{ homeDeleted: boolean }>;
   /** 更新值守意图；Running 的实际效果（bridge/会话）在 T2/T3 接入。 */
   setDesiredState(bindingId: string, desired: "ReadyStopped" | "Running"): Promise<void>;
+  /**
+   * 二期 A1：重启动作——新会话（同 Home/记忆配置/MCP）+ 改绑 + 代次重置；
+   * 原 Running 自动恢复值守。旧会话保留为历史，进行中 turn 按崩溃口径补查。
+   */
+  restartBinding(bindingId: string): Promise<RaftAgentManagementResult>;
+  /**
+   * 二期 A1：重置动作——先清 Home 记忆面（MEMORY.md/AGENTS.md/notes/ 整树）并按
+   * 初始模板重建，再同 restart 换新会话。不动 Home 其他内容、不动凭据与绑定。
+   */
+  resetBinding(bindingId: string): Promise<RaftAgentManagementResult>;
+  /**
+   * 二期 A1：凭据预核验（只核验、不保存）——临时 profile 走 login+whoami 后即毁，
+   * 无持久残留；返回服务端认定的身份。向导第 4 步确认摘要用。
+   */
+  verifyCredential(input: RaftAgentVerifyCredentialInput): Promise<RaftAgentVerifyResult>;
+  /** 二期 A1：记忆面文件列表（只读，限定该绑定 Home 的记忆面）。 */
+  listMemoryFiles(bindingId: string): Promise<{ ok: true; files: RaftAgentMemoryFile[] } | { ok: false; code: "NotFound" }>;
+  /** 二期 A1：读记忆面单个文件（512KB 上限，超出截断；越出记忆面在执行边界拒绝）。 */
+  readMemoryFile(bindingId: string, path: string): Promise<RaftAgentMemoryContent>;
+  /** 二期 A1：本机已有凭据枚举（apiKey 永不出现；boundBindingId 标记已占用）。 */
+  listLocalCredentials(): Promise<RaftAgentLocalCredential[]>;
+  /**
+   * 二期 A1：宿主侧恢复入口（B3）——确保主会话存在（懒建）→ resume（带
+   * agentMemory/officialMcpServers，不退项目记忆）→ 返回会话坐标。
+   */
+  openAgentSession(bindingId: string): Promise<RaftAgentOpenSessionResult>;
   /** 绑定记录变更广播（列表投影可能随之变化）。 */
   onBindingsChanged: Event<RaftAgentBinding[]>;
 }
@@ -52,14 +96,8 @@ export const IRaftAgentsService = createServiceDescriptor<IRaftAgentsService>(
   ServiceChannels.RaftAgents,
 );
 
-/**
- * Provisioning 步骤注入点：T5（Home 初始化）/T3（主会话）按序接入，全部幂等。
- * 类型属于公开契约，定义在 contract（app 实现只引用不定义），保持依赖单向 app → contract。
- */
-export interface RaftProvisioningStep {
-  readonly name: string;
-  execute(binding: RaftAgentBinding): Promise<void>;
-}
+/** Provisioning 步骤注入点（定义在 provisioning.ts，此处再导出保持公开契约面不变）。 */
+export type { RaftProvisioningStep } from "./provisioning.js";
 
 // 组合根工厂不走 contract 导出（storage 模块先例）：contract 只含类型与描述符，
 // 避免实现文件反向 import contract 形成 require 环（raftAgentsService → contract → compose → raftAgentsService）。

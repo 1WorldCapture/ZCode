@@ -119,3 +119,171 @@ test("截断按码点：不在代理对中间劈开", () => {
     "不得出现孤立代理项",
   );
 });
+
+// ── 二期 A1 删除守卫（评审定稿：符号链接拒绝 / 保护根拒绝 / 归属标记判定）──
+
+const MARKER = ".zcode-agent-home";
+
+test("claimHomeOwnership：新建或空目录独占写标记；非空用户目录不写；重复声明不覆盖", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "raft-home-"));
+  try {
+    const adapter = createAgentHomeAdapter();
+    // 不存在 → 创建并写标记。
+    const fresh = join(dir, "fresh");
+    await adapter.claimHomeOwnership({ homeWorkspacePath: fresh, bindingId: "b-1" });
+    assert.equal((await readFile(join(fresh, MARKER), "utf8")).trim(), "b-1");
+    // 已有标记（wx）不覆盖：第二次声明不同 binding 不改变归属。
+    await adapter.claimHomeOwnership({ homeWorkspacePath: fresh, bindingId: "b-2" });
+    assert.equal((await readFile(join(fresh, MARKER), "utf8")).trim(), "b-1");
+    // 空目录（已存在）也视为 ZCode 接管。
+    const empty = join(dir, "empty");
+    await mkdir(empty);
+    await adapter.claimHomeOwnership({ homeWorkspacePath: empty, bindingId: "b-1" });
+    assert.equal((await readFile(join(empty, MARKER), "utf8")).trim(), "b-1");
+    // 非空目录 = 用户自选：不写标记。
+    const userDir = join(dir, "user");
+    await mkdir(userDir);
+    await writeFile(join(userDir, "keep.txt"), "user data");
+    await adapter.claimHomeOwnership({ homeWorkspacePath: userDir, bindingId: "b-1" });
+    await assert.rejects(readFile(join(userDir, MARKER)));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("deleteHome：Home 路径本身是符号链接 → 拒绝，链接目标整树保全", async (t) => {
+  if (process.platform === "win32") return t.skip("符号链接需要权限");
+  const dir = await mkdtemp(join(tmpdir(), "raft-home-"));
+  try {
+    const adapter = createAgentHomeAdapter();
+    const project = join(dir, "real-project");
+    await mkdir(join(project, "src"), { recursive: true });
+    await writeFile(join(project, "AGENTS.md"), "# 项目自有\n");
+    await writeFile(join(project, "src", "main.ts"), "code");
+    const linkedHome = join(dir, "linked-home");
+    await symlink(project, linkedHome);
+
+    const result = await adapter.deleteHome({
+      homeWorkspacePath: linkedHome,
+      dataRootDir: join(dir, "data-root"),
+      bindingId: "b-1",
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.ok === false && result.code, "Refused");
+    // 链接目标原样保留（这是评审实测能删掉真实项目目录的缺陷回归用例）。
+    assert.equal(await readFile(join(project, "src", "main.ts"), "utf8"), "code");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("deleteHome：用户主目录上级与数据根本身拒绝；根目录拒绝", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "raft-home-"));
+  try {
+    const adapter = createAgentHomeAdapter();
+    const dataRoot = join(dir, "data-root");
+    await mkdir(join(dataRoot, "agents", "b-1", "workspace"), { recursive: true });
+    // 数据根本身。
+    const asDataRoot = await adapter.deleteHome({
+      homeWorkspacePath: dataRoot,
+      dataRootDir: dataRoot,
+      bindingId: "b-1",
+    });
+    assert.equal(asDataRoot.ok, false);
+    // 数据根的上级。
+    const asDataRootParent = await adapter.deleteHome({
+      homeWorkspacePath: dir,
+      dataRootDir: dataRoot,
+      bindingId: "b-1",
+    });
+    assert.equal(asDataRootParent.ok === false && asDataRootParent.code, "Refused");
+    // 用户主目录的上级（如 /Users）——真实路径形态。
+    const { dirname } = await import("node:path");
+    const { homedir } = await import("node:os");
+    const asHomeAncestor = await adapter.deleteHome({
+      homeWorkspacePath: dirname(homedir()),
+      dataRootDir: dataRoot,
+      bindingId: "b-1",
+    });
+    assert.equal(asHomeAncestor.ok === false && asHomeAncestor.code, "Refused");
+    const asRoot = await adapter.deleteHome({ homeWorkspacePath: "/", dataRootDir: dataRoot, bindingId: "b-1" });
+    assert.equal(asRoot.ok === false && asRoot.code, "Refused");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("deleteHome：归属成立（标记匹配或默认位置）整删；不成立只清记忆面并保留目录", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "raft-home-"));
+  try {
+    const adapter = createAgentHomeAdapter();
+    const dataRoot = join(dir, "data-root");
+
+    // 默认位置（无标记，兼容加标记前的旧绑定）→ 整删。
+    const legacy = join(dataRoot, "agents", "b-1", "workspace");
+    await mkdir(legacy, { recursive: true });
+    await writeFile(join(legacy, "MEMORY.md"), "# legacy\n");
+    const legacyResult = await adapter.deleteHome({
+      homeWorkspacePath: legacy,
+      dataRootDir: dataRoot,
+      bindingId: "b-1",
+    });
+    assert.deepEqual(legacyResult, { ok: true, homeDeleted: true });
+    await assert.rejects(stat(legacy));
+
+    // 自选路径 + 标记匹配 → 整删。
+    const claimed = join(dir, "claimed-home");
+    await adapter.claimHomeOwnership({ homeWorkspacePath: claimed, bindingId: "b-2" });
+    await adapter.initialize({ bindingId: "b-2", displayName: "T", homeWorkspacePath: claimed });
+    const claimedResult = await adapter.deleteHome({
+      homeWorkspacePath: claimed,
+      dataRootDir: dataRoot,
+      bindingId: "b-2",
+    });
+    assert.deepEqual(claimedResult, { ok: true, homeDeleted: true });
+    await assert.rejects(stat(claimed));
+
+    // 自选路径无标记（用户目录）→ 保留目录，清记忆三处，homeDeleted=false。
+    const userHome = join(dir, "user-home");
+    await mkdir(join(userHome, "notes", "deep"), { recursive: true });
+    await mkdir(join(userHome, "projects", "repo"), { recursive: true });
+    await writeFile(join(userHome, "MEMORY.md"), "# 记忆\n");
+    await writeFile(join(userHome, "AGENTS.md"), "# 指引\n");
+    await writeFile(join(userHome, "notes", "deep", "a.md"), "旧记忆");
+    await writeFile(join(userHome, "projects", "repo", "file.txt"), "project artifact");
+    const keptResult = await adapter.deleteHome({
+      homeWorkspacePath: userHome,
+      dataRootDir: dataRoot,
+      bindingId: "b-2",
+    });
+    assert.deepEqual(keptResult, { ok: true, homeDeleted: false });
+    await assert.rejects(readFile(join(userHome, "MEMORY.md")));
+    await assert.rejects(readFile(join(userHome, "notes", "deep", "a.md")));
+    assert.equal(await readFile(join(userHome, "projects", "repo", "file.txt"), "utf8"), "project artifact");
+    assert.ok((await stat(userHome)).isDirectory(), "用户目录本身保留");
+
+    // 标记不匹配（他绑定的标记）→ 同保留分支，且过期标记被清掉。
+    const mismatch = join(dir, "mismatch-home");
+    await mkdir(mismatch, { recursive: true });
+    await writeFile(join(mismatch, MARKER), "other-binding\n");
+    await writeFile(join(mismatch, "MEMORY.md"), "# 记忆\n");
+    const mismatchResult = await adapter.deleteHome({
+      homeWorkspacePath: mismatch,
+      dataRootDir: dataRoot,
+      bindingId: "b-2",
+    });
+    assert.deepEqual(mismatchResult, { ok: true, homeDeleted: false });
+    await assert.rejects(readFile(join(mismatch, MARKER)));
+    assert.ok((await stat(mismatch)).isDirectory());
+
+    // 目录不存在 → 幂等成功。
+    const missing = await adapter.deleteHome({
+      homeWorkspacePath: join(dir, "nope"),
+      dataRootDir: dataRoot,
+      bindingId: "b-2",
+    });
+    assert.deepEqual(missing, { ok: true, homeDeleted: false });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

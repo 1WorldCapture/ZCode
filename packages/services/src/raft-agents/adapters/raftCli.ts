@@ -65,9 +65,13 @@ async function findOnPath(binary: string): Promise<string | undefined> {
   return undefined;
 }
 
-/** `Raft CLI: 0.0.24` → [0,0,24]；解析失败返回 undefined。 */
+/**
+ * `Raft CLI: 0.0.24` → [0,0,24]；解析失败返回 undefined。
+ * 允许 fork 后缀（`0.0.24-zcode.1`）：版本号取前三段比较，后缀只标识发布渠道
+ *（A3 fork 构建 0.0.24-zcode.1 按 0.0.24 满足最低版本，线程 59b3e306）。
+ */
 export function parseCliVersion(stdout: string): string | undefined {
-  const match = /^Raft CLI:\s*(\d+\.\d+\.\d+)\s*$/m.exec(stdout);
+  const match = /^Raft CLI:\s*(\d+\.\d+\.\d+)(?:-[A-Za-z0-9][A-Za-z0-9.]*)?\s*$/m.exec(stdout);
   return match?.[1];
 }
 

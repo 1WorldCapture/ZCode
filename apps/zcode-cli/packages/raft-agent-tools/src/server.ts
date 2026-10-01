@@ -65,7 +65,7 @@ const toolSchemas = {
 type ToolKey = keyof typeof toolSchemas;
 
 const toolDescriptions: Record<ToolKey, string> = {
-  raft_message_check: "读取并清空你的 Raft 收件箱（新消息、@提及、私信）。读取后消息即视为已送达。",
+  raft_message_check: "读取你的 Raft 收件箱（新消息、@提及、私信）。已读到的消息不会重复出现。",
   raft_message_read: "读取某个频道、私信或线程的历史消息。",
   raft_message_send: "以你的身份向频道、私信或线程发送消息。发送前若有你没读过的新消息，会存为草稿并返回新消息。",
   raft_task_list: "列出频道里的任务，或你自己的任务。",

@@ -46,7 +46,10 @@ const zhCN: Record<string, string> = {
   "agentCenter.form.error.PathConflict":
     "这个 Home 路径与已接入的 Agent 冲突，请换一个目录（{detail}）",
   "agentCenter.form.error.SlugConflict": "内部标识冲突，请重试（{detail}）",
+  "agentCenter.form.error.HomeOverlapsCredentials":
+    "Home 路径不能包含或落入 Raft 凭据目录（raft/profiles），请换一个目录",
   "agentCenter.form.error.AlreadyBound": "这个 Agent 已经接入过了（{detail}）",
+  "agentCenter.form.error.ProfileInUse": "这份本机凭据已被其他绑定使用（{detail}），请选择其他凭据或直传 token",
   "agentCenter.form.error.ProvisioningFailed": "接入准备失败，可以重试（步骤：{detail}）",
   "agentCenter.form.error.StoreWriteFailed": "保存失败，请重试",
   "agentCenter.form.serverUrl": "服务地址",

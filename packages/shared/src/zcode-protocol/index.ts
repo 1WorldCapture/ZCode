@@ -1602,6 +1602,11 @@ export const zcodeSessionCreateParamsSchema = z
     officialMcpServers: z.array(zcodeOfficialMcpServerRefSchema).optional(),
     toolAllowlist: z.array(nonEmptyString).optional(),
     toolDenylist: z.array(nonEmptyString).optional(),
+    // 无人值守会话（Raft Agent）的文件工具边界：开启后 Read/Write/Edit/Glob/Grep 的
+    // 路径入参越出 workspaceRoot 直接拒绝。yolo 权限模式放行发生在项目规则之前，
+    // 工具面白名单也只管"注册了哪些工具"；两者都约束不了已注册文件工具指向哪里，
+    // 这一层是唯一压得住的执行期防线（排在其后判定）。
+    confineFileToolsToWorkspace: z.boolean().optional(),
     importedHistory: zcodeSessionImportHistorySchema.optional(),
     // host 只按本地服务装配/远程/端形态决定是否注册工具，不读取灰度；
     // 缺省不下发 = 不注册；灰度与套餐准入在实际创建的 Host handler 校验。
@@ -1627,6 +1632,8 @@ export const zcodeSessionResumeParamsSchema = z
     // 冷恢复重建 runtime 时必须沿用 create 的工具面约束（否则会绕过 allow/deny，尤其 CUA 会话）。
     toolAllowlist: z.array(nonEmptyString).optional(),
     toolDenylist: z.array(nonEmptyString).optional(),
+    // 与 create 同语义；resume 不带会让冷恢复的无人值守会话重新拿到全盘文件访问。
+    confineFileToolsToWorkspace: z.boolean().optional(),
     // 与 create 同语义；resume 不带会导致冷恢复丢 Off-Peak 工具面。
     offPeakToolEnabled: z.boolean().optional(),
     // 与 create 同语义；resume 不带会导致冷恢复丢工作流工具簇。

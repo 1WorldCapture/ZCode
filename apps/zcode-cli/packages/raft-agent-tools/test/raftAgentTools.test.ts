@@ -20,7 +20,7 @@ const CHECK_OUTPUT = [
 /** 假 CLI：按 FAKE_MODE 文件决定行为，并把收到的 argv/env/stdin 记到 record.json。 */
 async function makeFakeCli(
   dir: string,
-  mode: { status: number; stdout?: string; stderr?: string; hang?: boolean },
+  mode: { status: number; stdout?: string; stderr?: string; hang?: boolean; stdoutThenHang?: boolean },
 ) {
   const script = join(dir, "fake-raft.mjs");
   await writeFile(join(dir, "mode.json"), JSON.stringify(mode));
@@ -32,11 +32,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 const dir = dirname(fileURLToPath(import.meta.url));
 const mode = JSON.parse(readFileSync(join(dir, "mode.json"), "utf8"));
+// 能力探测（--version）恒报第一期官方版本：这些用例只覆盖旧命令行路径。
+if (process.argv.includes("--version")) { process.stdout.write("Raft CLI: 0.0.24\\n"); process.exit(0); }
 let stdin = "";
 process.stdin.on("data", (c) => (stdin += c));
 process.stdin.on("end", () => {
   writeFileSync(join(dir, "record.json"), JSON.stringify({ argv: process.argv.slice(2), envKeys: Object.keys(process.env), profileDir: process.env.RAFT_PROFILE_DIR, stdin }));
   if (mode.hang) return setTimeout(() => {}, 60000);
+  if (mode.stdoutThenHang) { process.stdout.write(mode.stdout); return setInterval(() => {}, 1000); }
   if (mode.stdout) process.stdout.write(mode.stdout);
   if (mode.stderr) process.stderr.write(mode.stderr);
   process.exit(mode.status);
@@ -304,4 +307,22 @@ test("保留期：默认 14 天，上限 30 天", () => {
   assert.equal(clampInboxLogRetentionDays(0), 14);
   assert.equal(clampInboxLogRetentionDays(90), 30);
   assert.equal(clampInboxLogRetentionDays(7), 7);
+});
+
+test("message_send：CLI 打印成功行后不退出（残留句柄），按成功返回且不等到超时", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "raft-tools-"));
+  try {
+    const cli = await makeFakeCli(dir, {
+      status: 0,
+      stdout: "Message sent to #dev. Message ID: 1234abcd-0000 (to reply in this message's thread, use target \"#dev:1234abcd\")\n",
+      stdoutThenHang: true,
+    });
+    const adapter = createCliToolAdapter({ identity: identityFor(dir, cli.script), inboxLog: createInboxLogStore(dir) });
+    const startedAt = Date.now();
+    const result = await adapter.invoke({ tool: "message_send", target: "#dev", content: "hi" });
+    assert.equal(result.kind, "ok");
+    assert.ok(Date.now() - startedAt < 10_000, "看到成功行应立即结束，不应拖到 60s 超时");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
