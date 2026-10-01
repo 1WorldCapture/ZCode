@@ -127,6 +127,10 @@ const enUS: Record<string, string> = {
   "agentCenter.manage.remove.doneDeleted": "Agent and its Home directory deleted",
   "agentCenter.manage.remove.doneKept":
     "Agent deleted; the Home directory was kept with only the memory files cleared",
+  "agentCenter.manage.remove.doneUntouched":
+    "Agent deleted; the Home directory was left untouched — please handle it manually",
+  "agentCenter.manage.remove.doneFailed":
+    "Agent deleted; the Home directory may be partially deleted — please check it manually",
   "agentCenter.activity.lastActivity": "Last activity",
   "agentCenter.activity.none": "No activity yet",
   "agentCenter.activity.memoryLoaded": "Memory",

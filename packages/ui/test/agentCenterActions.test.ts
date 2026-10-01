@@ -157,31 +157,48 @@ test("管理动作：重启/重置成功刷新；失败置 actionFailed；删除
   const removable = fakeService({
     removeBinding: async (bindingId: string, opts: unknown) => {
       removeArgs = { bindingId, opts };
-      return { homeDeleted: true };
+      return { home: "deleted" as const };
     },
   });
   assert.deepEqual(await removeAgent(removable.service, "b1"), {
     ok: true,
-    homeDeleted: true,
+    home: { home: "deleted" },
   });
   assert.deepEqual(removeArgs, { bindingId: "b1", opts: { deleteHome: true } });
   assert.deepEqual(removable.calls, ["list"]);
 
-  // 目录守卫：无归属标记的 Home 只清记忆、保留目录，返回值必须如实带出来。
+  // Home 处置四态（e3479b5）须原样透出，由界面按态如实提示。
   const kept = fakeService({
-    removeBinding: async () => ({ homeDeleted: false }),
+    removeBinding: async () => ({ home: "kept_memory_cleared" as const }),
   });
   assert.deepEqual(await removeAgent(kept.service, "b1"), {
     ok: true,
-    homeDeleted: false,
+    home: { home: "kept_memory_cleared" },
+  });
+
+  const refused = fakeService({
+    removeBinding: async () => ({
+      home: "untouched" as const,
+      reason: "refused" as const,
+      detail: "home path is a symlink",
+    }),
+  });
+  assert.deepEqual(await removeAgent(refused.service, "b1"), {
+    ok: true,
+    home: { home: "untouched", reason: "refused", detail: "home path is a symlink" },
+  });
+
+  const failed = fakeService({
+    removeBinding: async () => ({ home: "failed" as const, detail: "EACCES" }),
+  });
+  assert.deepEqual(await removeAgent(failed.service, "b1"), {
+    ok: true,
+    home: { home: "failed", detail: "EACCES" },
   });
 
   const failingRemove = fakeService({
     removeBinding: async () => Promise.reject(new Error("boom")),
   });
-  assert.deepEqual(await removeAgent(failingRemove.service, "b1"), {
-    ok: false,
-    homeDeleted: false,
-  });
+  assert.deepEqual(await removeAgent(failingRemove.service, "b1"), { ok: false });
   assert.equal(useAgentCenterStore.getState().actionFailed, true);
 });

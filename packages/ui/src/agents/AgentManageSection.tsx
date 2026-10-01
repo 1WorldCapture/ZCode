@@ -23,6 +23,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { logger } from "@/logger.js";
 import {
   removeAgent,
   resetAgent,
@@ -57,14 +58,22 @@ export function AgentManageSection({ bindingId }: { bindingId: string }) {
         const result = await removeAgent(service, bindingId);
         if (!result.ok) return;
         setPending(null);
-        // 目录守卫（评审定稿）：无 ZCode 归属标记的 Home 只清记忆、保留目录，如实提示。
-        toast(
-          intl.formatMessage({
-            id: result.homeDeleted
-              ? "agentCenter.manage.remove.doneDeleted"
-              : "agentCenter.manage.remove.doneKept",
-          }),
-        );
+        // Home 处置四态如实提示（e3479b5 定稿）；failed 可能已部分删除，detail 只进日志。
+        const doneId =
+          result.home.home === "deleted"
+            ? "doneDeleted"
+            : result.home.home === "kept_memory_cleared"
+              ? "doneKept"
+              : result.home.home === "failed"
+                ? "doneFailed"
+                : "doneUntouched";
+        if (result.home.home === "failed" || result.home.home === "untouched") {
+          logger.warn("[AgentCenter] Home 目录未按预期处置", {
+            bindingId,
+            home: result.home,
+          });
+        }
+        toast(intl.formatMessage({ id: `agentCenter.manage.remove.${doneId}` }));
       }
     } finally {
       setBusy(false);

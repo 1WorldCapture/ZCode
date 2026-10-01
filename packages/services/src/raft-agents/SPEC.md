@@ -371,12 +371,12 @@ createBinding(input: { raftOrigin, raftAgentId, homePath }
 - **详情页「管理」区**：重启 / 重置 / 删除三个动作，均带二次确认（AlertDialog，与插件卸载确认同惯例）。
 - **重启确认**：提示进行中的工作会中断；语义 = 停值守 → 新建主会话（同 Home/记忆配置）→ 恢复值守，记忆保留。
 - **重置确认**：同上中断提示；另明确 Home 记忆面（MEMORY.md、AGENTS.md、notes/）清空并按初始模板重建，Home 其他内容不受影响。
-- **删除确认**：写明删除绑定与本地凭据；Home 目录会被删除（**包括 projects/ 下 clone 的代码**），但**目录守卫**成立时例外——Home 无 ZCode 归属标记（用户在向导里指定的既有目录）只清记忆面、保留目录；操作不可恢复；**Raft 服务侧 token 不会被撤销**（需用户在服务端自行撤销）。删除完成后按 `removeBinding` 返回的 `homeDeleted` 如实 toast 两种结果。
+- **删除确认**：写明删除绑定与本地凭据；Home 目录会被删除（**包括 projects/ 下 clone 的代码**），但**目录守卫**成立时例外——Home 无 ZCode 归属标记（用户在向导里指定的既有目录）只清记忆面、保留目录；操作不可恢复；**Raft 服务侧 token 不会被撤销**（需用户在服务端自行撤销）。删除完成后按 `removeBinding` 返回的 Home 处置四态如实 toast：`deleted` → "已删除 Agent 及其 Home 目录"；`kept_memory_cleared` → "已删除 Agent；Home 目录已保留，仅清空了记忆文件"；`untouched` → "已删除 Agent；Home 目录未改动，请手动处理"；`failed` → "已删除 Agent；Home 目录可能已部分删除，请手动检查"（detail 只进日志，不上屏）。
 - **状态完整显示**：详情页在运行状态下列出活动投影——最近活动（类别 + 时间，类别 = wake/drain_submitted/message_sent/error）与记忆状态（memoryLoaded）。`activity` 为列表投影的可选扩展字段（A1 第 5 条），旧数据无字段时不渲染这些行。
 
 ### 接口对接（A1 形状）
 
-`restartBinding(bindingId)` / `resetBinding(bindingId)` 按 Dev-developer 的 A1 形状对接；`removeBinding(bindingId, {deleteHome:true})` 返回 `{ homeDeleted }`（目录守卫评审定稿，9b695ea：符号链接拒绝、受保护根、`.zcode-agent-home` 归属标记或默认位置才整删，否则只清记忆面保留目录）。失败（NotFound / SessionCreateFailed / MemoryResetFailed）统一置操作失败提示并刷新快照，不做乐观更新。
+`restartBinding(bindingId)` / `resetBinding(bindingId)` 按 Dev-developer 的 A1 形状对接；`removeBinding(bindingId, {deleteHome:true})` 返回 Home 处置四态 `RaftAgentRemoveHomeOutcome`（评审定稿 e3479b5：`deleted` 整删 / `kept_memory_cleared` 只清记忆保留目录 / `untouched(not_requested|refused)` 确实未动 / `failed` 中途失败可能已部分删除——目录守卫见「二期 A1」删除守卫节）。失败（NotFound / SessionCreateFailed / MemoryResetFailed）统一置操作失败提示并刷新快照，不做乐观更新。
 
 ### 不变量
 
