@@ -1,4 +1,5 @@
 import { isAbsolute, join, resolve } from "node:path";
+import { ZCODE_DATA_ROOT_NAME } from "@zcode/shared";
 import {
   createInMemorySessionEventStore,
   createNodeToolArtifactStore,
@@ -370,7 +371,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       (messageEnabled
         ? createNodeSessionMailboxAdapter({
             rootDir: resolvePath(
-              (options.env ?? process.env).ZCODE_MAILBOX_ROOT ?? "~/.zcode/mailbox",
+              (options.env ?? process.env).ZCODE_MAILBOX_ROOT ?? `~/${ZCODE_DATA_ROOT_NAME}/mailbox`,
             ),
           })
         : undefined);

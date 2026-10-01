@@ -1,4 +1,5 @@
 import { stat } from "node:fs/promises";
+import { ZCODE_DATA_ROOT_NAME } from "@zcode/shared";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { CustomCommandRoot, CustomCommandSource } from "@zcode/contracts";
@@ -7,6 +8,7 @@ const COMMANDS_DIR = "commands";
 const GIT_MARKER = ".git";
 const HOME_PREFIX = "~/";
 const PRIORITY_STEP = 10;
+// 用户级根目录名随产品形态（TinyCode 为 .tinycode）；项目级 <workspace>/.zcode 保持不变。
 const ZCODE_DIR = ".zcode";
 const AGENTS_DIR = ".agents";
 
@@ -99,7 +101,12 @@ function commandRootsForBase(
   // 合并而不是 fallback：兼容 `.agents` 命令和原生 `.zcode` 命令需要同时可见。
   // 同一级别 `.zcode` 先扫描，命令同名时仍按“先到先赢”处理。
   return [
-    root(join(baseDirectory, ZCODE_DIR, COMMANDS_DIR), scope, "zcode", nextPriority()),
+    root(
+      join(baseDirectory, scope === "user" ? ZCODE_DATA_ROOT_NAME : ZCODE_DIR, COMMANDS_DIR),
+      scope,
+      "zcode",
+      nextPriority(),
+    ),
     root(join(baseDirectory, AGENTS_DIR, COMMANDS_DIR), scope, "agents", nextPriority()),
   ];
 }

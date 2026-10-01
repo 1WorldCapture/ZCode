@@ -7,6 +7,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import { ZCODE_DATA_ROOT_NAME } from "@zcode/shared";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -59,7 +60,7 @@ export interface PluginRemovePatchResult {
 }
 
 const DEFAULT_CONFIG_FILE = "config.json";
-const DEFAULT_BASE_DIR = "~/.zcode/cli";
+const DEFAULT_BASE_DIR = `~/${ZCODE_DATA_ROOT_NAME}/cli`;
 
 /**
  * Resolve path with ~ expansion

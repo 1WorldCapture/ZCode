@@ -20,6 +20,7 @@ import type {
 } from "@zcode/shared";
 import type { IMcpSyncService } from "./mcpSync.js";
 import { checkRemoteSyncDirectoryWriteAccess } from "../remote-sync/remoteSyncWriteAccess.js";
+import { ZCODE_DATA_ROOT_NAME } from "@zcode/shared";
 
 type McpConfigKeyName = "mcp.servers" | "mcpServers";
 
@@ -43,7 +44,7 @@ interface UserMcpRecord {
 const ZCODE_MCP_DESCRIPTOR: DirectoryMcpDescriptor = {
   source: "zcode",
   directorySource: "zcode",
-  userConfigDirSegments: [".zcode", "cli"],
+  userConfigDirSegments: [ZCODE_DATA_ROOT_NAME, "cli"],
   workspaceConfigDirSegments: [".zcode"],
   fileName: "config.json",
   configKeyName: "mcp.servers",

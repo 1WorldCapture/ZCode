@@ -168,6 +168,7 @@ import {
 } from "./zcodeConfigOptions.js";
 import type { CuaProductMcpServerResolver } from "#src/cua-permission-broker/index.js";
 import { registerMemoryDiagnosticsProvider } from "#src/memoryDiagnostics.js";
+import { ZCODE_DATA_ROOT_NAME } from "@zcode/shared";
 
 interface TaskOverlay {
   archived?: boolean;
@@ -250,7 +251,7 @@ function formatZCodeAgentLogDate(now: Date): string {
 
 function resolveZCodeAgentCurrentLogFilePath(now = new Date()): string {
   const configuredLogDir = process.env.ZCODE_LOG_DIR?.trim();
-  const logDir = configuredLogDir || join(homedir(), ".zcode", "cli", "log");
+  const logDir = configuredLogDir || join(homedir(), ZCODE_DATA_ROOT_NAME, "cli", "log");
   return join(logDir, `zcode-${formatZCodeAgentLogDate(now)}.jsonl`);
 }
 

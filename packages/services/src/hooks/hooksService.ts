@@ -18,6 +18,7 @@ import {
   type WorkspaceHookSourceInput,
   type WorkspaceHooksConfig,
 } from "@zcode/shared/workspace-hook-discovery";
+import { ZCODE_DATA_ROOT_NAME } from "@zcode/shared";
 import { parseWorkspaceHookTrustStoreContent } from "@zcode/shared/workspace-hook-trust-store-file";
 import { createServiceLogger, type ServiceLogger } from "#src/logger/serviceLogger.js";
 import type { IHooksService } from "./hooks.js";
@@ -56,7 +57,7 @@ function resolveUserHomeDir(): string {
 function getRootDir(source: SettingsDirectorySource, workspacePath?: string): string {
   const baseDir = workspacePath ?? resolveUserHomeDir();
   if (source === "zcode") {
-    return workspacePath ? join(baseDir, ".zcode") : join(baseDir, ".zcode", "cli");
+    return workspacePath ? join(baseDir, ZCODE_DATA_ROOT_NAME) : join(baseDir, ZCODE_DATA_ROOT_NAME, "cli");
   }
   return join(baseDir, source === "agents" ? ".agents" : ".claude");
 }
@@ -165,7 +166,7 @@ async function readPersistentWorkspaceHookTrustDigests(
       : isAbsolute(configured)
         ? resolve(configured)
         : resolve(home, configured)
-    : join(home, ".zcode");
+    : join(home, ZCODE_DATA_ROOT_NAME);
   const trustFilePath = join(storageRoot, "security", "workspace-hook-trust-v1.json");
 
   // 异步读取 + ENOENT 区分：不用 existsSync 预检——同步调用会阻塞服务

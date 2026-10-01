@@ -1,4 +1,5 @@
 import { existsSync, statSync } from "node:fs";
+import { ZCODE_DATA_ROOT_NAME } from "@zcode/shared";
 import { homedir } from "node:os";
 import { dirname, join, parse, resolve } from "node:path";
 import { config as loadDotenv } from "dotenv";
@@ -135,5 +136,5 @@ function applyBetaStorageDefault(env: CliEnv, argv: readonly string[]): void {
   const explicitBeta = env.ZCODE_BETA === "1" || env.ZCODE_ENV === "beta";
   const invokedAsBeta = argv.some((arg) => /(^|[/\\])zcode-beta(?:$|\.)/u.test(arg));
   if (!explicitBeta && !invokedAsBeta) return;
-  env.ZCODE_STORAGE_DIR = join(homedir(), ".zcode-beta");
+  env.ZCODE_STORAGE_DIR = join(homedir(), `${ZCODE_DATA_ROOT_NAME}-beta`);
 }

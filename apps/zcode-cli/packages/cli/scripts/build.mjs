@@ -4,6 +4,7 @@ import { basename, dirname, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { stageBuiltinProviderConfig } from "../../../../../scripts/builtin-provider-config.mjs";
+import { resolveDesktopProductFlavor } from "../../../../../packages/desktop/scripts/desktop-product-identity.mjs";
 
 const cliRoot = resolve(import.meta.dirname, "..");
 const projectRoot = resolve(cliRoot, "../..");
@@ -212,6 +213,11 @@ export const buildCli = async ({
   }),
 } = {}) => {
   const cliVersion = await version;
+  // 用户级数据根目录名：桌面 TinyCode 构建（ZCODE_TINYCODE_IDENTITY=1 随 env 传入）烧录
+  // ".tinycode"，独立 CLI 与其余形态保持 ".zcode"。拼写非法时 resolveDesktopProductFlavor
+  // 会直接 throw，构建期暴露。
+  const cliDataRootName = resolveDesktopProductFlavor(env) === "tinycode" ? ".tinycode" : ".zcode";
+  console.log(`[cli-build] ZCODE_DATA_ROOT_NAME=${cliDataRootName}`);
   const outfile = resolve(cliDirectory, "dist/zcode.cjs");
   const sourcemapFile = `${outfile}.map`;
   const notices = await readThirdPartyNotices(resolve(rootDirectory, "../.."));
@@ -231,6 +237,7 @@ export const buildCli = async ({
     bundle: true,
     define: {
       __CLI_VERSION__: JSON.stringify(cliVersion),
+      __ZCODE_DATA_ROOT_NAME__: JSON.stringify(cliDataRootName),
     },
     entryPoints: [resolve(cliDirectory, "src/main.ts")],
     // Ink 7 and yoga-layout use top-level await, so the CJS CLI bundle loads the TUI

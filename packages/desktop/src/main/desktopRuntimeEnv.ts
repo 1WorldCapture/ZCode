@@ -10,6 +10,7 @@ import {
   ZCODE_AGENT_RUNTIME,
   ZCODE_DYNAMIC_WORKFLOW_MODE_ENV,
   ZCODE_ENV,
+  ZCODE_DATA_ROOT_NAME,
   ZCODE_PRODUCT_DISPLAY_NAMES,
   ZCODE_PRODUCT_FLAVOR,
   ZCODE_RUNTIME_ENV_KEY,
@@ -500,7 +501,7 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
             )
           ? rawInheritedEnv.ZCODE_CUA_BUNDLED_HELPER_APP_PATH?.trim() ||
             join(
-              rawInheritedEnv.ZCODE_HOME?.trim() || join(homedir(), ".zcode"),
+              rawInheritedEnv.ZCODE_HOME?.trim() || join(homedir(), ZCODE_DATA_ROOT_NAME),
               "computer-use",
               "dev",
               DEV_HELPER_APP_NAME,

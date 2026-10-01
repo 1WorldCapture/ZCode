@@ -3,6 +3,7 @@
  */
 
 import { readFile } from "node:fs/promises";
+import { ZCODE_DATA_ROOT_NAME } from "@zcode/shared";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import type {
@@ -37,7 +38,7 @@ interface DirectoryMcpDescriptor {
 const ZCODE_MCP_DESCRIPTOR: DirectoryMcpDescriptor = {
   source: "zcodeagentmcp",
   directorySource: "zcode",
-  userConfigDirSegments: [".zcode", "cli"],
+  userConfigDirSegments: [ZCODE_DATA_ROOT_NAME, "cli"],
   workspaceConfigDirSegments: [".zcode"],
   fileName: "config.json",
   format: "json",

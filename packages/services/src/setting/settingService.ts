@@ -12,6 +12,7 @@ import {
   formatLogPrefix,
   formatZodError,
 } from "@zcode/shared";
+import { ZCODE_DATA_ROOT_NAME } from "@zcode/shared";
 import type { ISettingService } from "./setting.js";
 import { normalizeSettingsPatch } from "#src/setting/normalizeSettingsPatch.js";
 import { copyDataDirectory, getDataBaseDir, validateDataBaseDirTarget } from "../paths.js";
@@ -53,7 +54,7 @@ function resolveUserHomeDir() {
 }
 
 function getSettingsDir() {
-  return join(resolveUserHomeDir(), ".zcode", "v2");
+  return join(resolveUserHomeDir(), ZCODE_DATA_ROOT_NAME, "v2");
 }
 
 function getSettingsFile() {

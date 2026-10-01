@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { ZCODE_DATA_ROOT_NAME } from "@zcode/shared";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -7,7 +8,7 @@ interface ChromiumHardwareAccelerationApp {
 }
 
 function resolveChromiumHardwareAccelerationSettingsFile(homePath: string = homedir()): string {
-  return join(homePath, ".zcode", "v2", "setting.json");
+  return join(homePath, ZCODE_DATA_ROOT_NAME, "v2", "setting.json");
 }
 
 function extractBootstrapChromiumHardwareAccelerationEnabled(rawValue: unknown): boolean {

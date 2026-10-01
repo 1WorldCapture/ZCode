@@ -22,6 +22,7 @@ import {
   walkSkillMarkdownPaths,
 } from "../skills/skillDiscoveryWalk.js";
 import { checkRemoteSyncDirectoryWriteAccess } from "../remote-sync/remoteSyncWriteAccess.js";
+import { ZCODE_DATA_ROOT_NAME } from "@zcode/shared";
 
 const SKILL_FILE_NAME = "SKILL.md";
 const DEFAULT_MAX_ARCHIVE_BYTES = 20 * 1024 * 1024;
@@ -131,7 +132,7 @@ function resolveUserHomeDir(): string {
 }
 
 function getUserZcodeSkillRoot(): string {
-  return join(resolveUserHomeDir(), ".zcode", "skills");
+  return join(resolveUserHomeDir(), ZCODE_DATA_ROOT_NAME, "skills");
 }
 
 function getUserAgentsSkillRoot(): string {

@@ -41,6 +41,7 @@ import type { ISettingService } from "../setting/setting.js";
 import { createServiceLogger } from "../logger/serviceLogger.js";
 import { walkSkillMarkdownPaths } from "../skills/skillDiscoveryWalk.js";
 import type { ISettingsSyncService } from "./settingsSync.js";
+import { ZCODE_DATA_ROOT_NAME } from "@zcode/shared";
 
 const log = createServiceLogger("settings-sync");
 
@@ -426,7 +427,7 @@ function getWorkspaceZcodeSkillRoot(workspacePath: string): string {
 }
 
 function getUserZcodeSkillRoot(): string {
-  return join(resolveUserHomeDir(), ".zcode", "skills");
+  return join(resolveUserHomeDir(), ZCODE_DATA_ROOT_NAME, "skills");
 }
 
 function getWorkspaceZcodeCommandRoot(workspacePath: string): string {
@@ -434,7 +435,7 @@ function getWorkspaceZcodeCommandRoot(workspacePath: string): string {
 }
 
 function getUserZcodeCommandRoot(): string {
-  return join(resolveUserHomeDir(), ".zcode", "commands");
+  return join(resolveUserHomeDir(), ZCODE_DATA_ROOT_NAME, "commands");
 }
 
 function getWorkspaceZcodePluginRoot(workspacePath: string): string {
@@ -442,11 +443,11 @@ function getWorkspaceZcodePluginRoot(workspacePath: string): string {
 }
 
 function getUserZcodePluginRoot(): string {
-  return join(resolveUserHomeDir(), ".zcode", "plugins");
+  return join(resolveUserHomeDir(), ZCODE_DATA_ROOT_NAME, "plugins");
 }
 
 function getUserZcodeCliConfigPath(): string {
-  return join(resolveUserHomeDir(), ".zcode", "cli", "config.json");
+  return join(resolveUserHomeDir(), ZCODE_DATA_ROOT_NAME, "cli", "config.json");
 }
 
 function getWorkspaceZcodeConfigPath(workspacePath: string): string {
@@ -458,7 +459,7 @@ function getClaudeUserAgentsFileSourcePath(): string {
 }
 
 function getUserZcodeAgentsFilePath(): string {
-  return join(resolveUserHomeDir(), ".zcode", "AGENTS.md");
+  return join(resolveUserHomeDir(), ZCODE_DATA_ROOT_NAME, "AGENTS.md");
 }
 
 function resolveTargetRootForScope(

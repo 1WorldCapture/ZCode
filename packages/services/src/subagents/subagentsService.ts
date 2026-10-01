@@ -42,6 +42,7 @@ import {
   scanOfficialPluginCacheRoots,
 } from "@zcode/shared/node";
 import { createServiceLogger } from "#src/logger/serviceLogger.js";
+import { ZCODE_DATA_ROOT_NAME } from "@zcode/shared";
 
 const subagentLogger = createServiceLogger("subagents");
 
@@ -396,7 +397,7 @@ async function discoverPluginAgents(params: {
 
 async function readPluginConfig(options?: SubagentStorageOptions): Promise<PluginConfigSummary> {
   try {
-    const configPath = join(resolveUserHomeDir(options), ".zcode", "cli", "config.json");
+    const configPath = join(resolveUserHomeDir(options), ZCODE_DATA_ROOT_NAME, "cli", "config.json");
     const raw = await readFile(configPath, "utf-8");
     const parsed = JSON.parse(raw) as unknown;
     if (!isRecord(parsed)) return { enabledPlugins: {}, suppressedBuiltins: [] };
