@@ -7,7 +7,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { resolveZCodeEndpointOrigin, pickProductEndpointEnv } from "@zcode/shared/zcodeEndpoint";
 import { pdfJsCMapsPlugin } from "../ui/vite/pdfJsCMapsPlugin.js";
 import { getBuildMetadata } from "./scripts/build-metadata.mjs";
-import { resolveDesktopProductFlavor } from "./scripts/desktop-product-identity.mjs";
+import { isRaftBuildRequested, resolveDesktopProductFlavor } from "./scripts/desktop-product-identity.mjs";
 
 const buildMetadata = getBuildMetadata();
 const desktopRequire = createRequire(import.meta.url);
@@ -194,6 +194,8 @@ export default defineConfig(({ mode }) => {
       __ZCODE_BUILD_TIME__: JSON.stringify(buildMetadata.buildTime),
       __ZCODE_ENV__: JSON.stringify(zcodeEnv),
       __ZCODE_PRODUCT_FLAVOR__: JSON.stringify(zcodeProductFlavor),
+      // Raft 集成构建跳过官方更新通道（autoUpdater / 强制升级 gate）的编译期标志。
+      __ZCODE_RAFT_BUILD__: JSON.stringify(isRaftBuildRequested(env) ? "1" : "0"),
       __ZCODE_LOCAL_DEVELOPMENT_RUNTIME__: JSON.stringify(mode !== "production"),
       "import.meta.env.VITE_ZCODE_BASE_URL": JSON.stringify(zcodeEndpointOrigin),
       // 兼容旧 renderer 读取名；新代码统一读 VITE_ZCODE_BASE_URL。
