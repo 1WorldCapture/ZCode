@@ -14,6 +14,7 @@ import { usePlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import { useAgentCenterStore } from "@/agents/agentCenterStore.js";
+import { AgentMemoryPanel } from "@/agents/AgentMemoryPanel.js";
 import { pauseAgent, startAgent } from "@/agents/agentCenterActions.js";
 import { useRaftAgentsService } from "@/agents/useAgentCenterSync.js";
 import { isErrorPaused } from "@/agents/types.js";
@@ -168,6 +169,7 @@ export function AgentDetailPage({ bindingId }: { bindingId: string }) {
             </dd>
           </div>
         </dl>
+        <AgentMemoryPanel bindingId={item.bindingId} />
         <div className="flex h-64 items-center justify-center px-6">
           <p className="max-w-80 text-center text-ui-caption text-foreground-subtlest">
             {intl.formatMessage({ id: "agentCenter.detail.sessionPlaceholder" })}

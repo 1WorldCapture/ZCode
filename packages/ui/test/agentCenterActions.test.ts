@@ -108,3 +108,24 @@ test("token 永不进入 store", async () => {
   await submitConnect(service, input);
   assert.ok(!JSON.stringify(useAgentCenterStore.getState()).includes("sk_agent_secret"));
 });
+
+test("复用凭据模式：existingProfileSlug 原样传给 createBinding，输入不带 token", async () => {
+  let received: unknown = null;
+  const reuseInput = {
+    raftOrigin: "https://raft.example",
+    raftAgentId: "a".repeat(8),
+    existingProfileSlug: "slug-1",
+  };
+  const ok = fakeService({
+    createBinding: async (inputArg: unknown) => {
+      received = inputArg;
+      return { ok: true as const, binding: {} };
+    },
+  });
+  assert.equal(await submitConnect(ok.service, reuseInput as never), true);
+  assert.deepEqual(received, reuseInput);
+  assert.ok(
+    !JSON.stringify(useAgentCenterStore.getState()).includes("token"),
+    "复用模式全程不接触 token",
+  );
+});

@@ -50,20 +50,63 @@ const enUS: Record<string, string> = {
   "agentCenter.form.error.AlreadyBound": "This Agent is already connected ({detail})",
   "agentCenter.form.error.ProvisioningFailed": "Setup failed and can be retried (step: {detail})",
   "agentCenter.form.error.StoreWriteFailed": "Couldn't save. Please retry",
-  "agentCenter.form.description":
-    "Enter the Raft server URL, Agent ID and token to connect. The token is passed through a secure channel and never enters logs or UI storage.",
   "agentCenter.form.serverUrl": "Server URL",
   "agentCenter.form.agentId": "Agent ID",
   "agentCenter.form.token": "Agent Token",
   "agentCenter.form.homePath": "Home path",
   "agentCenter.form.homePathPlaceholder": "Leave empty to use the default directory",
-  "agentCenter.form.error.required": "Server URL, Agent ID and token are required",
-  "agentCenter.form.save": "Save",
-  "agentCenter.form.cancel": "Cancel",
+  "agentCenter.form.error.ProfileInUse":
+    "This local credential is already used by another connection. Pick a different one",
   "agentCenter.detail.raftServer": "Raft server",
   "agentCenter.detail.connectionState": "Connection state",
   "agentCenter.detail.runState": "Run state",
   "agentCenter.detail.sessionPlaceholder": "View this Agent's conversations in Raft; an in-app session view will come in a later version.",
+  "agentCenter.wizard.step1.label": "Server",
+  "agentCenter.wizard.step1.description":
+    "Enter the Raft server URL. The wizard checks the local CLI environment.",
+  "agentCenter.wizard.step2.label": "Identity & credential",
+  "agentCenter.wizard.step2.description":
+    "Enter the Agent ID and token, or reuse a credential already on this machine.",
+  "agentCenter.wizard.step3.label": "Home path",
+  "agentCenter.wizard.step3.description": "Set the Agent's Home workspace.",
+  "agentCenter.wizard.step3.hint":
+    "The Agent can only read and write files inside this directory; leave empty to use the default.",
+  "agentCenter.wizard.step4.label": "Confirm",
+  "agentCenter.wizard.step4.description":
+    "Review the information below. Connecting completes once the identity check passes.",
+  "agentCenter.wizard.step4.verifying": "Verifying the identity with the server…",
+  "agentCenter.wizard.step4.identityTitle": "Identity confirmed by the server",
+  "agentCenter.wizard.step4.confirm": "Connect",
+  "agentCenter.wizard.next": "Next",
+  "agentCenter.wizard.back": "Back",
+  "agentCenter.wizard.cancel": "Cancel",
+  "agentCenter.wizard.error.originRequired": "Enter the server URL",
+  "agentCenter.wizard.error.identityRequired":
+    "Enter the Agent ID and token, or pick a local credential",
+  "agentCenter.wizard.cliMissing.title": "Raft CLI not found",
+  "agentCenter.wizard.cliMissing.description":
+    "Connecting requires the Raft CLI installed on this machine. Run the following command in a terminal:",
+  "agentCenter.wizard.cliMissing.placeholderNote":
+    "This install command is a placeholder; it will be replaced with the fork-built distribution before release. Come back and retry once installed.",
+  "agentCenter.wizard.reuse.title": "Reuse a local credential",
+  "agentCenter.wizard.reuse.occupied":
+    "This credential is already used by another connection and can't be reused",
+  "agentCenter.wizard.reuse.empty": "No reusable credentials on this machine",
+  "agentCenter.wizard.reuse.loadFailed":
+    "Couldn't load local credentials. You can still paste a token manually",
+  "agentCenter.wizard.reuse.switchToNew": "Enter a new token instead",
+  "agentCenter.wizard.reuse.credential": "Credential",
+  "agentCenter.wizard.reuse.credentialValue":
+    "Reuse a local credential (no token is transmitted)",
+  "agentCenter.memory.title": "Memory",
+  "agentCenter.memory.description": "The Agent's long-term memory files (read-only).",
+  "agentCenter.memory.empty": "No memory files yet",
+  "agentCenter.memory.loadFailed": "Couldn't load the memory file list",
+  "agentCenter.memory.truncated": "The file is large; only the beginning is shown",
+  "agentCenter.memory.error.NotFound": "File not found",
+  "agentCenter.memory.error.OutsideMemorySurface":
+    "This file is outside the memory surface",
+  "agentCenter.memory.error.Unreadable": "Couldn't read the file",
   "startPlan.recommendation.subagentDescription":
     "Your Start Plan has quota available for {model}. Switch this subagent’s model to the Start Plan?",
   "startPlan.recommendation.preferenceSaveFailed":

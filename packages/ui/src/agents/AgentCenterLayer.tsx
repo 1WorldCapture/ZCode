@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useAgentCenterStore } from "@/agents/agentCenterStore.js";
-import { AgentConnectFormPage } from "@/agents/AgentConnectFormPage.js";
+import { AgentConnectWizardPage } from "@/agents/AgentConnectWizardPage.js";
 import { AgentDetailPage } from "@/agents/AgentDetailPage.js";
 import { AgentListPage } from "@/agents/AgentListPage.js";
 import { useAgentCenterSync, useRaftAgentsService } from "@/agents/useAgentCenterSync.js";
@@ -46,7 +46,7 @@ export function AgentCenterLayer({ onClose }: { onClose: () => void }) {
         {view.page === "list" ? (
           <AgentListPage />
         ) : view.page === "connect" ? (
-          <AgentConnectFormPage />
+          <AgentConnectWizardPage />
         ) : (
           <AgentDetailPage bindingId={view.bindingId} />
         )}
