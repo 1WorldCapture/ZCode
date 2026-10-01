@@ -50,6 +50,15 @@ export async function verifyRaftCredential(
     return { ok: false, code: credential.code, detail: credential.detail };
   }
   const token = credential.token;
+  // 身份级占用预核验·第一层（与 createBinding 的 preDuplicate 同判据）：同源同
+  // agent 已有绑定时确认页直接定向提示占用者——省一次登录核验，早失败无副作用。
+  const existing = await store.readAll();
+  const duplicateByOrigin = existing.find(
+    (b) => b.raftOrigin === origin && b.raftAgentId === agentId,
+  );
+  if (duplicateByOrigin) {
+    return { ok: false, code: "AlreadyBound", detail: duplicateByOrigin.displayName };
+  }
   // 实际生效 Home（评审线程 a517415a，B1/A2 验收）：输入给了就按创建同款规则
   // 校验后回显；留空给预派发默认——绑定 UUID 创建时才生成，这里先派发一个
   // 具体路径，向导保存时作为显式输入回传（与创建共用 defaultRaftAgentHomePath）。
@@ -85,6 +94,14 @@ export async function verifyRaftCredential(
     },
   );
   if (!outcome.ok) return outcome;
+  // 身份级占用预核验·第二层（登录后 serverId 已知，与 createBinding 锁内权威
+  // 判定同判据）：域名不同但同一服务端的重复接入也在此拦截。
+  const duplicateByServer = existing.find(
+    (b) => b.serverId === outcome.serverId && b.raftAgentId === agentId,
+  );
+  if (duplicateByServer) {
+    return { ok: false, code: "AlreadyBound", detail: duplicateByServer.displayName };
+  }
   return {
     ok: true,
     homePath,

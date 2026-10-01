@@ -805,6 +805,55 @@ test("verifyCredential：homePath 输入回显 / 形状非法本地拒收", asyn
   });
 });
 
+test("verifyCredential：同源同 agent 已接入 → AlreadyBound 定向提示且不发起登录（预核验早失败）", async () => {
+  await withDataRoot(async (dataRoot) => {
+    const cli = fakeCli();
+    const store = createRaftBindingStore(dataRoot);
+    await store.writeAll([makeBinding(join(dataRoot, "agents", "b1", "workspace"))]);
+    const service = createRaftAgentsService({
+      cli,
+      store,
+      clock: fixedClock,
+      dataRootDir: dataRoot,
+    });
+    const result = await service.verifyCredential({
+      raftOrigin: "https://raft.example.com",
+      raftAgentId: AGENT_ID,
+      token: "sk_agent_preflightok1",
+    });
+    // 确认页直接看到"已接入（占用者）"，不再走到保存才暴露；登录未发起。
+    assert.deepEqual(result, { ok: false, code: "AlreadyBound", detail: "t11-test-agent" });
+    assert.equal(cli.loginCalls.length, 0, "第一层判定先于登录，零网络副作用");
+  });
+});
+
+test("verifyCredential：域名不同但同 serverId+agentId → 登录核验后命中 AlreadyBound", async () => {
+  await withDataRoot(async (dataRoot) => {
+    const cli = fakeCli();
+    const store = createRaftBindingStore(dataRoot);
+    // 既有绑定来自另一域名形态（第一层同源判定不命中），serverId 与核验结果相同。
+    await store.writeAll([
+      makeBinding(join(dataRoot, "agents", "b1", "workspace"), {
+        raftOrigin: "https://alias.raft.example.com",
+        serverId: "server-1",
+      }),
+    ]);
+    const service = createRaftAgentsService({
+      cli,
+      store,
+      clock: fixedClock,
+      dataRootDir: dataRoot,
+    });
+    const result = await service.verifyCredential({
+      raftOrigin: "https://raft.example.com",
+      raftAgentId: AGENT_ID,
+      token: "sk_agent_preflightok1",
+    });
+    assert.deepEqual(result, { ok: false, code: "AlreadyBound", detail: "t11-test-agent" });
+    assert.equal(cli.loginCalls.length, 1, "第二层在登录核验之后，临时 profile 照常即毁");
+  });
+});
+
 test("verifyCredential：复用已有凭据——读 token 走同一核验链，用户 profile 不被触碰", async () => {
   await withDataRoot(async (dataRoot) => {
     const profilesRoot = join(dataRoot, "raft", "profiles");

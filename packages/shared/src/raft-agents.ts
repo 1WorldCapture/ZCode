@@ -318,6 +318,9 @@ export const raftAgentVerifyResultSchema = z.discriminatedUnion("ok", [
         "CredentialCheckFailed",
         // 复用凭据预核验（与 createBinding 同款早失败）：确认页不该走到保存才报占用。
         "ProfileInUse",
+        // 身份级占用预核验（收尾缺陷：AlreadyBound 到保存才暴露）：同源同 agent
+        // （登录前）或同 serverId+agentId（登录后）已有绑定 → 定向提示占用者。
+        "AlreadyBound",
       ]),
       detail: z.string().optional(),
     })
