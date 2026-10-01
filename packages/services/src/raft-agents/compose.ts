@@ -28,7 +28,7 @@ import { createAgentHomeAdapter } from "./adapters/agentHome.js";
 import { createRaftBindingStore } from "./adapters/bindingStore.js";
 import { createBridgeSupervisor } from "./adapters/bridgeSupervisor.js";
 import { createRaftCliAdapter } from "./adapters/raftCli.js";
-import { createRaftProfilesCatalog } from "./adapters/profilesCatalog.js";
+import { createRaftProfilesCatalog, resolveSlockHome } from "./adapters/profilesCatalog.js";
 import { createWakeServer } from "./adapters/wakeServer.js";
 
 export interface DefaultRaftAgentsServiceOptions {
@@ -58,7 +58,7 @@ export function createDefaultRaftAgentsService(options: DefaultRaftAgentsService
     // 二期 A1 注入面：默认组合根也带上记忆/凭据枚举/活动（管理动作需要会话面，
     // 仅宿主栈装配；此处缺省不 wire management）。
     memory: createAgentHomeAdapter(),
-    profilesCatalog: createRaftProfilesCatalog(join(dataRootDir, "raft", "profiles")),
+    profilesCatalog: createRaftProfilesCatalog(join(dataRootDir, "raft", "profiles"), { slockHome: resolveSlockHome() }),
     activity: createRaftActivityTracker(),
   });
 }
@@ -133,7 +133,7 @@ export function createDefaultRaftHostStack(options: {
   const activity = createRaftActivityTracker();
   // 二期 B2：主会话活动摘要（会话事件 → Raft 活动转发缓冲 + 本机实时投影）。
   const feed = createRaftActivityFeed({ sessions: options.sessions, logger });
-  const profilesCatalog = createRaftProfilesCatalog(join(dataRootDir, "raft", "profiles"));
+  const profilesCatalog = createRaftProfilesCatalog(join(dataRootDir, "raft", "profiles"), { slockHome: resolveSlockHome() });
 
   // 官方 MCP 引用：CLI 不可解析 = 插件/环境不可用 → fail-closed（undefined）。
   const resolveOfficialMcpServers = async (binding: Parameters<typeof buildRaftAgentToolsMcpRef>[0]) => {

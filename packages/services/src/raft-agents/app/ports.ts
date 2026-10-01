@@ -166,6 +166,10 @@ export interface RaftLocalProfileEntry {
   agentId: string;
   agentName?: string;
   createdAt: string;
+  /** 缺省 = ZCode 自有；slock = Raft 命令行 profile（profileSlug 带 `slock:` 前缀）。 */
+  source?: "zcode" | "slock";
+  /** 该 agent 在本机已有 Raft daemon 托管目录（<slockHome>/agents/<agentId>）。 */
+  hostedByRaftDaemon?: boolean;
 }
 
 /**
@@ -182,7 +186,9 @@ export interface RaftProfilesCatalogPort {
    */
   resolveProfileToken(params: {
     profileSlug: string;
-  }): Promise<{ ok: true; token: string } | { ok: false; code: "Missing" | "Unreadable" }>;
+  }): Promise<
+    { ok: true; token: string } | { ok: false; code: "Missing" | "Unreadable" | "HostedByRaftDaemon" }
+  >;
 }
 
 /** 绑定记录存储端口（实现见 adapters/bindingStore.ts）。 */

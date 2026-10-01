@@ -73,12 +73,15 @@ const raftAgentBindingInputFields = {
   raftAgentId: z.string().trim().pipe(raftAgentIdSchema),
   homeWorkspacePath: z.string().trim().optional(),
 };
+/** 复用凭据的 slug：ZCode 自有 profile 为裸 slug；Raft 命令行（~/.slock/profiles）的带 `slock:` 前缀。 */
+const EXISTING_PROFILE_SLUG_PATTERN = /^(slock:)?[a-z0-9][a-z0-9-]{0,63}$/;
+
 export const raftAgentBindingInputSchema = z.union([
   z.object({ ...raftAgentBindingInputFields, token: z.string().min(1) }).strict(),
   z
     .object({
       ...raftAgentBindingInputFields,
-      existingProfileSlug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+      existingProfileSlug: z.string().regex(EXISTING_PROFILE_SLUG_PATTERN),
     })
     .strict(),
 ]);
@@ -237,7 +240,7 @@ export const raftAgentVerifyCredentialInputSchema = z
     /** 直传凭据；与 existingProfileSlug 恰好给一个。 */
     token: z.string().min(1).optional(),
     /** 复用本机已有凭据（A2）；与 token 恰好给一个。 */
-    existingProfileSlug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/).optional(),
+    existingProfileSlug: z.string().regex(EXISTING_PROFILE_SLUG_PATTERN).optional(),
     /**
      * 可选 Home 路径：给了就形状校验后原样回显；留空返回服务端预派发的默认路径，
      * 向导保存时把它作为 homeWorkspacePath 显式回传（两侧共用同一派生函数）。
@@ -330,6 +333,10 @@ export const raftAgentLocalCredentialSchema = z
     agentName: z.string().optional(),
     createdAt: z.string().min(1),
     boundBindingId: z.string().uuid().nullable(),
+    /** 凭据来源：缺省 = ZCode 自有（raft/profiles）；slock = Raft 命令行（~/.slock/profiles）。 */
+    source: z.enum(["zcode", "slock"]).optional(),
+    /** 该 agent 正由本机 Raft daemon 托管：复用会造成同一身份两处同时值守，界面置灰并说明原因。 */
+    hostedByRaftDaemon: z.boolean().optional(),
   })
   .strict();
 export type RaftAgentLocalCredential = z.infer<typeof raftAgentLocalCredentialSchema>;
