@@ -186,12 +186,16 @@ export function createRaftActivityFeed(options: {
       case "turnCompleted":
         state.phase = "idle";
         state.currentItem = null;
+        // 回合结束即清零：drain 型注入可能被在跑的回合吸收、没有对应的 turnStarted 消账，
+        // 不清会一直虚高；回合结束时若还有排队唤醒，下一轮从 0 起算（最多暂时少报）。
+        state.pendingCount = 0;
         state.toolStartedAt.clear();
         push(bindingId, state, { hookEventName: "Stop", status: "completed" }, event.at);
         return;
       case "turnFailed":
         state.phase = "error";
         state.currentItem = null;
+        state.pendingCount = 0;
         state.toolStartedAt.clear();
         state.lastError = { code: event.errorCode, at: new Date(event.at).toISOString() };
         push(
