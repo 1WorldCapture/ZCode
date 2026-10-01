@@ -232,3 +232,48 @@ interface IRaftAgentsService {
 ### 验收（T6 部分）
 
 自动化：store/actions 4 项测试（刷新失败不清空旧数据、开始/暂停后刷新、提交失败不回列表、提交中不重复提交、token 不进 store）。**入口位置（顶部一级入口，与自动化/插件市场并排）**；**界面本身（布局、交互、中英文案显示）未经实际运行验证，放 task #8 由有条件的人点一遍**：接入表单各错误提示、列表两种暂停的显示、异常暂停后点开始、详情页打开 Home 文件夹。
+
+## 二期 A1：会话与管理动作的服务层（task #11）
+
+上游依据：二期需求线程（#zcode-raft-integration:a517415a，lyonliang 2026-10-01 拍板）；会话持久化核实结论（2026-10-01 注记见「主会话重建」节）。
+
+### 行为
+
+三个管理动作 + 懒建会话 + 宿主侧恢复入口 + 三个界面接口。全部只在服务层（packages/services/raft-agents），UI 由 B1/A2 接。
+
+**1. 三个管理动作**（lyonliang 语义）：
+- **重启**：停值守（如在运行）→ 新建主会话（同 Home、同 `agentMemory`/`officialMcpServers`）→ 锁内改绑 `mainSessionRef`、代次重置 1 → 原为 Running 则自动恢复值守。旧会话不删除（历史保留，供会话视图回看）。进行中的 turn 被放弃，恢复口径与崩溃一致（收件日志 + 下次 drain 补查）。
+- **重置**：同重启，但在新建会话前先清 Home 的**记忆面**（根下 `MEMORY.md`、`AGENTS.md`、`notes/` 整树）并按初始模板重建（复用 T5 初始化的"只写缺失"语义，删除后即全新）。**不动** Home 内其他内容（如 `projects/`）、不动凭据与绑定。
+- **删除**：停值守 → `session/close` 关闭主会话（产品会话归档；不做跨进程删库行）→ 删绑定记录与本地 profile（复用 removeBinding 既有路径）→ 删 Home → 返回 UI 提示所需信息（raftOrigin、agentName），由 UI 展示"请到 Raft 侧撤销 token"。
+
+**2. 预建会话改懒建**：createBinding 不再预建主会话（消除空壳 Session-not-found，见「主会话重建」节更正注记）；`mainSessionRef` 为空的绑定在首次 startWatch 时创建会话（dfcd362 自动重建路径保留为兜底）。
+
+**3. 宿主侧恢复入口（B3 依赖）**：`openAgentSession(bindingId)` —— 确保主会话存在（懒建）→ `resumeAgentSession`（带 `agentMemory`/`officialMcpServers`，防退回项目记忆）→ 返回会话坐标 `{sessionId, workspacePath}`。渲染层用坐标挂现有会话视图；无论 B3 走"构造 Home 工作区上下文"还是"绑定推导分类"，本入口形状不变。
+
+**4. 界面接口（四个）**：
+- **凭据预核验（只核验、不保存，A2 向导第 4 步确认摘要用）**：`verifyCredential(input)` —— 用临时 profile 目录走 login + whoami（`destroyProfile` 收尾，无持久残留），返回服务端认定的身份 `{agentId, agentName?, serverUrl, serverId}` 或一期同族错误码（TokenInvalid/IdentityMismatch/CredentialCheckFailed/OriginInvalid/CliMissing…）。token 仍只经 stdin 进 CLI 子进程，不落盘、不进返回值。agentName 取 whoami/login 可得字段；描述类字段 whoami 不提供则不返回，UI 不硬编码占位。
+- **记忆只读**：`listMemoryFiles` / `readMemoryFile`，限定该绑定 Home 的记忆面（根下 `MEMORY.md`/`AGENTS.md` + `notes/**`）；realpath 两侧包含判定（防符号链接逃逸）；单文件内容上限 512KB（超出截断并标志）。无任何写路径。
+- **本机已有凭据枚举**：`listLocalCredentials` 读 `raft/profiles/*/credential.json` 的**非敏感字段**（schemaVersion/serverUrl/serverId/agentId/agentName/createdAt）；`apiKey` 字段在适配器内解析后即弃，不进任何返回值、日志、模型上下文；`boundBindingId` 标记已被现有绑定占用（唯一性约束下不可重复接入）。
+- **状态投影扩展**：`RaftAgentListItem` 增 `activity`（`lastActivityAt`/`lastActivityKind`/`memoryLoaded`/`pendingApprovals`）。`pendingApprovals` 在 yolo 值守下恒 0（无人工审批面）；turn 级粒度（开始/完成）待 B2 活动事件接入后**追加字段**，不改动现有形状。
+
+### 不变量
+
+1. 三个动作都在 store 锁与换代锁内改绑 `mainSessionRef`；改绑仅在与读到的旧值一致时写入（防并发双写，沿 dfcd362 先例）。
+2. 重置/删除的文件操作仅限该绑定 Home 内；重置只碰记忆面三处，删除整 Home；均先 realpath 判定再动手。
+3. `listLocalCredentials` 与 `readMemoryFile` 是纯读接口，不产生子进程、不触网。
+4. 懒建后 `mainSessionRef` 为空是合法持久态（保存未开始的绑定）；wake 链路对空 ref 的绑定不可达（未 Running 无端点）。
+5. 一期安全红线全部延续：token（apiKey）不进返回值/日志/argv/上下文；子进程净化环境；fail-closed 语义不变。
+
+### 失败语义
+
+| 动作 | 失败码 | 语义 |
+| --- | --- | --- |
+| restart/reset | NotFound / SessionCreateFailed | 新会话建不出来时保持原绑定原会话不动（原子性：先建后改绑） |
+| reset | MemoryResetFailed | 记忆面清理失败（部分删除时如实报告；可重试，重置幂等） |
+| delete | NotFound | 绑定不存在 |
+| readMemoryFile | NotFound / OutsideMemorySurface / Unreadable | 越出记忆面在执行边界拒绝 |
+| openAgentSession | NotFound / SessionResumeFailed | resume 失败不自动重建（本接口语义 = 打开已有；空 ref 时先懒建） |
+
+### 验收（A1 部分）
+
+单测覆盖：重启/重置的改绑与代次重置（含 Running 态自动恢复）、重置只清记忆面三处（projects/ 保留）、删除的停值守→关会话→清理顺序与失败中断、懒建（createBinding 无会话副作用、首启创建）、记忆只读的边界（越界路径/符号链接/大小上限）、凭据枚举不含 apiKey、openAgentSession 恢复入口带记忆与 MCP 配置、activity 投影字段。
