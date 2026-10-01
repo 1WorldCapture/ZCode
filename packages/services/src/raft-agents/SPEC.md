@@ -219,20 +219,22 @@ interface IRaftAgentsService {
 - **第 1 步 服务与 CLI**：Raft 服务地址输入 + CLI 检测；`CliMissing` 时只显示安装命令提示（占位文案，指向 fork 构建的 CLI；发布方式由 A3 给出后替换，不自动执行安装）。
 - **第 2 步 身份与凭据**：Agent ID + token（密码框）；复用本机已有凭据选择器（`listLocalCredentials`），被占用凭据（`boundBindingId` 非空）置灰并标注其已接入的绑定，实现"复用凭据只沿原身份"。
 - **第 3 步 Home 路径**：默认值 + 说明文案（agent 的工作区边界，文件工具只限 Home）。
-- **第 4 步 确认**：先调 `verifyCredential` 只核验不保存，展示服务端返回的 agent 名称/ID 供用户确认，确认后才 `createBinding`；12 个错误码各配中英文案；成功后清空向导状态回列表。
+- **第 4 步 确认**：先调 `verifyCredential` 只核验不保存，展示服务端返回的 agent 名称/ID 供用户确认，确认后才 `createBinding`；13 个错误码（含复用模式的 `ProfileInUse`）各配中英文案；成功后清空向导状态回列表。
 - **详情页「记忆」只读块**：`listMemoryFiles` + `readMemoryFile`，树形展示 `MEMORY.md` / `AGENTS.md` / `notes/`，只读渲染；单文件 512KB 截断时显示 truncated 提示。
 
 ### 接口对接（A1 形状，a517415a 线程为准）
 
-`verifyCredential` / `listLocalCredentials` / `listMemoryFiles` / `readMemoryFile` 按 Dev-developer 的 A1 形状对接。
+`verifyCredential` / `listLocalCredentials` / `listMemoryFiles` / `readMemoryFile` 按 Dev-developer 的 A1 形状对接（schema 与服务端实现随 A1 落地）。
 
-`createBinding` 复用模式输入扩展（**提案，待 a517415a 线程确认**）：
+`createBinding` 复用模式输入扩展（a517415a 线程已确认，Dev-developer 2026-10-01）：
 
 ```ts
 createBinding(input: { raftOrigin, raftAgentId, homePath }
   & ({ token: string } | { existingProfileSlug: string }))
-// existingProfileSlug：服务侧从该 profile 的 credential.json 解析 token，
-// 走与 token 直传完全相同的后续链路；slug 已被其他绑定占用时服务侧再校验一次。
+// existingProfileSlug 只作 token 来源：服务侧从该 profile 的 credential.json 读出
+// token（读取即弃，不进日志/返回值），走与直传完全相同的链路（login → whoami →
+// 唯一性 → 持久化）；绑定仍生成自己的 ZCode slug，原 profile 不受删除语义波及。
+// slug 已被其他绑定引用 → 新错误码 ProfileInUse；读不出/解析失败 → CredentialCheckFailed。
 ```
 
 ### 不变量
@@ -244,4 +246,4 @@ createBinding(input: { raftOrigin, raftAgentId, homePath }
 
 ### 验收（A2 部分）
 
-自动化：向导状态机（推进/回退不丢数据）、复用选择器置灰逻辑（`boundBindingId` 非空不可选）、verify → 确认 → createBinding 的顺序与失败分支、12 错误码中英文案、记忆只读渲染与 truncated 提示、token 不进 store。人工：PM 对照本节验收真实界面（含窄窗口下向导不横向滚动、步骤条各态）。
+自动化：向导状态机（推进/回退不丢数据）、复用选择器置灰逻辑（`boundBindingId` 非空不可选）、verify → 确认 → createBinding 的顺序与失败分支、13 个错误码中英文案（含 `ProfileInUse`）、记忆只读渲染与 truncated 提示、token 不进 store。人工：PM 对照本节验收真实界面（含窄窗口下向导不横向滚动、步骤条各态）。
