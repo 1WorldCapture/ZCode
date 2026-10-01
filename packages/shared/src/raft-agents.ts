@@ -311,3 +311,27 @@ export const raftAgentOpenSessionResultSchema = z.discriminatedUnion("ok", [
     .strict(),
 ]);
 export type RaftAgentOpenSessionResult = z.infer<typeof raftAgentOpenSessionResultSchema>;
+
+/**
+ * 删除绑定时 Home 目录处置结果（removeBinding 返回；界面按态如实提示）。
+ * failed 单列：递归删除/清理中途失败时 Home 可能已被删一部分，不能声称未改动。
+ */
+export const raftAgentRemoveHomeOutcomeSchema = z.discriminatedUnion("home", [
+  /** 整目录已删；ENOENT 也归此（终态等价：目录不存在）。 */
+  z.object({ home: z.literal("deleted") }).strict(),
+  /** 归属不成立：只清了记忆三处与标记，目录保留。 */
+  z.object({ home: z.literal("kept_memory_cleared") }).strict(),
+  /** 确实未动过 Home：没请求删除，或被守卫拒绝（符号链接/受保护根等）。 */
+  z
+    .object({
+      home: z.literal("untouched"),
+      reason: z.enum(["not_requested", "refused"]),
+      detail: z.string().optional(),
+    })
+    .strict(),
+  /** 处置中途失败：Home 可能已部分删除/部分清理，请手动检查。 */
+  z
+    .object({ home: z.literal("failed"), detail: z.string().optional() })
+    .strict(),
+]);
+export type RaftAgentRemoveHomeOutcome = z.infer<typeof raftAgentRemoveHomeOutcomeSchema>;

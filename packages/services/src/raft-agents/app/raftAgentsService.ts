@@ -18,6 +18,7 @@ import {
   type RaftAgentLocalCredential,
   type RaftAgentMemoryContent,
   type RaftAgentOpenSessionResult,
+  type RaftAgentRemoveHomeOutcome,
   type RaftAgentRunState,
   type RaftAgentSetupResult,
   type RaftAgentVerifyCredentialInput,
@@ -140,7 +141,7 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
       return createRaftAgentBinding(createDeps, input);
     },
 
-    async removeBinding(bindingId: string, opts: { deleteHome: boolean }): Promise<{ homeDeleted: boolean }> {
+    async removeBinding(bindingId: string, opts: { deleteHome: boolean }): Promise<RaftAgentRemoveHomeOutcome> {
       // 二期 A1 删除动作前置拆除：停 bridge + session/close 归档主会话（close 失败
       // 容忍，删除语义优先）。拆除失败不阻断记录移除——桥接进程由 supervisor 的
       // 进程锁与 Host 关停兜底收口。
@@ -168,10 +169,10 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
         log.info("binding removed", { bindingId, deleteHomeRequested: opts.deleteHome });
         bindingsChanged.fire(next);
       });
-      let homeDeleted = false;
+      let homeOutcome: RaftAgentRemoveHomeOutcome = { home: "untouched", reason: "not_requested" };
       // Home 删除在锁外（递归 rm 可能慢）；守卫在适配器（符号链接拒绝 / 根目录与
       // 主目录上级拒删 / 归属标记或默认位置判定），归属不成立时适配器只清记忆面
-      // 并保留目录——homeDeleted 如实投影给界面。失败只记日志：记录已移除，
+      // 并保留目录——四态结果如实投影给界面。失败只记日志：记录已移除，
       // 重试入口是用户手动删目录。
       if (opts.deleteHome && removed && options.memory) {
         const deleted = await options.memory.deleteHome({
@@ -180,8 +181,13 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
           bindingId,
         });
         if (deleted.ok) {
-          homeDeleted = deleted.homeDeleted;
+          homeOutcome = { home: deleted.home };
         } else {
+          // Refused = 守卫拒绝、Home 未动；Failed = 中途失败，Home 可能已部分删除。
+          homeOutcome =
+            deleted.code === "Refused"
+              ? { home: "untouched", reason: "refused", ...(deleted.detail ? { detail: deleted.detail } : {}) }
+              : { home: "failed", ...(deleted.detail ? { detail: deleted.detail } : {}) };
           log.warn(undefined, "raft home deletion failed", {
             bindingId,
             homePath: removed.homeWorkspacePath,
@@ -191,7 +197,7 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
         }
       }
       options.activity?.clear(bindingId);
-      return { homeDeleted };
+      return homeOutcome;
     },
 
     async setDesiredState(bindingId: string, desired: "ReadyStopped" | "Running"): Promise<void> {

@@ -409,7 +409,7 @@ test("removeBinding：停 bridge + 关主会话 + 删记录 + 删 Home + 清活�
 
     const result = await stack.service.removeBinding(BINDING_ID, { deleteHome: true });
 
-    assert.deepEqual(result, { homeDeleted: true });
+    assert.deepEqual(result, { home: "deleted" });
     assert.equal((await stack.store.readAll()).length, 0);
     // 拆除顺序：bridge 停止、会话 close 尝试过（失败被容忍，未抛出）。
     assert.ok(supervisor.stopCalls.includes(BINDING_ID));
@@ -433,12 +433,12 @@ test("removeBinding：deleteHome=false 保留 Home", async () => {
     await stack.store.writeAll([makeBinding(home)]);
 
     const result = await stack.service.removeBinding(BINDING_ID, { deleteHome: false });
-    assert.deepEqual(result, { homeDeleted: false });
+    assert.deepEqual(result, { home: "untouched", reason: "not_requested" });
     assert.match(await readFile(join(home, "MEMORY.md"), "utf8"), /t11/);
   });
 });
 
-test("removeBinding：用户自选 Home（无归属标记）→ 只清记忆面、保留目录、homeDeleted=false", async (t) => {
+test("removeBinding：用户自选 Home（无归属标记）→ 只清记忆面、保留目录、home=kept_memory_cleared", async (t) => {
   if (process.platform === "win32") return t.skip("符号链接需要权限");
   await withDataRoot(async (dataRoot) => {
     const sessions = fakeSessions();
@@ -456,7 +456,7 @@ test("removeBinding：用户自选 Home（无归属标记）→ 只清记忆面�
 
     const result = await stack.service.removeBinding(BINDING_ID, { deleteHome: true });
 
-    assert.deepEqual(result, { homeDeleted: false });
+    assert.deepEqual(result, { home: "kept_memory_cleared" });
     await assert.rejects(readFile(join(home, "MEMORY.md")));
     await assert.rejects(readFile(join(home, "notes", "deep", "a.md")));
     assert.equal(await readFile(join(home, "projects", "repo", "file.txt"), "utf8"), "project artifact");
@@ -464,7 +464,7 @@ test("removeBinding：用户自选 Home（无归属标记）→ 只清记忆面�
   });
 });
 
-test("removeBinding：绑定时声明过归属的自选 Home → 整删（homeDeleted=true）", async () => {
+test("removeBinding：绑定时声明过归属的自选 Home → 整删（home=deleted）", async () => {
   await withDataRoot(async (dataRoot) => {
     const sessions = fakeSessions();
     const supervisor = fakeSupervisor();
@@ -476,12 +476,12 @@ test("removeBinding：绑定时声明过归属的自选 Home → 整删（homeDe
 
     const result = await stack.service.removeBinding(BINDING_ID, { deleteHome: true });
 
-    assert.deepEqual(result, { homeDeleted: true });
+    assert.deepEqual(result, { home: "deleted" });
     await assert.rejects(stat(home));
   });
 });
 
-test("removeBinding：Home 路径是符号链接 → 拒绝整删（homeDeleted=false），目标保全", async (t) => {
+test("removeBinding：Home 路径是符号链接 → 拒绝整删（home=untouched/refused），目标保全", async (t) => {
   if (process.platform === "win32") return t.skip("符号链接需要权限");
   await withDataRoot(async (dataRoot) => {
     const sessions = fakeSessions();
@@ -496,7 +496,7 @@ test("removeBinding：Home 路径是符号链接 → 拒绝整删（homeDeleted=
 
     const result = await stack.service.removeBinding(BINDING_ID, { deleteHome: true });
 
-    assert.deepEqual(result, { homeDeleted: false });
+    assert.deepEqual(result, { home: "untouched", reason: "refused", detail: "home path is a symlink" });
     assert.equal(await readFile(join(project, "src", "main.ts"), "utf8"), "code");
   });
 });

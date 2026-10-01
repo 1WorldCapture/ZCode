@@ -31,7 +31,7 @@ interface IRaftAgentsService {
   list(): Promise<RaftAgentListItem[]>;
   get(bindingId): Promise<RaftAgentBinding | null>;
   createBinding(input: RaftAgentBindingInput): Promise<RaftAgentSetupResult>;  // 后台顺序执行，失败保留已完成步骤
-  removeBinding(bindingId, opts: { deleteHome: boolean }): Promise<{ homeDeleted: boolean }>;  // T1 不撤销 Raft 侧 token（D4）；A1 起返回 homeDeleted（见删除守卫）
+  removeBinding(bindingId, opts: { deleteHome: boolean }): Promise<RaftAgentRemoveHomeOutcome>;  // T1 不撤销 Raft 侧 token（D4）；A1 起返回 Home 处置四态（见删除守卫）
   setDesiredState(bindingId, "ReadyStopped" | "Running"): Promise<void>;       // Running 的实际效果在 T2/T3 接入
 }
 ```
@@ -244,11 +244,12 @@ interface IRaftAgentsService {
 **1. 三个管理动作**（lyonliang 语义）：
 - **重启**：停值守（如在运行）→ 新建主会话（同 Home、同 `agentMemory`/`officialMcpServers`）→ 锁内改绑 `mainSessionRef`、代次重置 1 → 原为 Running 则自动恢复值守。旧会话不删除（历史保留，供会话视图回看）。进行中的 turn 被放弃，恢复口径与崩溃一致（收件日志 + 下次 drain 补查）。
 - **重置**：同重启，但在新建会话前先清 Home 的**记忆面**（根下 `MEMORY.md`、`AGENTS.md`、`notes/` 整树）并按初始模板重建（复用 T5 初始化的"只写缺失"语义，删除后即全新）。**不动** Home 内其他内容（如 `projects/`）、不动凭据与绑定。
-- **删除**：停值守 → `session/close` 关闭主会话（产品会话归档；不做跨进程删库行）→ 删绑定记录与本地 profile（复用 removeBinding 既有路径）→ 按归属判定删 Home → 返回 `{homeDeleted}` 与 UI 提示所需信息（raftOrigin、agentName），由 UI 展示"请到 Raft 侧撤销 token"。Home 删除的守卫（评审定稿，线程 cb4426cd）：
+- **删除**：停值守 → `session/close` 关闭主会话（产品会话归档；不做跨进程删库行）→ 删绑定记录与本地 profile（复用 removeBinding 既有路径）→ 按归属判定删 Home → 返回 Home 处置四态与 UI 提示所需信息（raftOrigin、agentName），由 UI 展示"请到 Raft 侧撤销 token"。Home 删除的守卫（评审定稿，线程 cb4426cd）：
   - 传入路径本身是符号链接 → 拒绝（防 realpath 把删除引到链接目标整树）；
   - 拒绝文件系统根、用户主目录、数据根目录及各自的上级；
   - **归属判定**：绑定时在 Home 根写归属标记 `.zcode-agent-home`（内容 = bindingId，目录不存在或为空才写，独占创建），整删仅当标记内容与 bindingId 一致，或 Home 恰为默认位置 `<数据根>/agents/<bindingId>/workspace`（兼容加标记前建的旧绑定）；
-  - 归属不成立（用户自选目录 / 旧绑定无标记 / 标记不匹配）→ 只清记忆面三处 + 标记，**保留目录**，`homeDeleted=false` 由界面如实提示"已保留你的目录"。
+  - 归属不成立（用户自选目录 / 旧绑定无标记 / 标记不匹配）→ 只清记忆面三处 + 标记，**保留目录**；
+  - **返回四态**（`RaftAgentRemoveHomeOutcome`，shared zod 契约）：`deleted`（整删；目录本就不存在也归此，终态等价）/ `kept_memory_cleared`（归属不成立只清记忆，界面提示"已保留你的目录"）/ `untouched`（`reason: not_requested | refused`——未请求删除或被守卫拒绝，Home 确实未动过）/ `failed`（处置中途失败，**Home 可能已被删一部分**，界面提示"请手动检查"，不得声称未改动）。
 
 **2. 预建会话改懒建**：createBinding 不再预建主会话（消除空壳 Session-not-found，见「主会话重建」节更正注记）；`mainSessionRef` 为空的绑定在首次 startWatch 时创建会话（dfcd362 自动重建路径保留为兜底）。原先的预建步骤模块 `app/mainSessionProvisioning.ts` 随之删除（懒建后无生产引用）；懒建与重建共用「锁外创建 + 锁内条件改绑」段（`app/sessionSwap.ts`，三个调用方同语义）。
 
@@ -280,7 +281,7 @@ interface IRaftAgentsService {
 
 ### 验收（A1 部分）
 
-单测覆盖：重启/重置的改绑与代次重置（含 Running 态自动恢复）、重置只清记忆面三处（projects/ 保留）、删除的停值守→关会话→清理顺序与失败中断、删除归属守卫（符号链接拒绝且目标保全 / 受保护根拒绝 / 用户自选目录只清记忆保留 + `homeDeleted=false` / 归属标记或默认位置成立才整删 + `homeDeleted=true`）、懒建（createBinding 无会话副作用、首启创建）、记忆只读的边界（越界路径/符号链接/大小上限）、凭据枚举不含 apiKey、openAgentSession 恢复入口带记忆与 MCP 配置、activity 投影字段。
+单测覆盖：重启/重置的改绑与代次重置（含 Running 态自动恢复）、重置只清记忆面三处（projects/ 保留）、删除的停值守→关会话→清理顺序与失败中断、删除归属守卫（符号链接拒绝且目标保全 / 受保护根拒绝 / 用户自选目录只清记忆保留 + `kept_memory_cleared` / 归属标记或默认位置成立才整删 + `deleted` / 拒绝与未请求映射 `untouched`）、懒建（createBinding 无会话副作用、首启创建）、记忆只读的边界（越界路径/符号链接/大小上限）、凭据枚举不含 apiKey、openAgentSession 恢复入口带记忆与 MCP 配置、activity 投影字段。
 
 ## 二期 A3：处理后再确认、发送去重与回执（task #13）
 

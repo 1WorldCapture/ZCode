@@ -64,11 +64,15 @@ export interface AgentHomePort {
    * 归属标记内容与 bindingId 一致，或 Home 恰为默认位置（数据根下
    * agents/&lt;bindingId&gt;/workspace，路径由 bindingId 派生，兼容加标记前的旧绑定）。
    * 归属不成立（用户自选目录 / 旧绑定无标记 / 标记不匹配）：只清记忆三处与标记，
-   * 保留目录并以 homeDeleted=false 告知界面。目录不存在视为成功（幂等，homeDeleted=false）。
+   * 保留目录（home="kept_memory_cleared"）。目录不存在视为成功（幂等，home="deleted"，
+   * 终态等价）。Refused = 守卫拒绝、未动过；Failed = 中途失败，Home 可能已被删一部分。
    */
   deleteHome(input: {
     homeWorkspacePath: string;
     dataRootDir: string;
     bindingId: string;
-  }): Promise<{ ok: true; homeDeleted: boolean } | { ok: false; code: "Refused" | "Failed"; detail?: string }>;
+  }): Promise<
+    | { ok: true; home: "deleted" | "kept_memory_cleared" }
+    | { ok: false; code: "Refused" | "Failed"; detail?: string }
+  >;
 }
