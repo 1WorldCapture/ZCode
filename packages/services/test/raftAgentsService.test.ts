@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { Emitter } from "@zcode/rpc";
+import type { RaftAgentBinding } from "@zcode/shared";
+
 import { createRaftAgentsService } from "../src/raft-agents/app/raftAgentsService.js";
 import { createRaftBindingStore } from "../src/raft-agents/adapters/bindingStore.js";
 import type { ClockPort, RaftCliLoginOutcome, RaftCliPort, RaftCliWhoami } from "../src/raft-agents/app/ports.js";
@@ -494,6 +497,27 @@ test("onDesiredStateChanged：落盘成功后锁外回调；绑定不存在不�
     await throwing.setDesiredState(created.binding.bindingId, "ReadyStopped");
     const stored = (await throwingStore.readAll()).find((b) => b.bindingId === created.binding.bindingId);
     assert.equal(stored?.desiredState, "ReadyStopped");
+  } finally {
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("bindingsEmitter 注入：换会话路径的外部广播直达 onBindingsChanged（宿主共享形态）", async () => {
+  const dataRoot = await mkdtemp(join(tmpdir(), "raft-agents-"));
+  try {
+    const emitter = new Emitter<RaftAgentBinding[]>();
+    const service = await createRaftAgentsService({
+      cli: fakeCli({}),
+      store: createRaftBindingStore(dataRoot),
+      clock: fixedClock,
+      dataRootDir: dataRoot,
+      bindingsEmitter: emitter,
+    });
+    const got: RaftAgentBinding[][] = [];
+    service.onBindingsChanged((next) => got.push(next));
+    // 模拟 watchRuntime/management 换会话落盘后的广播：同一只 emitter，订阅面必须可见。
+    emitter.fire([]);
+    assert.equal(got.length, 1);
   } finally {
     await rm(dataRoot, { recursive: true, force: true });
   }

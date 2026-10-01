@@ -67,6 +67,12 @@ export interface RaftAgentsServiceOptions {
    * 回调内的异步与异常由宿主自行处理，同步抛错只记日志。
    */
   onDesiredStateChanged?: (params: { bindingId: string; desired: RaftAgentBinding["desiredState"] }) => void;
+  /**
+   * 外部注入的绑定变化 emitter（宿主栈共享）：缺省自建私有。宿主把同一只传给
+   * watchRuntime/management 的 emitBindingsChanged，使换会话（懒建/重建/重启/重置/
+   * 打开会话兜底/换代 +1）的落盘也广播到 onBindingsChanged——renderer 可纯事件驱动。
+   */
+  bindingsEmitter?: Emitter<RaftAgentBinding[]>;
   // ── 二期 A1 注入面（宿主组合根 wire；缺省退化为一期行为）──
   /** 完整 AgentHomePort：记忆只读视图 + removeBinding(deleteHome) 的 Home 删除。 */
   memory?: AgentHomePort;
@@ -84,7 +90,7 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
   const { cli, store, clock } = options;
   const log = options.logger ?? createServiceLogger("raft-agents");
   const win32 = process.platform === "win32";
-  const bindingsChanged = new Emitter<RaftAgentBinding[]>();
+  const bindingsChanged = options.bindingsEmitter ?? new Emitter<RaftAgentBinding[]>();
   const provisioningSteps = options.provisioningSteps ?? [];
 
   /**
