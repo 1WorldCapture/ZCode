@@ -84,14 +84,24 @@ const enUS: Record<string, string> = {
   "agentCenter.wizard.error.identityRequired":
     "Enter the Agent ID and token, or pick a local credential",
   "agentCenter.wizard.cliMissing.title": "Raft CLI not found",
+  "agentCenter.wizard.cliMissing.versionUnsupportedTitle": "Raft CLI version is too old",
   "agentCenter.wizard.cliMissing.description":
     "Connecting requires the Raft CLI installed on this machine. Run the following command in a terminal:",
   "agentCenter.wizard.cliMissing.versionNote":
     "The install URL changes with CLI releases; use the latest published one. Come back and retry once installed.",
   "agentCenter.wizard.cliMissing.installCommand": "CLI install command",
+  "agentCenter.wizard.cliMissing.redetect": "Check again",
+  "agentCenter.wizard.cliMissing.detecting": "Checking the local environment…",
+  "agentCenter.wizard.cliMissing.versionUnsupportedDescription":
+    "The local Raft CLI is too old. Update it and retry (the same command installs the latest version):",
   "agentCenter.wizard.reuse.title": "Reuse a local credential",
   "agentCenter.wizard.reuse.occupied":
     "This credential is already used by another connection and can't be reused",
+  "agentCenter.wizard.reuse.occupiedBy":
+    'This credential is already used by "{name}" and can\'t be reused',
+  "agentCenter.wizard.reuse.daemonHosted":
+    "This agent is hosted by the local Raft daemon; don't connect it again",
+  "agentCenter.wizard.reuse.sourceSlock": "From the Raft CLI",
   "agentCenter.wizard.reuse.empty": "No reusable credentials on this machine",
   "agentCenter.wizard.reuse.loadFailed":
     "Couldn't load local credentials. You can still paste a token manually",

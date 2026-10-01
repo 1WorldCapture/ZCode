@@ -2,9 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildConnectInput,
+  buildOccupiedBindingNames,
+  cliMissingDescriptionId,
+  cliMissingTitleId,
+  credentialUnavailableReason,
   draftErrorId,
   resolveEffectiveHomePath,
   WIZARD_STEP_COUNT,
+  wizardEnvPageFromCli,
   type WizardDraft,
 } from "../src/agents/agentConnectWizardModel.js";
 
@@ -95,4 +100,60 @@ test("错误码翻译：全部 setup 错误码都映射到 i18n 文案，不允�
     assert.equal(id, `agentCenter.form.error.${code}`);
     assert.ok(!id.includes("TokenInvalid") || code === "TokenInvalid");
   }
+});
+
+test("占用者名字映射（R7）：bindingId → displayName，供置灰条目点名占用者", () => {
+  assert.equal(buildOccupiedBindingNames([]).size, 0);
+
+  const names = buildOccupiedBindingNames([
+    { bindingId: "b-1", displayName: "TestAgent-1" },
+    { bindingId: "b-2", displayName: "TestAgent-4" },
+  ]);
+  assert.equal(names.get("b-1"), "TestAgent-1");
+  assert.equal(names.get("b-2"), "TestAgent-4");
+  assert.equal(names.get("b-missing"), undefined);
+});
+
+test("环境预检测页面决策（R6）：ok 留在向导，缺失/版本过旧切提示页", () => {
+  assert.equal(wizardEnvPageFromCli({ status: "ok" }), null);
+  assert.equal(wizardEnvPageFromCli({ status: "CliMissing" }), "CliMissing");
+  assert.equal(
+    wizardEnvPageFromCli({ status: "CliVersionUnsupported" }),
+    "CliVersionUnsupported",
+  );
+
+  assert.equal(
+    cliMissingDescriptionId("CliMissing"),
+    "agentCenter.wizard.cliMissing.description",
+  );
+  assert.equal(
+    cliMissingDescriptionId("CliVersionUnsupported"),
+    "agentCenter.wizard.cliMissing.versionUnsupportedDescription",
+  );
+
+  // 标题随检测态区分：CLI 存在只是过旧时,"未检测到"是错误表述。
+  assert.equal(cliMissingTitleId("CliMissing"), "agentCenter.wizard.cliMissing.title");
+  assert.equal(
+    cliMissingTitleId("CliVersionUnsupported"),
+    "agentCenter.wizard.cliMissing.versionUnsupportedTitle",
+  );
+});
+
+test("复用凭据不可选判定（#24）：ZCode 占用优先于 Raft 托管，slock 来源不改变可选性", () => {
+  // 未占用、未托管：可选（slock 来源条目照常可选，slug 原样回传由调用方保证）。
+  assert.equal(credentialUnavailableReason({ boundBindingId: null }), null);
+  assert.equal(
+    credentialUnavailableReason({ boundBindingId: null, hostedByRaftDaemon: false }),
+    null,
+  );
+  assert.equal(
+    credentialUnavailableReason({ boundBindingId: null, hostedByRaftDaemon: true }),
+    "daemon",
+  );
+  // 已被 ZCode 绑定占用优先：即使同时被托管也按"占用"说明。
+  assert.equal(credentialUnavailableReason({ boundBindingId: "b-1" }), "binding");
+  assert.equal(
+    credentialUnavailableReason({ boundBindingId: "b-1", hostedByRaftDaemon: true }),
+    "binding",
+  );
 });

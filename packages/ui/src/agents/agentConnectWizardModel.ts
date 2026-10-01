@@ -95,3 +95,69 @@ export function setupErrorMessageId(code: RaftAgentSetupErrorCode): string {
       return `agentCenter.form.error.${code}`;
   }
 }
+
+/**
+ * Occupier names for the credential reuse list (R7): bindingId → displayName
+ * from the same list() projection the Agent center already shows. The wizard
+ * joins this with a credential's boundBindingId so a disabled entry can say
+ * WHO occupies it instead of a generic "already used" line. Missing names
+ * (list failed) fall back to the generic copy at the call site.
+ */
+export function buildOccupiedBindingNames(
+  items: ReadonlyArray<{ bindingId: string; displayName: string }>,
+): Map<string, string> {
+  return new Map(items.map((item) => [item.bindingId, item.displayName]));
+}
+
+/**
+ * Why a reuse credential row is not selectable (task #24): "binding" = already
+ * bound to a ZCode binding, "daemon" = the agent is hosted by the local Raft
+ * daemon (reusing it would mean the same identity is watched from two places).
+ * Binding takes precedence; null = selectable. `source === "slock"` entries
+ * stay selectable when neither applies — the slug is passed back verbatim.
+ */
+export function credentialUnavailableReason(
+  credential: {
+    readonly boundBindingId: string | null;
+    readonly hostedByRaftDaemon?: boolean;
+  },
+): "binding" | "daemon" | null {
+  if (credential.boundBindingId !== null) return "binding";
+  if (credential.hostedByRaftDaemon === true) return "daemon";
+  return null;
+}
+
+/**
+ * Wizard environment page states (R6, SPEC 9f51d48): when the host CLI probe
+ * comes back not-ok the wizard switches to the install/update hint page while
+ * keeping every filled field. Structural mirror of the CLI health status in
+ * the service contract — swapped to the contract-derived type once it lands.
+ */
+export type WizardEnvPage = "CliMissing" | "CliVersionUnsupported";
+
+/** Map the CLI health status to the page decision: null = ready, stay in wizard. */
+export function wizardEnvPageFromCli(
+  cli: { readonly status: "ok" | WizardEnvPage },
+): WizardEnvPage | null {
+  return cli.status === "ok" ? null : cli.status;
+}
+
+/** Hint page copy: missing CLI explains installing, an old one explains upgrading (same command). */
+export function cliMissingDescriptionId(page: WizardEnvPage): string {
+  switch (page) {
+    case "CliMissing":
+      return "agentCenter.wizard.cliMissing.description";
+    case "CliVersionUnsupported":
+      return "agentCenter.wizard.cliMissing.versionUnsupportedDescription";
+  }
+}
+
+/** Hint page heading tracks the detected state — "not found" is false when the CLI exists but is old. */
+export function cliMissingTitleId(page: WizardEnvPage): string {
+  switch (page) {
+    case "CliMissing":
+      return "agentCenter.wizard.cliMissing.title";
+    case "CliVersionUnsupported":
+      return "agentCenter.wizard.cliMissing.versionUnsupportedTitle";
+  }
+}

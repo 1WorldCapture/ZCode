@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useSelectDirectory } from "@/hooks/usePlatform.js";
+import { credentialUnavailableReason } from "@/agents/agentConnectWizardModel.js";
 import type { IRaftAgentsService } from "@zcode/services";
 
 /** A1 接口形状（a517415a 线程定稿）——从服务接口推导，不维护第二份定义。 */
@@ -45,13 +46,18 @@ export function StepServerForm({
   );
 }
 
-/** 第 2 步：身份与凭据——新 token 直传或复用本机凭据（被占用者置灰）。 */
+/**
+ * 第 2 步：身份与凭据——新 token 直传或复用本机凭据。两类条目置灰并说明原因
+ * （#24）：已被 ZCode 绑定占用（显示占用者名字）或正被本机 Raft daemon 托管；
+ * `source === "slock"`（来自 Raft 命令行）的条目加来源标注，未占用未托管可选。
+ */
 export function StepIdentityForm({
   raftAgentId,
   token,
   reuseSlug,
   credentials,
   credentialsFailed,
+  occupiedNames,
   onRaftAgentIdChange,
   onTokenChange,
   onSelectCredential,
@@ -62,6 +68,8 @@ export function StepIdentityForm({
   reuseSlug: string | null;
   credentials: CredentialItem[] | null;
   credentialsFailed: boolean;
+  /** bindingId → displayName（R7）：置灰条目显示"被谁占用"；缺名字回退通用文案。 */
+  occupiedNames: Map<string, string>;
   onRaftAgentIdChange: (value: string) => void;
   onTokenChange: (value: string) => void;
   onSelectCredential: (credential: CredentialItem) => void;
@@ -80,20 +88,26 @@ export function StepIdentityForm({
             {intl.formatMessage({ id: "agentCenter.wizard.reuse.title" })}
           </span>
           {credentials.map((credential) => {
-            const occupied = credential.boundBindingId !== null;
+            // 不可选原因（#24）：已被 ZCode 绑定占用 > 被本机 Raft daemon 托管；null = 可选。
+            const reason = credentialUnavailableReason(credential);
             const selected = reuseSlug === credential.profileSlug;
+            // R7：置灰条目点名占用者（来自 list() 投影 join）；名字缺失回退通用文案。
+            const occupier =
+              reason === "binding"
+                ? occupiedNames.get(credential.boundBindingId ?? "")
+                : undefined;
             return (
               <button
                 key={credential.profileSlug}
                 type="button"
                 role="radio"
                 aria-checked={selected}
-                disabled={occupied}
+                disabled={reason !== null}
                 onClick={() => onSelectCredential(credential)}
                 className={`flex min-w-0 flex-col gap-0.5 rounded-md border px-3 py-2 text-left ${
                   selected
                     ? "border-accent bg-accent/10"
-                    : occupied
+                    : reason !== null
                       ? "cursor-not-allowed opacity-50"
                       : "border-border hover:bg-muted"
                 }`}
@@ -107,9 +121,24 @@ export function StepIdentityForm({
                 <span className="min-w-0 truncate text-ui-caption text-foreground-subtle">
                   {credential.serverUrl}
                 </span>
-                {occupied ? (
+                {reason === "binding" ? (
                   <span className="text-ui-caption text-foreground-subtlest">
-                    {intl.formatMessage({ id: "agentCenter.wizard.reuse.occupied" })}
+                    {intl.formatMessage(
+                      occupier
+                        ? { id: "agentCenter.wizard.reuse.occupiedBy" }
+                        : { id: "agentCenter.wizard.reuse.occupied" },
+                      occupier ? { name: occupier } : undefined,
+                    )}
+                  </span>
+                ) : null}
+                {reason === "daemon" ? (
+                  <span className="text-ui-caption text-foreground-subtlest">
+                    {intl.formatMessage({ id: "agentCenter.wizard.reuse.daemonHosted" })}
+                  </span>
+                ) : null}
+                {credential.source === "slock" ? (
+                  <span className="text-ui-caption text-foreground-subtlest">
+                    {intl.formatMessage({ id: "agentCenter.wizard.reuse.sourceSlock" })}
                   </span>
                 ) : null}
               </button>
