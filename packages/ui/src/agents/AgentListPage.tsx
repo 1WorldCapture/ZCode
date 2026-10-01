@@ -6,6 +6,7 @@
  */
 import { Bot, Play, Plus, Square } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
+import { Spinner } from "@/components/ui/spinner.js";
 import { StatusDot } from "@/settings/StatusDot.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useAgentCenterStore } from "@/agents/agentCenterStore.js";
@@ -45,9 +46,10 @@ export function AgentListPage() {
   if (!loaded) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center">
-        <p className="text-ui-caption text-foreground-subtle" role="status">
+        <p className="flex items-center gap-2 text-ui-caption text-foreground-subtle" role="status">
+          {!loadFailed ? <Spinner className="size-3.5" /> : null}
           {intl.formatMessage({
-            id: loadFailed ? "agentCenter.loadFailed" : "agentCenter.loading",
+            id: loadFailed ? "agentCenter.loadFailed" : "common.loading",
           })}
         </p>
       </div>

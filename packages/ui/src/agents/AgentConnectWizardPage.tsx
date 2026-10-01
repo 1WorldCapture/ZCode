@@ -13,6 +13,11 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
+import { Snippet, SnippetCopyButton, SnippetInput } from "@/components/ai-elements/snippet.js";
+import {
+  RemoteConnectionWizardSidebar,
+  type WizardSidebarStep,
+} from "@/RemoteConnectionWizardChrome.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import { useAgentCenterStore } from "@/agents/agentCenterStore.js";
@@ -22,6 +27,7 @@ import type { RaftAgentSetupErrorCode } from "@/agents/types.js";
 import {
   buildConnectInput,
   draftErrorId,
+  setupErrorMessageId,
   WIZARD_STEP_COUNT,
   type WizardStep,
 } from "@/agents/agentConnectWizardModel.js";
@@ -40,27 +46,6 @@ import {
  */
 const CLI_INSTALL_COMMAND =
   "npm install -g https://github.com/1WorldCapture/raft-source/releases/download/raft-cli-v0.0.24-zcode.1/botiverse-raft-0.0.24-zcode.1.tgz";
-
-/** 每个接入错误码对应一条用户可理解的文案（穷尽：新增错误码会在这里编译报错）。 */
-function setupErrorMessageId(code: RaftAgentSetupErrorCode): string {
-  switch (code) {
-    case "CliMissing":
-    case "CliVersionUnsupported":
-    case "OriginInvalid":
-    case "AgentIdInvalid":
-    case "TokenInvalid":
-    case "IdentityMismatch":
-    case "CredentialCheckFailed":
-    case "PathConflict":
-    case "HomeOverlapsCredentials":
-    case "SlugConflict":
-    case "AlreadyBound":
-    case "ProvisioningFailed":
-    case "StoreWriteFailed":
-    case "ProfileInUse":
-      return `agentCenter.form.error.${code}`;
-  }
-}
 
 export function AgentConnectWizardPage() {
   const { intl } = useZCodeIntl();
@@ -208,7 +193,9 @@ export function AgentConnectWizardPage() {
 
   const errorText =
     fieldError ??
-    verifyError ??
+    (verifyError
+      ? intl.formatMessage({ id: setupErrorMessageId(verifyError) })
+      : null) ??
     (submitError
       ? intl.formatMessage(
           { id: setupErrorMessageId(submitError.code) },
@@ -229,15 +216,16 @@ export function AgentConnectWizardPage() {
             <p className="text-ui-sm text-foreground-subtle">
               {intl.formatMessage({ id: "agentCenter.wizard.cliMissing.description" })}
             </p>
-            <pre className="overflow-x-auto rounded-md border border-border bg-muted px-3 py-2 text-ui-sm text-foreground">
-              <code>{CLI_INSTALL_COMMAND}</code>
-            </pre>
+            <Snippet code={CLI_INSTALL_COMMAND}>
+              <SnippetInput aria-label={intl.formatMessage({ id: "agentCenter.wizard.cliMissing.installCommand" })} />
+              <SnippetCopyButton />
+            </Snippet>
             <p className="text-ui-caption text-foreground-subtlest">
               {intl.formatMessage({ id: "agentCenter.wizard.cliMissing.versionNote" })}
             </p>
             <div className="flex items-center gap-2">
               <Button type="button" variant="ghost" size="sm" onClick={goBack}>
-                {intl.formatMessage({ id: "agentCenter.wizard.back" })}
+                {intl.formatMessage({ id: "common.back" })}
               </Button>
             </div>
           </div>
@@ -250,13 +238,18 @@ export function AgentConnectWizardPage() {
     <div className="flex h-full flex-col">
       <WizardHeader />
       <div className="min-w-0 flex-1 overflow-y-auto">
-        <div className="flex max-w-lg flex-col gap-5 px-6 py-6">
-          <WizardStepsBar current={step} />
-          {errorText ? (
-            <p className="text-ui-caption text-destructive" role="alert">
-              {errorText}
-            </p>
-          ) : null}
+        <div className="flex min-w-0 gap-4 px-6 py-6">
+          <RemoteConnectionWizardSidebar
+            currentStep={AGENT_WIZARD_STEPS[step].key}
+            steps={AGENT_WIZARD_STEPS}
+            headingId={null}
+          />
+          <div className="flex min-w-0 max-w-lg flex-1 flex-col gap-5">
+            {errorText ? (
+              <p className="text-ui-caption text-destructive" role="alert">
+                {errorText}
+              </p>
+            ) : null}
           {step === 0 ? (
             <StepServerForm raftOrigin={raftOrigin} onRaftOriginChange={setRaftOrigin} />
           ) : null}
@@ -298,12 +291,12 @@ export function AgentConnectWizardPage() {
                 disabled={verifying || submitting}
                 onClick={goBack}
               >
-                {intl.formatMessage({ id: "agentCenter.wizard.back" })}
+                {intl.formatMessage({ id: "common.back" })}
               </Button>
             ) : null}
             {step < WIZARD_STEP_COUNT - 1 ? (
               <Button type="button" size="sm" disabled={verifying} onClick={handleNext}>
-                {intl.formatMessage({ id: "agentCenter.wizard.next" })}
+                {intl.formatMessage({ id: "common.next" })}
               </Button>
             ) : (
               <Button
@@ -320,14 +313,26 @@ export function AgentConnectWizardPage() {
               </Button>
             )}
             <Button type="button" variant="ghost" size="sm" onClick={backToList}>
-              {intl.formatMessage({ id: "agentCenter.wizard.cancel" })}
+              {intl.formatMessage({ id: "common.cancel" })}
             </Button>
+          </div>
           </div>
         </div>
       </div>
     </div>
   );
 }
+
+/**
+ * 向导步骤定义：与 RemoteConnectionWizardSidebar 共用（步骤条不自写，R3-14）。
+ * 顺序即 WizardStep 序号（0–3）。
+ */
+const AGENT_WIZARD_STEPS = [
+  { key: "server", titleId: "agentCenter.wizard.step1.label" },
+  { key: "credential", titleId: "agentCenter.wizard.step2.label" },
+  { key: "home", titleId: "agentCenter.wizard.step3.label" },
+  { key: "confirm", titleId: "agentCenter.wizard.step4.label" },
+] as const satisfies readonly WizardSidebarStep[];
 
 function WizardHeader() {
   const { intl } = useZCodeIntl();
@@ -347,40 +352,5 @@ function WizardHeader() {
         {intl.formatMessage({ id: "agentCenter.connect" })}
       </span>
     </div>
-  );
-}
-
-function WizardStepsBar({ current }: { current: number }) {
-  const { intl } = useZCodeIntl();
-  const labels = [
-    intl.formatMessage({ id: "agentCenter.wizard.step1.label" }),
-    intl.formatMessage({ id: "agentCenter.wizard.step2.label" }),
-    intl.formatMessage({ id: "agentCenter.wizard.step3.label" }),
-    intl.formatMessage({ id: "agentCenter.wizard.step4.label" }),
-  ];
-  return (
-    <ol className="flex flex-wrap items-center gap-1" data-testid="wizard-steps">
-      {labels.map((label, index) => (
-        <li key={label} className="flex min-w-0 items-center gap-1">
-          <span
-            className={`rounded-full px-2 py-0.5 text-ui-caption ${
-              index === current
-                ? "bg-accent font-medium text-accent-foreground"
-                : index < current
-                  ? "text-foreground"
-                  : "text-foreground-subtlest"
-            }`}
-            aria-current={index === current ? "step" : undefined}
-          >
-            {index + 1}. {label}
-          </span>
-          {index < labels.length - 1 ? (
-            <span className="text-foreground-subtlest" aria-hidden="true">
-              ›
-            </span>
-          ) : null}
-        </li>
-      ))}
-    </ol>
   );
 }

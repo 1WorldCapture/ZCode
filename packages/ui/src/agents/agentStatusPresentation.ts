@@ -89,7 +89,7 @@ export function formatRunState(
 /** 运行状态展示用色：异常暂停用警示色，其余保持中性。 */
 export function runStateTextClass(state: RaftAgentRunState): string {
   if (isErrorPaused(state)) {
-    return "text-amber-600 dark:text-amber-400";
+    return "text-warning";
   }
   switch (state) {
     case "Running":

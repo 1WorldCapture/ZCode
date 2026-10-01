@@ -5,6 +5,7 @@
  * token 只在这份草稿里短暂存在，构造输入后被组件立即清掉。
  */
 import type { IRaftAgentsService } from "@zcode/services";
+import type { RaftAgentSetupErrorCode } from "@/agents/types.js";
 
 export const WIZARD_STEP_COUNT = 4;
 export type WizardStep = 0 | 1 | 2 | 3;
@@ -56,4 +57,29 @@ export function buildConnectInput(draft: WizardDraft): ConnectInput {
   return draft.reuseSlug !== null
     ? { ...base, existingProfileSlug: draft.reuseSlug }
     : { ...base, token: draft.token };
+}
+
+/**
+ * 每个接入错误码对应一条用户可理解的文案（穷尽：新增错误码会在这里编译报错）。
+ * 提交（submitError）与第 4 步核验（verifyError）两个出口共用，不允许原始错误码上屏
+ * （R3 缺陷修复）。
+ */
+export function setupErrorMessageId(code: RaftAgentSetupErrorCode): string {
+  switch (code) {
+    case "CliMissing":
+    case "CliVersionUnsupported":
+    case "OriginInvalid":
+    case "AgentIdInvalid":
+    case "TokenInvalid":
+    case "IdentityMismatch":
+    case "CredentialCheckFailed":
+    case "PathConflict":
+    case "HomeOverlapsCredentials":
+    case "SlugConflict":
+    case "AlreadyBound":
+    case "ProvisioningFailed":
+    case "StoreWriteFailed":
+    case "ProfileInUse":
+      return `agentCenter.form.error.${code}`;
+  }
 }

@@ -6,12 +6,17 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 
 export type RemoteWizardStep = "kind" | "settings" | "connecting" | "directory";
 
-interface WizardStepMeta {
-  key: RemoteWizardStep;
+/** 步骤条元数据：远程连接向导与 Agent 接入向导共用同一侧栏组件。 */
+export interface WizardSidebarStep {
+  key: string;
   titleId: string;
 }
 
-const REMOTE_WIZARD_STEPS: WizardStepMeta[] = [
+interface RemoteWizardStepMeta extends WizardSidebarStep {
+  key: RemoteWizardStep;
+}
+
+const REMOTE_WIZARD_STEPS: RemoteWizardStepMeta[] = [
   {
     key: "kind",
     titleId: "remote.step.kind",
@@ -30,19 +35,28 @@ const REMOTE_WIZARD_STEPS: WizardStepMeta[] = [
   },
 ];
 
-function getStepIndex(step: RemoteWizardStep): number {
-  return REMOTE_WIZARD_STEPS.findIndex((item) => item.key === step);
-}
-
-export function RemoteConnectionWizardSidebar({ currentStep }: { currentStep: RemoteWizardStep }) {
+export function RemoteConnectionWizardSidebar({
+  currentStep,
+  steps = REMOTE_WIZARD_STEPS,
+  headingId = "remote.wizard",
+}: {
+  currentStep: string;
+  /** 缺省为远程连接四步；其他向导（如 Agent 接入）传入自己的步骤列表。 */
+  steps?: readonly WizardSidebarStep[];
+  /**
+   * 侧栏标题文案键；缺省 remote.wizard。传 null 不渲染标题
+   * （undefined 会命中缺省值，不能用来隐藏）。
+   */
+  headingId?: string | null;
+}) {
   const { intl } = useZCodeIntl();
-  const currentIndex = getStepIndex(currentStep);
+  const currentIndex = steps.findIndex((item) => item.key === currentStep);
 
   return (
     <>
       <nav className="md:hidden">
         <div className="flex min-w-0 gap-2 overflow-x-auto rounded-xl border border-border bg-surface p-2">
-          {REMOTE_WIZARD_STEPS.map((step, index) => {
+          {steps.map((step, index) => {
             const isCurrent = currentStep === step.key;
             const isCompleted = index < currentIndex;
 
@@ -82,12 +96,14 @@ export function RemoteConnectionWizardSidebar({ currentStep }: { currentStep: Re
 
       <aside className="hidden w-56 shrink-0 flex-col gap-2 p-1 md:flex">
         <div className="rounded-xl border border-border bg-surface flex flex-col gap-4 p-4 h-full">
-          <h3 className="text-ui-base font-medium tracking-wide text-foreground-subtle uppercase">
-            {intl.formatMessage({ id: "remote.wizard" })}
-          </h3>
+          {headingId !== null ? (
+            <h3 className="text-ui-base font-medium tracking-wide text-foreground-subtle uppercase">
+              {intl.formatMessage({ id: headingId })}
+            </h3>
+          ) : null}
 
           <div className="space-y-2">
-            {REMOTE_WIZARD_STEPS.map((step, index) => {
+            {steps.map((step, index) => {
               const isCurrent = currentStep === step.key;
               const isCompleted = index < currentIndex;
 

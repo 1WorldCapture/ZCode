@@ -63,3 +63,13 @@ test("输入构造：Home 路径留空不下发，填写则去除首尾空白", 
 test("步骤数为 4", () => {
   assert.equal(WIZARD_STEP_COUNT, 4);
 });
+
+test("错误码翻译：全部 setup 错误码都映射到 i18n 文案，不允许原始错误码上屏", async () => {
+  const { setupErrorMessageId } = await import("../src/agents/agentConnectWizardModel.js");
+  const { raftAgentSetupErrorCodeSchema } = await import("@zcode/shared");
+  for (const code of raftAgentSetupErrorCodeSchema.options) {
+    const id = setupErrorMessageId(code);
+    assert.equal(id, `agentCenter.form.error.${code}`);
+    assert.ok(!id.includes("TokenInvalid") || code === "TokenInvalid");
+  }
+});

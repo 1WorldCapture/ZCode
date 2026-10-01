@@ -1,7 +1,6 @@
 /** English translations */
 const enUS: Record<string, string> = {
   "agentCenter.title": "Agents",
-  "agentCenter.close": "Close",
   "agentCenter.connect": "Connect Agent",
   "agentCenter.backToList": "Back to list",
   "agentCenter.emptyTitle": "No agents connected yet",
@@ -27,7 +26,6 @@ const enUS: Record<string, string> = {
   "agentCenter.reason.mcp_unavailable": "Raft tools component unavailable",
   "agentCenter.reason.session_unavailable": "Main session failed to resume",
   "agentCenter.unavailable": "Connecting Raft Agents isn't supported in this environment",
-  "agentCenter.loading": "Loading…",
   "agentCenter.loadFailed": "Couldn't load the Agent list",
   "agentCenter.refreshFailed": "Refresh failed; what's shown may be out of date",
   "agentCenter.actionFailed": "That didn't work. Please try again",
@@ -58,6 +56,7 @@ const enUS: Record<string, string> = {
   "agentCenter.form.token": "Agent Token",
   "agentCenter.form.homePath": "Home path",
   "agentCenter.form.homePathPlaceholder": "Leave empty to use the default directory",
+  "agentCenter.form.browse": "Browse…",
   "agentCenter.detail.raftServer": "Raft server",
   "agentCenter.detail.connectionState": "Connection state",
   "agentCenter.detail.runState": "Run state",
@@ -78,9 +77,6 @@ const enUS: Record<string, string> = {
   "agentCenter.wizard.step4.verifying": "Verifying the identity with the server…",
   "agentCenter.wizard.step4.identityTitle": "Identity confirmed by the server",
   "agentCenter.wizard.step4.confirm": "Connect",
-  "agentCenter.wizard.next": "Next",
-  "agentCenter.wizard.back": "Back",
-  "agentCenter.wizard.cancel": "Cancel",
   "agentCenter.wizard.error.originRequired": "Enter the server URL",
   "agentCenter.wizard.error.identityRequired":
     "Enter the Agent ID and token, or pick a local credential",
@@ -89,6 +85,7 @@ const enUS: Record<string, string> = {
     "Connecting requires the Raft CLI installed on this machine. Run the following command in a terminal:",
   "agentCenter.wizard.cliMissing.versionNote":
     "The install URL changes with CLI releases; use the latest published one. Come back and retry once installed.",
+  "agentCenter.wizard.cliMissing.installCommand": "CLI install command",
   "agentCenter.wizard.reuse.title": "Reuse a local credential",
   "agentCenter.wizard.reuse.occupied":
     "This credential is already used by another connection and can't be reused",

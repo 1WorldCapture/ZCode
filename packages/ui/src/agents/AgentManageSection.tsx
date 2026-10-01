@@ -165,7 +165,7 @@ function ConfirmDialog({
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel type="button" size="sm" disabled={busy}>
-                {intl.formatMessage({ id: "agentCenter.wizard.cancel" })}
+                {intl.formatMessage({ id: "common.cancel" })}
               </AlertDialogCancel>
               <AlertDialogAction
                 type="button"

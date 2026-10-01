@@ -29,13 +29,13 @@ export function AgentCenterLayer({ onClose }: { onClose: () => void }) {
         <span className="text-ui-base font-semibold text-foreground">
           {intl.formatMessage({ id: "agentCenter.title" })}
         </span>
-        <ControlHintTooltip title={intl.formatMessage({ id: "agentCenter.close" })}>
+        <ControlHintTooltip title={intl.formatMessage({ id: "common.close" })}>
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
             data-testid="agent-center-close"
-            aria-label={intl.formatMessage({ id: "agentCenter.close" })}
+            aria-label={intl.formatMessage({ id: "common.close" })}
             onClick={onClose}
           >
             <X className="size-3.5" aria-hidden="true" />

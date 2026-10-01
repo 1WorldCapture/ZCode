@@ -7,6 +7,7 @@ import { KeyRound, Server } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { useSelectDirectory } from "@/hooks/usePlatform.js";
 import type { IRaftAgentsService } from "@zcode/services";
 
 /** A1 接口形状（a517415a 线程定稿）——从服务接口推导，不维护第二份定义。 */
@@ -175,6 +176,12 @@ export function StepHomeForm({
   onHomeWorkspacePathChange: (value: string) => void;
 }) {
   const { intl } = useZCodeIntl();
+  const selectDirectory = useSelectDirectory();
+  const browse = async () => {
+    // 与设置页 DataBaseDirControl 同路径：系统目录选择器，取消返回 null。
+    const dir = await selectDirectory();
+    if (dir) onHomeWorkspacePathChange(dir);
+  };
   return (
     <div className="flex flex-col gap-4">
       <p className="text-ui-caption text-foreground-subtle">
@@ -184,12 +191,18 @@ export function StepHomeForm({
         <span className="text-ui-sm font-medium text-foreground">
           {intl.formatMessage({ id: "agentCenter.form.homePath" })}
         </span>
-        <Input
-          type="text"
-          value={homeWorkspacePath}
-          onChange={(event) => onHomeWorkspacePathChange(event.target.value)}
-          placeholder={intl.formatMessage({ id: "agentCenter.form.homePathPlaceholder" })}
-        />
+        <div className="flex items-center gap-2">
+          <Input
+            type="text"
+            className="flex-1"
+            value={homeWorkspacePath}
+            onChange={(event) => onHomeWorkspacePathChange(event.target.value)}
+            placeholder={intl.formatMessage({ id: "agentCenter.form.homePathPlaceholder" })}
+          />
+          <Button type="button" variant="outline" size="sm" onClick={() => void browse()}>
+            {intl.formatMessage({ id: "agentCenter.form.browse" })}
+          </Button>
+        </div>
       </label>
       <p className="text-ui-caption text-foreground-subtlest">
         {intl.formatMessage({ id: "agentCenter.wizard.step3.hint" })}

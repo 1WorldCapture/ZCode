@@ -1,15 +1,24 @@
 /**
- * 详情页「记忆」只读块（二期 A2，范围见 SPEC.md「二期 A2」）。
+ * 详情页「记忆」只读块（二期 A2，范围见 SPEC.md「二期 A2」；复用与缺陷修复见「二期 R3」）。
  *
  * 数据源为 A1 的记忆只读接口：listMemoryFiles 列出记忆面文件
  * （MEMORY.md / AGENTS.md / notes/**），readMemoryFile 读单文件内容
  * （512KB 上限，超出截断并带 truncated 标志）。UI 只读：不提供任何写入口。
+ *
+ * 复用：文件行图标/样式对齐 settings/MemorySettingsViewer 惯例（fileDisplay），
+ * 内容经 MessageResponse 渲染（记忆文件是 Markdown），大小用 formatBytes，
+ * 加载/错误态用 Spinner/Alert。快速连续切换文件由 createReadSequenceGuard 防串。
  */
-import { useEffect, useState } from "react";
-import { FileText } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import { useRaftAgentsService } from "@/agents/useAgentCenterSync.js";
+import { createReadSequenceGuard } from "@/agents/agentReadSequence.js";
+import { formatBytes } from "@/resource-manager/resourceUsageView.js";
+import { FileDisplayIcon, resolveFileDisplayDescriptor } from "@/lib/fileDisplay.js";
+import { MessageResponse } from "@/components/ai-elements/message.js";
+import { Spinner } from "@/components/ui/spinner.js";
+import { Alert, AlertDescription } from "@/components/ui/alert.js";
 import type { IRaftAgentsService } from "@zcode/services";
 
 /** A1 接口形状（a517415a 线程定稿）——从服务接口推导，不维护第二份定义。 */
@@ -30,9 +39,12 @@ export function AgentMemoryPanel({ bindingId }: { bindingId: string }) {
   const [truncated, setTruncated] = useState(false);
   const [readError, setReadError] = useState<MemoryFileError | null>(null);
   const [reading, setReading] = useState(false);
+  // Read request sequence guard: a slow response for a previously selected file
+  // must not overwrite the content of the newly selected one.
+  const readGuard = useRef(createReadSequenceGuard());
 
   useEffect(() => {
-    if (!service) return;
+    if (!service) return undefined;
     let cancelled = false;
     service
       .listMemoryFiles(bindingId)
@@ -59,6 +71,7 @@ export function AgentMemoryPanel({ bindingId }: { bindingId: string }) {
   }
 
   const handleSelect = (path: string) => {
+    const token = readGuard.current.begin();
     setSelectedPath(path);
     setContent(null);
     setTruncated(false);
@@ -67,6 +80,7 @@ export function AgentMemoryPanel({ bindingId }: { bindingId: string }) {
     service
       .readMemoryFile(bindingId, path)
       .then((result) => {
+        if (!readGuard.current.isCurrent(token)) return;
         if (!result.ok) {
           setReadError(result.code);
           return;
@@ -76,10 +90,11 @@ export function AgentMemoryPanel({ bindingId }: { bindingId: string }) {
       })
       .catch((error) => {
         logger.warn("[AgentCenter] 记忆文件读取失败", { bindingId, path, error });
+        if (!readGuard.current.isCurrent(token)) return;
         setReadError("Unreadable");
       })
       .finally(() => {
-        setReading(false);
+        if (readGuard.current.isCurrent(token)) setReading(false);
       });
   };
 
@@ -94,13 +109,16 @@ export function AgentMemoryPanel({ bindingId }: { bindingId: string }) {
         </p>
       </div>
       {listFailed ? (
-        <p className="text-ui-caption text-destructive" role="alert">
-          {intl.formatMessage({ id: "agentCenter.memory.loadFailed" })}
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription>
+            {intl.formatMessage({ id: "agentCenter.memory.loadFailed" })}
+          </AlertDescription>
+        </Alert>
       ) : files === null ? (
-        <p className="text-ui-caption text-foreground-subtlest">
-          {intl.formatMessage({ id: "agentCenter.loading" })}
-        </p>
+        <div className="flex items-center gap-2 text-ui-caption text-foreground-subtlest">
+          <Spinner className="size-3.5" />
+          {intl.formatMessage({ id: "common.loading" })}
+        </div>
       ) : files.length === 0 ? (
         <p className="text-ui-caption text-foreground-subtlest">
           {intl.formatMessage({ id: "agentCenter.memory.empty" })}
@@ -120,32 +138,39 @@ export function AgentMemoryPanel({ bindingId }: { bindingId: string }) {
                       : "text-foreground hover:bg-muted"
                   }`}
                 >
-                  <FileText className="size-3.5 shrink-0" aria-hidden="true" />
+                  <FileDisplayIcon
+                    src={resolveFileDisplayDescriptor(file.path).fileIconSrc}
+                    size={14}
+                    className="size-3.5 shrink-0"
+                  />
                   <span className="min-w-0 flex-1 truncate" title={file.path}>
                     {file.path}
                   </span>
                   <span className="shrink-0 text-ui-caption text-foreground-subtlest">
-                    {formatSize(file.size)}
+                    {formatBytes(file.size)}
                   </span>
                 </button>
               </li>
             ))}
           </ul>
           {reading ? (
-            <p className="text-ui-caption text-foreground-subtlest">
-              {intl.formatMessage({ id: "agentCenter.loading" })}
-            </p>
+            <div className="flex items-center gap-2 text-ui-caption text-foreground-subtlest">
+              <Spinner className="size-3.5" />
+              {intl.formatMessage({ id: "common.loading" })}
+            </div>
           ) : null}
           {readError ? (
-            <p className="text-ui-caption text-destructive" role="alert">
-              {intl.formatMessage({ id: `agentCenter.memory.error.${readError}` })}
-            </p>
+            <Alert variant="destructive">
+              <AlertDescription role="alert">
+                {intl.formatMessage({ id: `agentCenter.memory.error.${readError}` })}
+              </AlertDescription>
+            </Alert>
           ) : null}
           {content !== null ? (
             <div className="min-w-0">
-              <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted px-3 py-2 text-ui-caption text-foreground">
-                {content}
-              </pre>
+              <div className="max-h-96 overflow-auto rounded-md border border-border bg-muted px-3 py-2">
+                <MessageResponse>{content}</MessageResponse>
+              </div>
               {truncated ? (
                 <p className="mt-1 text-ui-caption text-foreground-subtlest">
                   {intl.formatMessage({ id: "agentCenter.memory.truncated" })}
@@ -157,10 +182,4 @@ export function AgentMemoryPanel({ bindingId }: { bindingId: string }) {
       )}
     </section>
   );
-}
-
-function formatSize(size: number): string {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
