@@ -1183,6 +1183,8 @@ export const zcodeTurnStartedEventPayloadSchema = z
     // runtime 会透传后台唤醒来源，strict schema 必须同步声明以免丢弃整条事件。
     backgroundSource: z.enum(["bash", "subagent"]).optional(),
     attachments: z.array(jsonObjectSchema).optional(),
+    // CLI 的 turn.started 带本地 TTFT 起点（performance 时间轴毫秒）；漏声明会让严格校验丢弃整条事件。
+    executionStartedAt: z.number().optional(),
   })
   .strict();
 const zcodeTurnSteerSourceSchema = z.enum(["plan_approval_feedback", "workflow_refine_feedback"]);
@@ -1334,12 +1336,20 @@ export const zcodeToolUpdatedEventPayloadSchema = z.discriminatedUnion("kind", [
       parallelGroupIndex: z.number().int().nonnegative().optional(),
       canRunParallel: z.boolean().optional(),
       schedule: jsonObjectSchema.optional(),
+      // CLI 调度事件可能带结果展示投影；漏声明会让严格校验丢弃整条事件。
+      display: jsonObjectSchema.optional(),
     })
     .strict(),
   zcodeToolCallBasePayloadSchema
     .extend({
       kind: z.literal("started"),
       startedAt: protocolInstantSchema,
+      // CLI 在动手前发出的解析后副作用能力与展示投影；漏声明会让严格校验丢弃整条事件。
+      display: jsonObjectSchema.optional(),
+      readOnly: z.boolean().optional(),
+      sideEffectScope: z
+        .enum(["none", "workspace", "git", "network", "system", "session", "userInteraction"])
+        .optional(),
     })
     .strict(),
   zcodeToolCallBasePayloadSchema

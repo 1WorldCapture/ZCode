@@ -96,9 +96,11 @@ export type RaftSessionSendOutcome =
        * noSession = 会话目标已失效（stale / 未建会话）；rejected = 命令被拒（不可重试）；
        * transport = 传递层失败或执行失败（可退避重试，commandId 幂等保护重复提交）；
        * targetLost = 宿主内存 target 表未加载该会话（重启后未恢复 / 被外途归档），
-       * 会话本身未必失效——唤醒链可按绑定上下文 resume 一次自愈后重投。
+       * 会话本身未必失效——唤醒链可按绑定上下文 resume 一次自愈后重投；
+       * discardedOnRestart = 该命令编号对应的输入在 CLI 重启时被丢弃（ZCode 要求"确认后再发"），
+       * 同一编号再发只会得到同一个失败结果——内容无正文的唤醒可换新编号重发一次。
        */
-      code: "noSession" | "rejected" | "transport" | "targetLost";
+      code: "noSession" | "rejected" | "transport" | "targetLost" | "discardedOnRestart";
       detail?: string;
     };
 
