@@ -40,7 +40,6 @@ export interface BridgeSupervisorOptions {
   spawn?: typeof nodeSpawn;
   settleMs?: number;
   stopGraceMs?: number;
-  isProcessAlive?: (pid: number) => boolean;
 }
 
 interface Running {
@@ -65,10 +64,7 @@ export function createBridgeSupervisor(options: BridgeSupervisorOptions): Bridge
   const spawnFn = options.spawn ?? nodeSpawn;
   const settleMs = options.settleMs ?? DEFAULT_SETTLE_MS;
   const stopGraceMs = options.stopGraceMs ?? DEFAULT_STOP_GRACE_MS;
-  const lockManager = createBridgeLock({
-    dataRootDir: options.dataRootDir,
-    isProcessAlive: options.isProcessAlive,
-  });
+  const lockManager = createBridgeLock({ dataRootDir: options.dataRootDir });
   const running = new Map<string, Running>();
   const starting = new Set<string>();
   const listeners = new Set<(info: BridgeExitInfo) => void>();

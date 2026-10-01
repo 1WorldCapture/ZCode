@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -195,48 +195,45 @@ test("非主窗口拒绝启动；重复启动返回 AlreadyRunning", async () =>
   }
 });
 
-test("pid 锁：被另一个存活进程持有时返回 LockHeld；陈旧锁会被清除", async () => {
+test("跨进程锁：被存活进程持有时返回 LockHeld；持有者已退出的陈旧锁会被回收", async () => {
   const dir = await mkdtemp(join(tmpdir(), "raft-bridge-"));
   try {
     const fake = await makeFakeBridge(dir, {});
-    await mkdir(join(dir, "raft", "locks"), { recursive: true });
-    const lockPath = join(dir, "raft", "locks", `${BINDING.bindingId}.lock`);
-    // 用父进程 pid 模拟「另一个存活的 ZCode 进程」持有锁。
-    await writeFile(lockPath, String(process.ppid));
+    // 本进程先持有锁，模拟「另一个存活的 ZCode 进程」（共享锁按 owner pid 存活判定）。
+    const holder = createBridgeLock({ dataRootDir: dir });
+    const held = await holder.acquire(BINDING.bindingId);
+    assert.ok(held);
     const { supervisor } = makeSupervisor(dir);
-    const held = await supervisor.start(BINDING, fake.script);
-    assert.equal(held.ok === false && held.code, "LockHeld");
+    const blocked = await supervisor.start(BINDING, fake.script);
+    assert.equal(blocked.ok === false && blocked.code, "LockHeld");
+    await held.release();
 
-    // 持有者已退出（陈旧锁）：清除后可启动。
-    await writeFile(lockPath, "999999");
-    const stale = createBridgeSupervisor({
-      dataRootDir: dir,
-      wakeEndpoint: {
-        open: async (_id, _opts) => ({ url: "http://127.0.0.1:1/x", token: TOKEN }),
-        close: async () => {},
-      },
-      ownerGuard: { isOwner: () => true },
-      settleMs: 200,
-      isProcessAlive: () => false,
-    });
-    assert.equal((await stale.start(BINDING, fake.script)).ok, true);
-    await stale.stopAll();
-    // 释放后锁文件不残留。
-    await assert.rejects(() => readFile(lockPath, "utf8"));
+    // 持有者已退出（陈旧锁：owner 文件里的 pid 不存在）：回收后可启动。
+    const lockDir = join(dir, "raft", "locks", `${BINDING.bindingId}.lock`);
+    await mkdir(lockDir, { recursive: true });
+    await writeFile(
+      join(lockDir, "owner-dead.json"),
+      JSON.stringify({ pid: 2147483646, createdAt: Date.now(), token: "dead" }),
+    );
+    const { supervisor: second } = makeSupervisor(dir);
+    assert.equal((await second.start(BINDING, fake.script)).ok, true);
+    await second.stopAll();
+    // 释放后锁目录不残留。
+    await assert.rejects(() => readdir(lockDir));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("锁：只删自己写的锁", async () => {
+test("跨进程锁：升级前遗留的单文件 pid 锁（持有者已退出）会被回收；非法 bindingId 拒绝", async () => {
   const dir = await mkdtemp(join(tmpdir(), "raft-bridge-"));
   try {
-    const lock = createBridgeLock({ dataRootDir: dir, ownerPid: 4242, isProcessAlive: () => true });
+    await mkdir(join(dir, "raft", "locks"), { recursive: true });
+    await writeFile(join(dir, "raft", "locks", "abc.lock"), "2147483646");
+    const lock = createBridgeLock({ dataRootDir: dir });
     const handle = await lock.acquire("abc");
     assert.ok(handle);
-    await writeFile(join(dir, "raft", "locks", "abc.lock"), "9999"); // 被别人接管
     await handle.release();
-    assert.equal(await readFile(join(dir, "raft", "locks", "abc.lock"), "utf8"), "9999");
     await assert.rejects(() => lock.acquire("../evil"));
   } finally {
     await rm(dir, { recursive: true, force: true });
