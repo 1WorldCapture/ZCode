@@ -247,3 +247,29 @@ createBinding(input: { raftOrigin, raftAgentId, homePath }
 ### 验收（A2 部分）
 
 自动化：向导状态机（推进/回退不丢数据）、复用选择器置灰逻辑（`boundBindingId` 非空不可选）、verify → 确认 → createBinding 的顺序与失败分支、13 个错误码中英文案（含 `ProfileInUse`）、记忆只读渲染与 truncated 提示、token 不进 store。人工：PM 对照本节验收真实界面（含窄窗口下向导不横向滚动、步骤条各态）。
+
+## 二期 B1：管理动作界面与状态完整显示（task #14）
+
+上游依据：lyonliang 二期优先项 ②③；PM 在 a517415a 线程的三点意见（删除确认写明 projects/ 一并删除、重启/重置提示中断进行中工作、权限模式维持现状则"等审批"恒 0）。
+
+### 范围
+
+- **详情页「管理」区**：重启 / 重置 / 删除三个动作，均带二次确认（AlertDialog，与插件卸载确认同惯例）。
+- **重启确认**：提示进行中的工作会中断；语义 = 停值守 → 新建主会话（同 Home/记忆配置）→ 恢复值守，记忆保留。
+- **重置确认**：同上中断提示；另明确 Home 记忆面（MEMORY.md、AGENTS.md、notes/）清空并按初始模板重建，Home 其他内容不受影响。
+- **删除确认**：明确写明删除绑定、本地凭据与整个 Home 目录（**包括 projects/ 下 clone 的代码**）、操作不可恢复、**Raft 服务侧 token 不会被撤销**（需用户在服务端自行撤销）。
+- **状态完整显示**：详情页在运行状态下列出活动投影——最近活动（类别 + 时间，类别 = wake/drain_submitted/message_sent/error）与记忆状态（memoryLoaded）。`activity` 为列表投影的可选扩展字段（A1 第 5 条），旧数据无字段时不渲染这些行。
+
+### 接口对接（A1 形状）
+
+`restartBinding(bindingId)` / `resetBinding(bindingId)` / `removeBinding(bindingId, {deleteHome:true})` 按 Dev-developer 的 A1 形状对接；失败（NotFound / SessionCreateFailed / MemoryResetFailed）统一置操作失败提示并刷新快照，不做乐观更新。
+
+### 不变量
+
+- 删除固定 `deleteHome: true`（lyonliang 已拍板：删除即清 Home）；UI 不暴露保留 Home 的删除入口。
+- 三个动作成功后都刷新列表快照；删除后详情页因绑定消失自动回列表。
+- 权限模式维持现状（白名单内自动执行），本期不做"等审批"入口；`pendingApprovals` 字段投影恒 0，仅作语义完整预留。
+
+### 验收（B1 部分）
+
+自动化：三动作的服务调用与快照刷新、失败置 actionFailed、删除参数恒为 `{deleteHome:true}`、activity 字段缺失时不渲染活动行。人工：PM 对照本节验收三个确认框文案（projects/ 删除提示、token 不撤销提示、中断提示）与活动投影显示。
