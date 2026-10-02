@@ -1,0 +1,2 @@
+# ZCode 版 NOTICE 在打包时由根 NOTICE.md 生成（electron-builder.config.js），不入库。
+build/generated/

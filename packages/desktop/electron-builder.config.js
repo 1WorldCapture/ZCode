@@ -1,5 +1,13 @@
 /* eslint-disable max-lines -- Electron Builder config keeps related packaging hooks together so build order stays explicit. */
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -86,6 +94,30 @@ const shouldEnableMacSigning =
   process.env.ZCODE_ENABLE_MAC_SIGN === "1" && Boolean(macSigningIdentity);
 const workspaceRoot = resolve(import.meta.dirname, "../..");
 const desktopPackageRoot = import.meta.dirname;
+// ZCode 自打包正式版的 NOTICE：根 NOTICE.md 上游原文逐字节保留，仅在开头前置
+// "由 1WorldCapture 修改维护"声明段，构建时生成到 build/generated/（不入库），
+// 避免整份复制后与上游漂移。CHANGES.md 记录相对上游基线的文件变更清单。
+const generatedNoticeFrom = "build/generated/NOTICE.md";
+const noticeDeclaration = [
+  "# ZCode 构建版声明（1WorldCapture 自打包）",
+  "",
+  "本 ZCode 构建版（Copyright 2026 1WorldCapture，Apache-2.0）由 1WorldCapture 基于 Z.AI 发布的 ZCode 修改并自行打包维护，",
+  "包含 Raft agent 接入等功能改动（相对上游的文件变更清单见随包 CHANGES.md）。",
+  "本产品非 Z.AI 官方产品，Z.AI 不为本修改版提供支持或背书。",
+  "This build of ZCode is derived from ZCode by Z.AI (Apache-2.0), modified and packaged independently by 1WorldCapture.",
+  "It is not an official Z.AI product and is not endorsed by Z.AI.",
+  "",
+  "---",
+  "",
+  "以下为上游 ZCode 的原声明（原文保留，未做修改）：",
+  "",
+].join("\n");
+{
+  const rootNotice = readFileSync(resolve(workspaceRoot, "NOTICE.md"), "utf8");
+  const generatedNoticePath = resolve(desktopPackageRoot, generatedNoticeFrom);
+  mkdirSync(dirname(generatedNoticePath), { recursive: true });
+  writeFileSync(generatedNoticePath, `${noticeDeclaration}\n${rootNotice}`);
+}
 const runtimeModuleLookupRoots = [
   desktopPackageRoot,
   workspaceRoot,
@@ -570,6 +602,11 @@ export default {
   },
   extraResources: [
     { from: resolve(workspaceRoot, noticesFileName), to: noticesFileName },
+    // 许可与来源文件随包（Apache-2.0 分发要求携带 LICENSE 与 NOTICE；NOTICE 为上文
+    // 生成的"前置修改声明 + 上游原文"版，CHANGES.md 为相对上游基线的变更清单）。
+    { from: resolve(workspaceRoot, "LICENSE"), to: "LICENSE" },
+    { from: generatedNoticeFrom, to: "NOTICE.md" },
+    { from: resolve(workspaceRoot, "CHANGES.md"), to: "CHANGES.md" },
     ...(targetPlatform.os === "darwin"
       ? [
           {
