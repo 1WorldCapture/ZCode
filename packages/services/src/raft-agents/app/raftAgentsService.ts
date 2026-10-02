@@ -62,6 +62,16 @@ export interface RaftAgentsServiceOptions {
   /** 值守运行态来源（编排器 resolveRunState）：优先于 desiredState 推导（list 投影）。 */
   resolveRunState?: (binding: RaftAgentBinding) => RaftAgentRunState | undefined;
   /**
+   * Home 归属分类探测端口（实现在 adapters/agentHomeKind.ts，组合根注入；只读、
+   * 全捕获不抛）。结论随 list 投影下发（PM 修法四条），UI 只读不自算；缺省不注入
+   * 则投影不带 homeKind 字段。探测结果在服务内缓存（见 toItem 处注释）。
+   */
+  resolveHomeKind?: (input: {
+    dataRootDir: string;
+    bindingId: string;
+    homeWorkspacePath: string;
+  }) => Promise<"default" | "custom" | "unknown-home">;
+  /**
    * desiredState 持久化成功后的通知（宿主接编排器 startWatch/stopWatch）。
    * 锁外、不 await——编排是长操作（bridge 启动秒级），不阻塞状态落盘；
    * 回调内的异步与异常由宿主自行处理，同步抛错只记日志。
@@ -122,11 +132,44 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
     emitBindingsChanged: (next: RaftAgentBinding[]) => bindingsChanged.fire(next),
   };
 
-  const toItem = (binding: RaftAgentBinding): RaftAgentListItem =>
+  /**
+   * homeKind 结论缓存：list() 是界面每 3 秒轮询的热路径（B2 约定列表投影不做重活），
+   * 而探测端口每次要 realpath + 读归属标记。结论在绑定生命周期内不变（Home 路径与
+   * 标记都不会变），按 bindingId 缓存、路径变化或删除绑定时失效；只缓存确定结论
+   * （default/custom）——unknown-home 可能来自瞬时读失败，下次重试。
+   */
+  const homeKindCache = new Map<
+    string,
+    { homeWorkspacePath: string; kind: "default" | "custom" }
+  >();
+
+  const homeKindFor = async (
+    binding: RaftAgentBinding,
+  ): Promise<"default" | "custom" | "unknown-home" | undefined> => {
+    if (!options.resolveHomeKind) return undefined;
+    const cached = homeKindCache.get(binding.bindingId);
+    if (cached && cached.homeWorkspacePath === binding.homeWorkspacePath) return cached.kind;
+    const kind = await options.resolveHomeKind({
+      dataRootDir: options.dataRootDir,
+      bindingId: binding.bindingId,
+      homeWorkspacePath: binding.homeWorkspacePath,
+    });
+    if (kind === "unknown-home") {
+      homeKindCache.delete(binding.bindingId);
+    } else {
+      homeKindCache.set(binding.bindingId, { homeWorkspacePath: binding.homeWorkspacePath, kind });
+    }
+    return kind;
+  };
+
+  const toItem = async (binding: RaftAgentBinding): Promise<RaftAgentListItem> =>
     toListItem(binding, {
       resolveRunState: options.resolveRunState,
       activity: options.activity?.resolveActivity(binding.bindingId),
       live: options.feed?.resolveLive(binding.bindingId),
+      // Home 归属分类随投影下发（PM 修法四条）：UI 只读不自算——custom 绑定删除时
+      // 禁用「删除 Home」等界面决策都以这个字段为准。
+      homeKind: await homeKindFor(binding),
     });
 
   async function probeStorageHealth(): Promise<RaftAgentStorageHealth> {
@@ -157,7 +200,11 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
 
   return {
     async list(): Promise<RaftAgentListItem[]> {
-      return (await store.readAll()).map(toItem);
+      const items: RaftAgentListItem[] = [];
+      for (const binding of await store.readAll()) {
+        items.push(await toItem(binding));
+      }
+      return items;
     },
 
     /**
@@ -199,6 +246,7 @@ export function createRaftAgentsService(options: RaftAgentsServiceOptions): IRaf
         const next = existing.filter((b) => b.bindingId !== bindingId);
         if (next.length === existing.length) return;
         await store.writeAll(next);
+        homeKindCache.delete(bindingId);
         // 本地 profile 随记录移除一并删除（凭据不留孤儿）；Raft 侧 token 不撤销（D4）。
         if (removed) {
           await cleanupProfile(join(options.dataRootDir, "raft", "profiles", removed.profileSlug));

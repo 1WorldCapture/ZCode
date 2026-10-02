@@ -179,6 +179,13 @@ export const raftAgentListItemSchema = z
     runState: raftAgentRunStateSchema,
     homePath: z.string().min(1),
     /**
+     * Home 归属分类（host 用 resolveAgentHomeKind 探测后随投影下发；UI 只读不自算）：
+     * default = 数据根 agents/<容器>/workspace 且归属标记匹配（容器名是预派发 UUID，
+     * 不等于 bindingId）；custom = 用户自选目录（与旧产品共用，删除绑定时禁用「删除
+     * Home」）；unknown-home = 位置像默认布局但归属标记缺失/不符。旧读取方不受影响。
+     */
+    homeKind: z.enum(["default", "custom", "unknown-home"]).optional(),
+    /**
      * 主会话编号（B3 嵌入会话视图直达挂载）；null = 懒建未发生——冷恢复统一走
      * openAgentSession（绑定派生记忆 + 官方 MCP 的恢复/重建入口），不自行 resume。
      */

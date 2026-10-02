@@ -38,6 +38,8 @@ export function toListItem(
     resolveRunState?: (binding: RaftAgentBinding) => RaftAgentRunState | undefined;
     activity?: RaftAgentListItem["activity"];
     live: ReturnType<RaftActivityFeed["resolveLive"]>;
+    /** Home 归属分类（agentHomeKind 探测结论；缺省不投影该字段）。 */
+    homeKind?: RaftAgentListItem["homeKind"];
   },
 ): RaftAgentListItem {
   // 运行态优先取值守编排器覆盖层（ErrorPaused/Running，T3）；无运行时源时按意图
@@ -52,6 +54,7 @@ export function toListItem(
     connectionState: "credential_ok",
     runState,
     homePath: binding.homeWorkspacePath,
+    ...(sources.homeKind ? { homeKind: sources.homeKind } : {}),
     // B3 嵌入会话视图：列表直达主会话编号；null = 懒建未发生，
     // 冷恢复统一走 openAgentSession（绑定派生记忆 + MCP 的恢复/重建入口）。
     mainSessionId: binding.mainSessionRef?.sessionId ?? null,
