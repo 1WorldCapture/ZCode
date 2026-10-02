@@ -111,7 +111,9 @@ M	packages/desktop/src/main/desktopApplicationMenu.ts
 M	packages/desktop/src/main/desktopChromiumHardwareAccelerationBootstrap.ts
 M	packages/desktop/src/main/desktopCommandHandlers.ts
 M	packages/desktop/src/main/desktopDataBaseDirBootstrap.ts
+M	packages/desktop/src/main/desktopFinderOpenFolderWorkflow.ts
 M	packages/desktop/src/main/desktopRuntimeEnv.ts
+M	packages/desktop/src/main/desktopWindowsOpenFolderContextMenu.ts
 M	packages/desktop/src/main/exportLogs.ts
 M	packages/desktop/src/main/index.ts
 A	packages/desktop/src/main/legacyZCodeImportOffer.ts
@@ -119,9 +121,11 @@ M	packages/desktop/src/main/mcpUserDirectory/index.ts
 M	packages/desktop/src/main/mcpUserDirectory/types.ts
 M	packages/desktop/tsup.config.ts
 M	packages/desktop/vite.config.ts
+M	packages/server/src/remote/remoteAssetPreflight.ts
 M	packages/services/src/accessor.ts
 M	packages/services/src/commands/commandsService.ts
 M	packages/services/src/device/deviceMid.ts
+M	packages/services/src/file/workspaceFileIgnore.ts
 M	packages/services/src/hooks/hooksService.ts
 M	packages/services/src/index.ts
 M	packages/services/src/mcp-sync/mcpSyncService.ts
