@@ -1,13 +1,16 @@
-import type { ZCodeProvider } from "@zcode/shared";
+import { ZCODE_DATA_ROOT_NAME, type ZCodeProvider } from "@zcode/shared";
 
 type SkillSourceType = "glm" | "unknown";
 
 function resolveSkillSourceType(skillPath: string): SkillSourceType {
   const normalized = skillPath.replaceAll("\\", "/").toLowerCase();
-  if (normalized.includes("/.zcode/skills/")) {
+  // User data root comes from the shared constant so TinyCode (.tinycode)
+  // and ZCode (.zcode) builds both classify skill paths correctly.
+  const dataRoot = `/${ZCODE_DATA_ROOT_NAME.toLowerCase()}/`;
+  if (normalized.includes(`${dataRoot}skills/`)) {
     return "glm";
   }
-  if (normalized.includes("/.zcode/cli/plugins/cache/")) {
+  if (normalized.includes(`${dataRoot}cli/plugins/cache/`)) {
     return "glm";
   }
   return "unknown";
