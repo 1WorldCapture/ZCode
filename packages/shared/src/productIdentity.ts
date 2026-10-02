@@ -15,15 +15,18 @@ import { ZCODE_PRODUCT_FLAVOR } from "./env.js";
 export interface ProductIdentity {
   /** User-visible product name injected into UI copy via `{appName}`. */
   appName: string;
+  /**
+   * Resolved flavor, so install-scoped identifiers that must not collide across
+   * flavors (Finder workflow bundle id, Windows registry key) can branch on the
+   * identity alone without reaching back into env internals.
+   */
+  flavor: ZCodeProductFlavor;
 }
 
-// "tinycode" is the external-release identity (task #28). The flavor literal is
-// added to `ZCodeProductFlavor` by the flavor mechanism; the mapping is ready
-// here so branding switches as soon as the union extends.
-const IDENTITIES: Record<ZCodeProductFlavor | "tinycode", ProductIdentity> = {
-  production: { appName: "ZCode" },
-  preview: { appName: "ZCode" },
-  tinycode: { appName: "TinyCode" },
+const IDENTITIES: Record<ZCodeProductFlavor, ProductIdentity> = {
+  production: { appName: "ZCode", flavor: "production" },
+  preview: { appName: "ZCode", flavor: "preview" },
+  tinycode: { appName: "TinyCode", flavor: "tinycode" },
 };
 
 const FALLBACK_IDENTITY: ProductIdentity = IDENTITIES.production;

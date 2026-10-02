@@ -2,14 +2,22 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
+import { PRODUCT_IDENTITY } from "@zcode/shared";
 import type { Locale } from "@zcode/shared";
 
-const WORKFLOW_NAME = "Open in ZCode.workflow";
-const WORKFLOW_BUNDLE_ID = "dev.zcode.app.finder-open-workflow";
+// Finder 服务是随安装包落盘的系统级注册物（~/Library/Services）：名称与菜单文案
+// 跟随产品形态；TinyCode 用独立 bundle id，与 ZCode 双装时两个服务互不覆盖。
+// zcode:// 协议 scheme 双方共用（既定设计，最后注册者成为默认 handler）。
+const APP_NAME = PRODUCT_IDENTITY.appName;
+const WORKFLOW_NAME = `Open in ${APP_NAME}.workflow`;
+const WORKFLOW_BUNDLE_ID =
+  PRODUCT_IDENTITY.flavor === "tinycode"
+    ? "build.raft.tinycode.finder-open-workflow"
+    : "dev.zcode.app.finder-open-workflow";
 const WORKFLOW_VERSION = "5";
 const SERVICES_MENU_LABELS: Record<Locale, string> = {
-  "zh-CN": "在ZCode中打开",
-  "en-US": "Open in ZCode",
+  "zh-CN": `在${APP_NAME}中打开`,
+  "en-US": `Open in ${APP_NAME}`,
 };
 
 const workflowScript = `first=""

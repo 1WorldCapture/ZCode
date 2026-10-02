@@ -1,4 +1,5 @@
 import { ZCODE_DATA_ROOT_NAME } from "./env.js";
+import { PRODUCT_IDENTITY } from "./productIdentity.js";
 
 export type ZCodeAgentBinaryKind = "native-binary";
 
@@ -33,8 +34,8 @@ export const ZCODE_AGENT_RUNTIME: ZCodeAgentRuntimeDescriptor = {
   spawnArgs: ["app-server", "--stdio"],
   nativeConfigDir: `${ZCODE_DATA_ROOT_NAME}/cli`,
   nativeConfigFileName: "config.json",
-  missingBinaryMessage:
-    "[ZCode Agent] glm binary 未找到，请设置 GLM_BINARY_PATH 或先准备 GLM 运行时资源",
+  // 运行时资源缺失提示会直达用户（日志/错误弹窗），前缀品牌跟随产品形态。
+  missingBinaryMessage: `[${PRODUCT_IDENTITY.appName} Agent] glm binary 未找到，请设置 GLM_BINARY_PATH 或先准备 GLM 运行时资源`,
   resolveEntrySegments: (platform) => [resolvePlatformBinaryName("zcode-agent", platform)],
   nodeBundleEntryFile: "zcode.cjs",
   resolveNodeBundleSegments() {

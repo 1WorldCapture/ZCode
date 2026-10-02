@@ -1,3 +1,4 @@
+import { PRODUCT_IDENTITY } from "@zcode/shared";
 import { open, readFile, rename, rm } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import ignoreFactory from "ignore";
@@ -18,6 +19,8 @@ import type { ServiceLogger } from "../logger/serviceLogger.js";
 
 export const WORKSPACE_FILE_SEARCH_IGNORE_FILE_NAME = ".zcodeignore";
 const GITIGNORE_FILE_NAME = ".gitignore";
+// 模板与分区标记里的品牌文案跟随产品形态（.zcodeignore 文件名按既定设计两形态共用）。
+const APP_NAME = PRODUCT_IDENTITY.appName;
 
 type WorkspaceFileIgnoreLogger = Pick<ServiceLogger, "info" | "warn">;
 
@@ -76,8 +79,8 @@ const BUILTIN_IGNORE_LINES = [
 ];
 
 const TEMPLATE_HEADER = [
-  "# ZCode 工作区文件搜索忽略规则（.zcodeignore）",
-  "# 语法与 .gitignore 一致，只影响 ZCode 的 @ 文件候选 / Command Center / 文件树搜索，",
+  `# ${APP_NAME} 工作区文件搜索忽略规则（${WORKSPACE_FILE_SEARCH_IGNORE_FILE_NAME}）`,
+  `# 语法与 .gitignore 一致，只影响 ${APP_NAME} 的 @ 文件候选 / Command Center / 文件树搜索，`,
   "# 不影响文件树浏览、上传或 Agent 文件访问。",
   "# 修改 .gitignore 不会自动同步到本文件；可在设置页「从 .gitignore 同步」。",
   "",
@@ -91,8 +94,12 @@ const TEMPLATE_HEADER = [
  */
 const WORKSPACE_FILE_SEARCH_IGNORE_SYNC_MARKER =
   "# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====";
-const WORKSPACE_FILE_SEARCH_IGNORE_DEFAULTS_MARKER =
-  "# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----";
+const WORKSPACE_FILE_SEARCH_IGNORE_DEFAULTS_MARKER = `# ----- ↑ 以上为 ${APP_NAME} 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----`;
+// 标记识别按结构而非品牌字面量：同一 workspace 的 .zcodeignore 可能被 ZCode 与
+// TinyCode 先后管理（文件名按既定设计共用），任一品牌写入的分区标记都要能识别，
+// 否则会被误判为"旧格式/用户删除"退化成整体重建，丢掉标记下方保存的自定义规则。
+const WORKSPACE_FILE_SEARCH_IGNORE_DEFAULTS_MARKER_PATTERN =
+  /^# ----- ↑ 以上为 \S+ 默认排除规则（自定义规则请写在本行下方，不会被同步\/恢复改动）-----$/;
 
 const CUSTOM_SECTION_HINT = "# 自定义规则写在下方（本行提示可删除）";
 
@@ -159,8 +166,8 @@ function splitWorkspaceFileSearchIgnoreSections(
   const syncIndex = lines.findIndex(
     (line) => line.trim() === WORKSPACE_FILE_SEARCH_IGNORE_SYNC_MARKER,
   );
-  const defaultsIndex = lines.findIndex(
-    (line) => line.trim() === WORKSPACE_FILE_SEARCH_IGNORE_DEFAULTS_MARKER,
+  const defaultsIndex = lines.findIndex((line) =>
+    WORKSPACE_FILE_SEARCH_IGNORE_DEFAULTS_MARKER_PATTERN.test(line.trim()),
   );
   if (syncIndex === -1 || defaultsIndex === -1 || defaultsIndex <= syncIndex) {
     return null;

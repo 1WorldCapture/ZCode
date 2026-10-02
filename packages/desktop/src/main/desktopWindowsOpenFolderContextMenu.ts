@@ -1,13 +1,17 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
+import { PRODUCT_IDENTITY } from "@zcode/shared";
 import type { Locale } from "@zcode/shared";
 
-const MENU_KEY_NAME = "ZCode.OpenInZCode";
+// 注册表键名按形态隔离：ZCode 与 TinyCode 双装时右键菜单互不覆盖；菜单文案跟随形态。
+const APP_NAME = PRODUCT_IDENTITY.appName;
+const MENU_KEY_NAME =
+  PRODUCT_IDENTITY.flavor === "tinycode" ? "TinyCode.OpenInTinyCode" : "ZCode.OpenInZCode";
 const DIRECTORY_MENU_KEY = `HKCU\\Software\\Classes\\Directory\\shell\\${MENU_KEY_NAME}`;
 const DRIVE_MENU_KEY = `HKCU\\Software\\Classes\\Drive\\shell\\${MENU_KEY_NAME}`;
 const MENU_LABELS: Record<Locale, string> = {
-  "zh-CN": "在ZCode中打开",
-  "en-US": "Open in ZCode",
+  "zh-CN": `在${APP_NAME}中打开`,
+  "en-US": `Open in ${APP_NAME}`,
 };
 
 type Logger = {
