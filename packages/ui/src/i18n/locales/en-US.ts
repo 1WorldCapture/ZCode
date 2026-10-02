@@ -133,7 +133,9 @@ const enUS: Record<string, string> = {
   "agentCenter.manage.reset.confirm": "Reset",
   "agentCenter.manage.remove.confirmTitle": "Delete this Agent?",
   "agentCenter.manage.remove.confirmDescription":
-    "This stops watching and deletes the binding and the local credential. The Home directory is deleted (including code under projects/); if it isn't a {appName}-owned directory, the directory is kept and only the memory files are cleared. This can't be undone. The token on the Raft server is NOT revoked — revoke it there too if you want a complete removal.",
+    "This stops watching and deletes the binding and the local credential; the Home directory is a {appName}-owned directory and is deleted too (including code under projects/). This can't be undone. The token on the Raft server is NOT revoked — revoke it there too if you want a complete removal.",
+  "agentCenter.manage.remove.confirmDescriptionKeepHome":
+    "This stops watching and deletes the binding and the local credential. The Home directory is custom or of unknown ownership, so it is kept intact — nothing is deleted or cleared. The token on the Raft server is NOT revoked — revoke it there too if you want a complete removal.",
   "agentCenter.manage.remove.confirm": "Delete",
   "agentCenter.manage.remove.doneDeleted": "Agent and its Home directory deleted",
   "agentCenter.manage.remove.doneKept":
@@ -141,7 +143,7 @@ const enUS: Record<string, string> = {
   "agentCenter.manage.remove.doneUntouched":
     "Agent deleted; the Home directory was left untouched — please handle it manually",
   "agentCenter.manage.remove.doneUntouchedNotRequested":
-    "Agent deleted; the Home directory was kept as you chose",
+    "Agent deleted; the Home directory was kept (custom or unknown-ownership directories are not deleted)",
   "agentCenter.manage.remove.doneFailed":
     "Agent deleted; the Home directory may be partially deleted — please check it manually",
   "agentCenter.activity.lastActivity": "Last activity",
@@ -2439,7 +2441,7 @@ const enUS: Record<string, string> = {
   "settings.taskAutoArchiveDays.option.30": "Archive after 30 days",
   "settings.dataBaseDir": "Data storage path",
   "settings.dataBaseDirDescription":
-    "Root directory for app data (defaults to user home directory). Existing data will be copied to the new location. The .zcode/v2 suffix cannot be changed.",
+    "Root directory for app data (defaults to user home directory). Existing data will be copied to the new location. The {dataRootName}/v2 suffix cannot be changed.",
   "settings.dataBaseDirPlaceholder": "Default: user home directory",
   "settings.dataBaseDirBrowse": "Choose folder",
   "settings.dataBaseDirSave": "Save",

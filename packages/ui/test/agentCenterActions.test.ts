@@ -170,6 +170,20 @@ test("管理动作：重启/重置成功刷新；失败置 actionFailed；删除
   assert.deepEqual(removeArgs, { bindingId: "b1", opts: { deleteHome: true } });
   assert.deepEqual(removable.calls, ["list"]);
 
+  // custom/unknown-home 绑定：UI 读 homeKind 投影决定保留 Home，选项须原样透传。
+  let keepArgs: unknown = null;
+  const keeper = fakeService({
+    removeBinding: async (bindingId: string, opts: unknown) => {
+      keepArgs = { bindingId, opts };
+      return { home: "untouched" as const, reason: "not_requested" as const };
+    },
+  });
+  assert.deepEqual(await removeAgent(keeper.service, "b1", { deleteHome: false }), {
+    ok: true,
+    home: { home: "untouched", reason: "not_requested" },
+  });
+  assert.deepEqual(keepArgs, { bindingId: "b1", opts: { deleteHome: false } });
+
   // Home 处置四态（e3479b5）须原样透出，由界面按态如实提示。
   const kept = fakeService({
     removeBinding: async () => ({ home: "kept_memory_cleared" as const }),

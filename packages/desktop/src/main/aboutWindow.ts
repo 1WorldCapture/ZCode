@@ -5,6 +5,17 @@ interface CustomAboutDialogHtmlInput {
   optimizationLine: string;
   versionLabel: string;
   okButtonLabel: string;
+  /** TinyCode-only attribution line; empty string hides it (official builds unchanged). */
+  sourceNotice: string;
+  /** TinyCode-only online-service notice; empty string hides it (official builds unchanged). */
+  onlineServiceNotice: string;
+  /**
+   * Flavor logo markup. Null keeps the default ZCode glyph; a string replaces
+   * it entirely (TinyCode ships its own full-bleed rounded-square icon).
+   */
+  logoHtml: string | null;
+  /** Inner card height; flavor notices add extra rows so the window grows with it. */
+  contentHeight: number;
 }
 
 function escapeHtml(value: string): string {
@@ -17,6 +28,30 @@ function escapeHtml(value: string): string {
 }
 
 export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): string {
+  // Flavor logo markup is pre-escaped/trusted (built from our own assets), never user input.
+  const logo = input.logoHtml
+    ? `<div class="app-icon app-icon-flavor" aria-hidden="true">${input.logoHtml}</div>`
+    : `<div class="app-icon" aria-hidden="true">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="118"
+              height="100"
+              fill="none"
+              viewBox="0 0 256 218"
+              class="app-logo"
+              focusable="false"
+            >
+              <path
+                fill="currentColor"
+                d="M134.4 0.130152L116.48 25.6022C113.665 29.5699 109.054 32.0019 104.064 32.0019H6.3999V0C6.3999 0.130149 134.4 0.130152 134.4 0.130152Z"
+              />
+              <path fill="currentColor" d="M256 0.130127L102.401 217.732H0L153.599 0.130127H256Z" />
+              <path
+                fill="currentColor"
+                d="M121.601 217.732L139.65 192.134C142.465 188.166 147.076 185.734 152.067 185.734H249.604V217.736H121.601V217.732Z"
+              />
+            </svg>
+          </div>`;
   return `<!doctype html>
 <html>
   <head>
@@ -59,7 +94,7 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
       .about-window {
         width: 100%;
         max-width: 256px;
-        height: 280px;
+        height: ${input.contentHeight}px;
         display: grid;
         place-items: stretch;
         padding: 0;
@@ -101,6 +136,22 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
         box-shadow: 0 10px 13px -3px rgb(0 0 0 / 0.2), 0 4px 5px -3px rgb(0 0 0 / 0.2);
       }
 
+      /* Flavor logos carry their own full-bleed background; the dark glyph
+         container would show through rounded corners, so strip it. */
+      .app-icon-flavor {
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+        overflow: hidden;
+        padding: 0;
+      }
+
+      .app-icon-flavor svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
       .app-logo {
         width: 30px;
         height: auto;
@@ -127,6 +178,11 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
         color: #303033;
       }
 
+      .notice {
+        font-size: 10.5px;
+        line-height: 1.35;
+        color: #6e6e73;
+      }
 
       .ok-button {
         width: 100%;
@@ -163,6 +219,10 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
         .meta {
           color: #e2e2e2;
         }
+
+        .notice {
+          color: #98989d;
+        }
       }
     </style>
   </head>
@@ -170,33 +230,19 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
     <main class="about-window" aria-label="${escapeHtml(input.applicationName)} About Window">
       <section class="about-card" role="dialog" aria-modal="true" aria-labelledby="about-title">
         <div class="content">
-          <div class="app-icon" aria-hidden="true">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="118"
-              height="100"
-              fill="none"
-              viewBox="0 0 256 218"
-              class="app-logo"
-              focusable="false"
-            >
-              <path
-                fill="currentColor"
-                d="M134.4 0.130152L116.48 25.6022C113.665 29.5699 109.054 32.0019 104.064 32.0019H6.3999V0C6.3999 0.130149 134.4 0.130152 134.4 0.130152Z"
-              />
-              <path fill="currentColor" d="M256 0.130127L102.401 217.732H0L153.599 0.130127H256Z" />
-              <path
-                fill="currentColor"
-                d="M121.601 217.732L139.65 192.134C142.465 188.166 147.076 185.734 152.067 185.734H249.604V217.736H121.601V217.732Z"
-              />
-            </svg>
-          </div>
+          ${logo}
           <h1 id="about-title" class="title">
             ${escapeHtml(input.applicationName)}<br />
             ${escapeHtml(input.versionLabel)} ${escapeHtml(input.appVersion)}
           </h1>
           <div class="meta">
             ${input.optimizationLine ? `<div>${escapeHtml(input.optimizationLine)}</div>` : ""}
+            ${input.sourceNotice ? `<div class="notice">${escapeHtml(input.sourceNotice)}</div>` : ""}
+            ${
+              input.onlineServiceNotice
+                ? `<div class="notice">${escapeHtml(input.onlineServiceNotice)}</div>`
+                : ""
+            }
             <div>${escapeHtml(input.copyright)}</div>
           </div>
         </div>

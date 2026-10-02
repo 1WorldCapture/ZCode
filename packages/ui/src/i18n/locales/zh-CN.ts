@@ -120,13 +120,15 @@ const zhCN: Record<string, string> = {
   "agentCenter.manage.reset.confirm": "重置",
   "agentCenter.manage.remove.confirmTitle": "删除这个 Agent？",
   "agentCenter.manage.remove.confirmDescription":
-    "将停止值守，并删除绑定与本地凭据。Home 目录会被删除（包括 projects/ 下的代码）；如果该目录不是 {appName} 创建的专属目录，将保留目录、只清空记忆文件。此操作不可恢复；Raft 服务侧的 token 不会被撤销，如需彻底移除请同时在服务端撤销。",
+    "将停止值守，并删除绑定与本地凭据；该 Agent 的 Home 是 {appName} 专属目录，会一并删除（包括 projects/ 下的代码）。此操作不可恢复；Raft 服务侧的 token 不会被撤销，如需彻底移除请同时在服务端撤销。",
+  "agentCenter.manage.remove.confirmDescriptionKeepHome":
+    "将停止值守，并删除绑定与本地凭据。该 Agent 的 Home 目录为自定义目录或归属不明，将完整保留（不删除、不清空记忆）。Raft 服务侧的 token 不会被撤销，如需彻底移除请同时在服务端撤销。",
   "agentCenter.manage.remove.confirm": "删除",
   "agentCenter.manage.remove.doneDeleted": "已删除 Agent 及其 Home 目录",
   "agentCenter.manage.remove.doneKept": "已删除 Agent；Home 目录已保留，仅清空了记忆文件",
   "agentCenter.manage.remove.doneUntouched": "已删除 Agent；Home 目录未改动，请手动处理",
   "agentCenter.manage.remove.doneUntouchedNotRequested":
-    "已删除 Agent；Home 目录按你的选择保留",
+    "已删除 Agent；Home 目录已保留（自定义或归属不明目录不删除）",
   "agentCenter.manage.remove.doneFailed":
     "已删除 Agent；Home 目录可能已部分删除，请手动检查",
   "agentCenter.activity.lastActivity": "最近活动",
@@ -2284,7 +2286,7 @@ const zhCN: Record<string, string> = {
   "settings.taskAutoArchiveDays.option.30": "30 天后归档",
   "settings.dataBaseDir": "数据存储路径",
   "settings.dataBaseDirDescription":
-    "应用数据的根目录（默认为用户主目录），修改后会将现有数据复制到新位置。路径后缀 .zcode/v2 不可更改。",
+    "应用数据的根目录（默认为用户主目录），修改后会将现有数据复制到新位置。路径后缀 {dataRootName}/v2 不可更改。",
   "settings.dataBaseDirPlaceholder": "默认：用户主目录",
   "settings.dataBaseDirBrowse": "选择文件夹",
   "settings.dataBaseDirSave": "保存",
