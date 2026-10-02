@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Agent 详情页嵌入的主会话视图（二期 B3，范围见 SPEC.md「二期 B3」）。
  *

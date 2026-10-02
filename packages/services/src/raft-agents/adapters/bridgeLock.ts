@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 每绑定一把跨进程锁：`<ZCodeDataRoot>/raft/locks/<bindingId>.lock`（ZCode 共享文件锁）。
  *

@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 绑定存储写互斥锁：所有会写绑定记录的入口共享同一把——service 的
  * create/remove/setDesiredState 与值守编排器的换代写（watchRuntime）。

@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 值守运行态执行道（从 watchRuntime 按职责拆出，收尾架构压行）：
  * - in-flight 链把 start/stop/管理动作按绑定线性化，并发重复调用合并（同绑定

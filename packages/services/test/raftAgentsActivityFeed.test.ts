@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 二期 B2 活动摘要：会话事件映射（复用机器人进度格式化）、Raft 转发缓冲（上限/dropped/取走即清）、
  * 换代换订、待处理与等审批计数、隐私口径（转发事件不含工具输入/输出/进度文本）、drain 端点。

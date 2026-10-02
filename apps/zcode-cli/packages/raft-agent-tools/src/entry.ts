@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * stdio 入口（构建产物 dist/mcp/server.js 的源）。
  *

@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Raft 工具适配器（session 隔离，T4）：把白名单 Raft 操作封装成结构化调用，
  * 内部执行官方 raft CLI。与传输方式（stdio / http MCP）无关，由上层装配。

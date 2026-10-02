@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 登录→whoami→身份核验共用链（复用审核 #11：此前 verifyCredential 与
  * createBinding 各持一份原样重复的实现）。

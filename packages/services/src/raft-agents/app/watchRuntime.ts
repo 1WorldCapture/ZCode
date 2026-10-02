@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 值守编排（T3）：把"开始/停止值守"意图变成 bridge 生命周期 + 会话换代 + 积压 drain。
  * 链路（spec §3 + §8.5 D8）：前置门（watchStartGates：CLI→MEMORY 门→官方 MCP，

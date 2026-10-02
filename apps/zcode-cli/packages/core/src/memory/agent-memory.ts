@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Raft Agent 记忆（Agent Home）的严格加载语义。
  *

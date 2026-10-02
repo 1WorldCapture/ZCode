@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 详情页「记忆」只读块（二期 A2，范围见 SPEC.md「二期 A2」；复用与缺陷修复见「二期 R3」）。
  *

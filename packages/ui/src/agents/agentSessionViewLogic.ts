@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 嵌入会话视图的重开判定（二期验收修复，PM 口径：收到绑定变化、主会话编号
  * 变了就重新打开会话视图）。

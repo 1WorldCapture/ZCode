@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 import type { McpServerConfig, PluginLoadOutcome } from "@zcode/contracts";
 import type { ZCodeOfficialMcpServerRef } from "@zcode/shared";
 import { OFFICIAL_RAFT_AGENT_TOOLS_PLUGIN_ID } from "./official-plugin-definitions.js";

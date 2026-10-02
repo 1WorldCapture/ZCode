@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 官方 raft CLI 子进程的共享 Node 原语：环境净化、输出截断、命令运行、错误码解析。
  *

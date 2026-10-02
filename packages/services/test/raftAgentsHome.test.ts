@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";

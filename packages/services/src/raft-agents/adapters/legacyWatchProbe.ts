@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 旧产品（ZCode）只读探测（TinyCode 并排身份；grokbot 三道保险之一/三 + 复核 1/5）。
  *

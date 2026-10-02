@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 构建期开关（Raft 构建 / TinyCode 身份）与产品形态解析的测试。
  * 跑法：node --test scripts/desktop-product-identity.test.mjs（desktop 无集中 test script）。

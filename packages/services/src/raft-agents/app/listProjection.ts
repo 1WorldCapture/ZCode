@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * list() 投影（从 raftAgentsService 拆出，纯函数，无状态）：
  * 绑定记录 + 编排层追踪 + 会话活动实时投影 → RaftAgentListItem。

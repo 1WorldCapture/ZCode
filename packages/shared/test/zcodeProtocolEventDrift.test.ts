@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * R8：CLI 实际发出的事件字段必须被 strict 协议 schema 接受，防止"字段漂移"让整条事件被丢弃
  * （turn.started 的 executionStartedAt、tool.updated 的 readOnly / sideEffectScope / display）。

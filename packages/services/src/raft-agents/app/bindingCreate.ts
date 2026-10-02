@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 绑定接入管线（spec §4 流程，自 raftAgentsService 抽出以控制文件规模）：
  * 前置校验 → token 来源二选一（直传 / 复用本机凭据）→ CLI 检测 → 路径与唯一性

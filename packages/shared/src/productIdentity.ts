@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 import type { ZCodeProductFlavor } from "./env.js";
 import { ZCODE_PRODUCT_FLAVOR } from "./env.js";
 

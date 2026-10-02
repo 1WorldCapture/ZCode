@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 二期 A1（task #11）测试：管理动作（重启/重置/删除拆除）、懒建会话、
  * 打开会话、记忆只读视图边界、本机凭据枚举（无 apiKey 外泄）、凭据预核验

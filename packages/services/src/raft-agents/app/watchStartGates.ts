@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 值守启动前置门（spec §3 顺序红线，自 watchRuntime 抽出）：CLI 就绪 → 绑定在档
  * →（并排身份时）旧产品值守锁探测 → MEMORY 门（T5 verifyMemoryAvailable）→ 官方

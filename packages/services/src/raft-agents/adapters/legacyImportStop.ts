@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 源侧停止写——整个导入器**唯一允许写旧产品数据的动作**（PM 硬要求），独立成模块
  * 便于审计：写前再探（ZCode 主进程 + 各绑定值守锁，grokbot 复核 2）→ 时间戳备份

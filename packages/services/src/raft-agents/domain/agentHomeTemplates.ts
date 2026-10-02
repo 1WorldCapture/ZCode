@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Agent Home 初始文件模板（纯函数，无 IO）。内容来自 T5a 记忆内容包。
  *

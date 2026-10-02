@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * profile 目录的安静清理：接入失败路径（登录成功后任一步失败）与绑定移除共用。
  * 清理失败只记日志，不掩盖调用方的原始错误码；profile 目录从

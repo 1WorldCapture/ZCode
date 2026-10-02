@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * TinyCode 首启存量导入确认（task #28 PM 决定③ + 硬要求；grokbot 九条三道保险之一）。
  *

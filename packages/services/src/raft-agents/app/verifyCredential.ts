@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * verifyCredential（从 raftAgentsService 整函数搬出，行为不变）：向导确认页的预核验。
  * 与 createBinding 同族的本地前置校验 → 凭据 token 二选一 → 临时 verify- profile 登录核验。

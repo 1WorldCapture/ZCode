@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 把 host 的 RaftAgentsService 同步到 Agent 中心 store：挂载时加载一次，
  * 之后由绑定变更事件触发刷新，并以低频轮询兜底运行态变化（Starting→Running、异常暂停）。

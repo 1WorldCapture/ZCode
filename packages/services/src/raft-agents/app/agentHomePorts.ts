@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Agent Home（T5）的 app 层端口。与 ports.ts / bridgePorts.ts 分开，避免任务间改同一个文件。
  */

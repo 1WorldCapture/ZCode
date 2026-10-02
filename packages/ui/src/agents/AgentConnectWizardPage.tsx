@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 接入 Agent 四步向导（二期 A2，范围见 SPEC.md「二期 A2」）。
  *

@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 接入向导各步骤的纯展示组件（props 进、回调出；状态都在 AgentConnectWizardPage）。
  *

@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 绑定记录文件存储：`<ZCodeDataRoot>/raft/bindings.json`。
  *

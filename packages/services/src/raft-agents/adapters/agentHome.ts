@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Agent Home 文件适配器（T5 + 二期 A1）：初始化、记忆可用性校验、记忆面只读视图、
  * 重置与 Home 删除。

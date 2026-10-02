@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 唤醒 HTTP 适配器协议测试：真起 loopback server，按 spec §8 矩阵逐项核对。
  * 覆盖：token/身份校验、wake 响应映射（accepted/busy/auth/noSession/protocol/注入失败）、

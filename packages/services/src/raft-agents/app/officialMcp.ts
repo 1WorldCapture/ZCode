@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 官方宿主 MCP 具名引用构造（纯函数，方案 1 / 线程 f3239b45）。
  *

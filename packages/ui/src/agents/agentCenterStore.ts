@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Agent 中心 UI store —— 只保存视图状态与服务端事实的本地投影。
  *

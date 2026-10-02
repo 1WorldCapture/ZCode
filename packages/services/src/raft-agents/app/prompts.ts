@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 唤醒 / 值守 drain 的注入文本与幂等键（自 wakeDelivery 与 watchRuntime 收敛）：
  * 同一条日志纪律红线——文本只含来源头与操作引导，不含任何消息正文与凭据形态；

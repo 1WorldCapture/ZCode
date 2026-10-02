@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * T2 Bridge 管理的 app 层端口。与 ports.ts（T1）分开，避免两个任务改同一个文件。
  */

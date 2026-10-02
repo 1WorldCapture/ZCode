@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Agent 中心的服务调用（薄封装）：所有写操作都走 host 服务，成功后立刻刷新快照。
  * 失败只记录到 store 的提示位，不做乐观更新——状态以服务返回为准。

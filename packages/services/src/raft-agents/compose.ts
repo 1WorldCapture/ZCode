@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 模块内组合根：把官方 CLI 适配器与文件存储接到服务上。
  * 宿主（node.ts createLocalServices）从这里拿 createDefaultRaftAgentsService 与

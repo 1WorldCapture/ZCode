@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * app 层端口：副作用边界。app 通过这些接口决定行为，adapters 负责执行。
  * domain 保持纯函数；这里出现的都是可注入的 IO 面。

@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 异步读取的请求序号守卫（纯逻辑，供组件与单测共用；SPEC「二期 R3」）。
  *

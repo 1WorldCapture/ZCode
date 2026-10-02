@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 凭据 token 来源解析（grokbot e5addb16 / PM d764ceb9）：核验（verifyCredential）
  * 与接入（createBinding）共用的二选一规则——直传 token，或按 existingProfileSlug

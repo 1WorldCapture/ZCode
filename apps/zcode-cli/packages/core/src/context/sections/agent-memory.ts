@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 // ============================================================
 // Raft Agent Memory Section Builder
 // ============================================================

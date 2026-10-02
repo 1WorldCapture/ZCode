@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 导入器的目标侧复制安全助手（grokbot 第 5 条）：保权限、拒符号链接与特殊文件、
  * 新建路径全登记（失败回滚只清目标根内的半成品）。

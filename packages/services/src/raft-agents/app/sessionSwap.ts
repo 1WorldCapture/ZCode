@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 主会话生命周期共享段（二期 A1）：「创建 + 条件改绑」与「启动前会话解析」。
  *

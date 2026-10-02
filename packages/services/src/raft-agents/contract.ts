@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * raft-agents 模块公开契约：Raft Agent 绑定的接入、记录与生命周期意图管理。
  * 只允许从这里 import；CLI 子进程、文件存储等实现细节都在模块内部。

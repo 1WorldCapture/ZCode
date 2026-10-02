@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 二期 A3：fork 命令行（`-zcode.N`）下的「claim → 落盘 → ack」与发送去重/回执。
  * 假 CLI 按子命令脚本化应答，并把每次调用的 argv/stdin 追加到 calls.jsonl。

@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 工具适配（T4）的 app 层端口：收件日志存储与日志/告警出口。
  * 与 ports.ts（T1 的 CLI/绑定端口）分开，避免两个任务改同一个文件。

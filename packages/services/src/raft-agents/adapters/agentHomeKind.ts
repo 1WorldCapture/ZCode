@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Agent Home 归属分类（PM 修法四条，2026-10-02）：default / custom / unknown-home。
  *

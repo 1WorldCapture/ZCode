@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /** list 投影（listProjection.ts，从 raftAgentsService 纯搬移拆出）：行为等价用例。 */
 import assert from "node:assert/strict";
 import test from "node:test";

@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Raft Agent 绑定：类型与运行时 schema 的唯一事实源。
  *

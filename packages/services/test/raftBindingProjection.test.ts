@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Raft 绑定归属标记的持久化行为（R4 修复，评审发现）：
  * 1. 运行态快照重同步（一轮结束后的 syncer / getTaskSnapshot / 无参 resumeTask）

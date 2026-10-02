@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 import { join } from "node:path";
 
 import { AgentMemoryUnavailableError } from "../../memory/agent-memory.js";

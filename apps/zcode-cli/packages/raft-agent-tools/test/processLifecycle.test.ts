@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 共享的 stdio 进程守护（@zcode/shared/node/stdio-process-lifecycle，node-repl-host 同用）在
  * raft-agent-tools 入口下的行为：输出管道关闭即收尾、其余异步错误降级为带前缀的诊断。

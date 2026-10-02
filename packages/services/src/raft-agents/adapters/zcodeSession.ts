@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 主会话适配器（T3 → R4）：值守会话驱动从 zcodeAgentService 裸 RPC 换到
  * IZCodeTaskService 任务门面——复用既有 task 生命周期（tasks-index 归档、

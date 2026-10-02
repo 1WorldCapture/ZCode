@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Bridge 进程管理：每个绑定一个官方 `raft agent bridge` 子进程（T2，spec §8.1 / §9）。
  *

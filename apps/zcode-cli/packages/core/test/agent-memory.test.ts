@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AgentMemoryUnavailableError, sanitizeAgentName } from "../src/memory/agent-memory.js";

@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Agent 中心层 —— 覆盖在 workspace 壳层（或无 workspace 时独立全屏）的页面容器。
  *

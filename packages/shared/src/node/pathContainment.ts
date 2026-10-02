@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 路径包含判定的唯一事实源（复用审核 #8：此前 raft 侧四处各写一份、判据形态不一）。
  *

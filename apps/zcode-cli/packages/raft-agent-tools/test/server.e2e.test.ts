@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { chmod, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";

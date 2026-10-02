@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 收件日志文件存储：`<ZCodeDataRoot>/raft/inbox-logs/<bindingId>/`。
  *

@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 // Agent 会话级配置的持久化与冷恢复读取（R5 / task #23）。
 //
 // 背景：v4 冷恢复（subscribe → resumePersistedSession → activateSessionForResume）

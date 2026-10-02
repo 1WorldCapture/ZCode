@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * stdio MCP 服务进程的生命周期守护（官方插件宿主共用：node-repl-host、raft-agent-tools）。
  * 原实现在 node-repl-host/src/process-lifecycle.ts，抽到这里避免各插件各抄一份。

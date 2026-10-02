@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Agent 列表/详情共用的状态展示映射。
  * 连接状态与运行状态是两个维度（spec §10），不允许压成一个状态点。

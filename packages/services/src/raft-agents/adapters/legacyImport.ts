@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 存量 ZCode 绑定只读导入器（TinyCode 首启；task #28 PM 决定③ + grokbot 九条/复核七条）。
  *

@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 二期 B2：主会话活动摘要（task #16，设计见线程 #zcode-raft-integration:553bb9c6）。
  *

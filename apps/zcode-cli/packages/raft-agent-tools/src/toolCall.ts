@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Raft 工具调用的纯校验与 argv 构造域（无 IO、无 await）。
  *

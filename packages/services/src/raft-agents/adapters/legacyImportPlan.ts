@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 导入计划构建（legacyImport 的规模拆分）：按 agentHomeKind 对每条源绑定做 Home
  * 归属分类，产出「可导入清单 + 归属不明跳过清单」。判定规则见 agentHomeKind.ts

@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 // R5 / task #23：Agent 会话级配置持久化模块的单元测试。
 // 关键不变量：
 // 1. 白名单提取——只挑五个配置字段，params 里任何其他字段（尤其凭据形态）不进快照；

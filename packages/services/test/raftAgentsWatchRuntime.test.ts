@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 值守编排器（watchRuntime）测试。
  * 覆盖：启动链顺序（CLI→MEMORY 门→锁内换代→spawn→D8 drain）、幂等入口、

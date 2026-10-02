@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 二期 A1：绑定级活动追踪（内存态投影，list() 的 activity 字段来源）。
  *

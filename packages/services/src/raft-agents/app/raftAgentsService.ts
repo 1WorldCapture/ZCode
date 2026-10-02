@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * RaftAgentsService：绑定接入编排（spec §4 流程）。
  *

@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { build } from "esbuild";

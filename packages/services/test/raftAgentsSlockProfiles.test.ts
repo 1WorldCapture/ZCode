@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /** 复用凭据第二来源（~/.slock/profiles）：枚举、托管置灰、token 兜底拒绝、路径守卫。 */
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";

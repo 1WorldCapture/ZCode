@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 详情页「管理」区（二期 B1，范围见 SPEC.md「二期 A2」同文件的二期管理与 Dev-developer
  * 公布的 A1 接口形状 a517415a 线程）。

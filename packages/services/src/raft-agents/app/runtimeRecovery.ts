@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * D6：bridge 意外退出后的封顶退避重拉（宿主侧主修，方向 PM 已批）。
  *

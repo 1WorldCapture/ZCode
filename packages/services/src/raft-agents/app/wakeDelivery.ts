@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 唤醒投递（T3）：WakeHandlerPort 的业务实现。
  *

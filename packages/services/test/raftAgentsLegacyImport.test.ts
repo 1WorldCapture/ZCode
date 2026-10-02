@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 存量 ZCode 绑定只读导入器测试（TinyCode 首启；PM 决定③ + grokbot 九条/复核七条）。
  * 覆盖：detect 全分支（同根/缺源/源损坏零写入/无绑定/目标非空/已拒绝/非法 slug/

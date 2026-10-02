@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 唤醒 HTTP 适配器（T3）：单 loopback server 承载全部绑定的唤醒路由。
  *

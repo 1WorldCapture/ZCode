@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * contract 使用示例：宿主组合（node.ts 的 createLocalServices）与服务消费方式。
  * 仅作参考，不参与运行时。

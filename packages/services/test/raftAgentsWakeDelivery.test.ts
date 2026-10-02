@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 唤醒投递（wakeDelivery + zcodeSession 适配器）测试。
  * 覆盖：会话就绪判定、commandId 确定性（幂等键）、targetLost 自愈（resume 一次/失败置暂停/最小装配回退）、drain 文本来源头、

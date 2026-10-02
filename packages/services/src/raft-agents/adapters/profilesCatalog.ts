@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 本机凭据目录适配器（二期 A1）：枚举 raft/profiles 下各 profile 的 credential.json 的非敏感字段。
  *

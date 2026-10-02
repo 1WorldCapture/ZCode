@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Agent Home provisioning 步骤（T5，spec §4 步骤 4）：归属声明 + 初始化 Home 文件。
  * 幂等（缺失才写）；必须排在主会话步骤之前（会话的 workspace = Agent Home）。

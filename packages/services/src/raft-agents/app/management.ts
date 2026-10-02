@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 二期 A1：管理动作编排（重启 / 重置 / 打开会话 / 删除前置拆除）。
  *

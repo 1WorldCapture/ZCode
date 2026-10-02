@@ -1,3 +1,6 @@
+// Copyright 2026 1WorldCapture
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * 接入向导的纯逻辑（与 React 解耦，供组件与单测共用；SPEC「二期 A2」）。
  *
