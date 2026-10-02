@@ -1,7 +1,7 @@
 # TinyCode 相对上游 ZCode 的变更清单
 
-- 基线：ZCode v3.14.3（upstream-zcode-3.14.3，commit `29628c9`）
-- 本清单生成命令：`git diff --name-status v3.14.3..HEAD -- . ':(exclude)CHANGES-TINYCODE.md'`（状态 A=新增、M=修改、D=删除）
+- 基线：ZCode v3.14.3（tag `upstream-zcode-3.14.3`，commit `29628c9`，已推送到本仓库远端）
+- 本清单生成命令：`git diff --name-status upstream-zcode-3.14.3..HEAD -- . ':(exclude)CHANGES-TINYCODE.md'`（状态 A=新增、M=修改、D=删除）
 - TinyCode 由 1WorldCapture 维护，基于 Z.AI 的 ZCode（Apache-2.0）修改而成；非 Z.AI 官方产品，不代表 Z.AI 官方背书。
 
 ```
