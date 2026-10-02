@@ -524,6 +524,14 @@ test("probeLegacyZCodeAppRunning：SingletonLock 活/死/格式异常/无（darw
   await rm(lockPath);
   await symlink("no-pid-here", lockPath);
   assert.equal(await probeLegacyZCodeAppRunning({ appSupportDir: base }), true);
+
+  // 开发构建 "ZCode Dev"（同消费 .zcode 数据根）与 Preview 目录也各自探测：
+  // 主目录无锁、Dev 目录活 pid → 运行中。
+  await rm(lockPath);
+  const devDir = join(base, "ZCode Dev");
+  await mkdir(devDir, { recursive: true });
+  await symlink(`${hostname()}-${process.pid}`, join(devDir, "SingletonLock"));
+  assert.equal(await probeLegacyZCodeAppRunning({ appSupportDir: base }), true);
 });
 
 test("resolveAgentHomeKind：default（UUID≠bindingId）/ custom / unknown 三态", async () => {

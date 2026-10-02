@@ -28,9 +28,11 @@ const SAFE_BINDING_ID = /^[A-Za-z0-9-]{1,64}$/;
 
 /**
  * ZCode 桌面产品的 userData 目录名（Electron 默认 = productName）。
- * TinyCode 自身不在探测列表；Preview 同样可能持有值守，一并探测。
+ * TinyCode 自身不在探测列表；Preview 与开发构建（"ZCode Dev"，见 desktop
+ * desktopRuntimeEnv.ts / devElectronAppBundle.mjs）同样消费 `~/.zcode` 数据根、
+ * 同样可能持有值守，一并探测（漏检 = 该形态运行中导入仍会双消费）。
  */
-const LEGACY_APP_PRODUCT_NAMES = ["ZCode", "ZCode Preview"] as const;
+const LEGACY_APP_PRODUCT_NAMES = ["ZCode", "ZCode Dev", "ZCode Preview"] as const;
 
 function isProcessAlive(pid: number): boolean {
   try {
