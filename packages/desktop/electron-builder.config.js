@@ -75,6 +75,13 @@ const desktopProductIdentity = resolveDesktopProductIdentity({
   ...process.env,
   ZCODE_ENV: builtinProviderConfig.environment,
 });
+// TinyCode 形态换用 build/tinycode/ 的品牌图标资产（Frontend 定稿、PM 验收）；
+// 其他形态继续用 build/ 下的 ZCode 资产，行为不变。
+const isTinycodeFlavor = desktopProductIdentity.flavor === "tinycode";
+const appIconPngSource = isTinycodeFlavor
+  ? "build/tinycode/icon.iconset/icon_512x512@2x.png"
+  : "build/icon.png";
+const appIconIcnsSource = isTinycodeFlavor ? "build/tinycode/icon.icns" : "build/icon.icns";
 const nativeSearchReleasePlan = resolveNativeSearchReleasePlan({
   platform: targetPlatform.os,
   arch: targetPlatform.arch,
@@ -209,15 +216,15 @@ const commandStdoutMaxBuffer = 64 * 1024 * 1024;
 // 产物后缀只标记后端环境（_TEST）；身份靠 productName 区分，生产后端的 Preview 包没有后缀。
 const desktopArtifactEnvSuffix = resolveDesktopArtifactSuffix(process.env);
 
-// Preview 是内部签名测试包。CI 明确打开 macOS 签名时若没有身份，必须在生成未签名包前失败，
+// Preview / TinyCode 是签名分发包。CI 明确打开 macOS 签名时若没有身份，必须在生成未签名包前失败，
 // 避免“产物存在”被误认为已经走完和生产版相同的签名链路。
 if (
-  desktopProductIdentity.flavor === "preview" &&
+  desktopProductIdentity.flavor !== "production" &&
   process.env.ZCODE_ENABLE_MAC_SIGN === "1" &&
   !macSigningIdentity
 ) {
   throw new Error(
-    "ZCode Preview macOS packaging requires APPLE_SIGNING_IDENTITY or CSC_NAME when ZCODE_ENABLE_MAC_SIGN=1",
+    `${desktopProductIdentity.productName} macOS packaging requires APPLE_SIGNING_IDENTITY or CSC_NAME when ZCODE_ENABLE_MAC_SIGN=1`,
   );
 }
 
@@ -595,14 +602,16 @@ export default {
     },
     {
       // 应用图标：打包后放入 resources 目录，主进程通过 process.resourcesPath 加载
-      from: "build/icon.png",
+      from: appIconPngSource,
       to: "icon.png",
     },
     ...(targetPlatform.os === "linux"
       ? [
           {
             // AppImage 用户级 hicolor 图标安装使用真实 512x512 资源，避免目录标称尺寸和 PNG IHDR 不一致。
-            from: "build/icons/512x512.png",
+            from: isTinycodeFlavor
+              ? "build/tinycode/icon.iconset/icon_512x512.png"
+              : "build/icons/512x512.png",
             to: "icon_512x512.png",
           },
         ]
@@ -661,6 +670,8 @@ export default {
     target: ["dmg", "zip"],
     category: "public.app-category.developer-tools",
     artifactName: buildDesktopArtifactName("mac"),
+    // 应用图标跟随产品形态（默认 build/icon.icns；显式写出便于 TinyCode 分支一眼对上）。
+    icon: appIconIcnsSource,
     extendInfo: {
       NSAppleEventsUsageDescription: `${desktopProductIdentity.productName} needs Apple Events access to coordinate local automation workflows with user-approved desktop apps.`,
     },
@@ -735,10 +746,10 @@ export default {
     // 丢失 Electron Framework 主二进制，安装后启动直接报 DYLD Library missing。
     // 显式放大 DMG 容量，避免拷贝截断导致的“Framework 目录存在但核心文件缺失”。
     size: "3200m",
-    // 使用自定义安装背景图。
+    // 使用自定义安装背景图（两形态共用中性安装引导图，无品牌字样；TinyCode 专属背景待 Frontend 出资产）。
     background: "build/dmg_background.png",
-    // 安装盘图标统一使用安装专用素材，避免复用应用图标导致安装识别度不足。
-    icon: "build/icon_installer.icns",
+    // 安装盘图标：TinyCode 无独立安装器素材，使用其应用 icns；ZCode 继续用安装专用素材。
+    icon: isTinycodeFlavor ? "build/tinycode/icon.icns" : "build/icon_installer.icns",
     contents: [
       // 实验性调整：为隐藏资源文件显式指定图标坐标，尽量把它们移到角落区域。
       { x: 640, y: 56, type: "file", path: ".background.tiff" },
