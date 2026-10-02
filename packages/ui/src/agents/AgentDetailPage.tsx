@@ -251,7 +251,7 @@ export function AgentDetailPage({ bindingId }: { bindingId: string }) {
           </div>
         </dl>
         <AgentMemoryPanel bindingId={item.bindingId} />
-        <AgentManageSection bindingId={item.bindingId} />
+        <AgentManageSection bindingId={item.bindingId} homeKind={item.homeKind} />
         <AgentHomeSessionView
           bindingId={item.bindingId}
           mainSessionId={item.mainSessionId}

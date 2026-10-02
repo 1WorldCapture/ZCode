@@ -10,6 +10,7 @@
  */
 import { useState } from "react";
 import { Eraser, RotateCcw, Trash2 } from "lucide-react";
+import type { RaftAgentListItem } from "@/agents/types.js";
 import { Button } from "@/components/ui/button.js";
 import { toast } from "@/components/ui/toast.js";
 import {
@@ -33,11 +34,22 @@ import { useRaftAgentsService } from "@/agents/useAgentCenterSync.js";
 
 type ManageAction = "restart" | "reset" | "remove";
 
-export function AgentManageSection({ bindingId }: { bindingId: string }) {
+export function AgentManageSection({
+  bindingId,
+  homeKind,
+}: {
+  bindingId: string;
+  homeKind?: RaftAgentListItem["homeKind"];
+}) {
   const { intl } = useZCodeIntl();
   const service = useRaftAgentsService();
   const [pending, setPending] = useState<ManageAction | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Home 归属由 host 随投影下发（grokbot 定案：UI 只读不自算）。只有 default 归属
+  // 才随删除清掉 Home；custom 与 unknown-home（含旧 host 未下发字段）一律保留——
+  // custom 目录可能与其它应用共用，宁可留下目录不可误删。
+  const deleteHome = homeKind === "default";
 
   if (!service) {
     return null;
@@ -55,7 +67,7 @@ export function AgentManageSection({ bindingId }: { bindingId: string }) {
       } else if (action === "reset") {
         if (await resetAgent(service, bindingId)) setPending(null);
       } else {
-        const result = await removeAgent(service, bindingId);
+        const result = await removeAgent(service, bindingId, { deleteHome });
         if (!result.ok) return;
         setPending(null);
         // Home 处置四态如实提示（e3479b5 定稿）；failed 可能已部分删除，detail 只进日志。
@@ -124,6 +136,7 @@ export function AgentManageSection({ bindingId }: { bindingId: string }) {
       <ConfirmDialog
         action={pending}
         busy={busy}
+        deleteHome={deleteHome}
         onCancel={close}
         onConfirm={() => pending && void run(pending)}
       />
@@ -134,11 +147,13 @@ export function AgentManageSection({ bindingId }: { bindingId: string }) {
 function ConfirmDialog({
   action,
   busy,
+  deleteHome,
   onCancel,
   onConfirm,
 }: {
   action: ManageAction | null;
   busy: boolean;
+  deleteHome: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -159,7 +174,10 @@ function ConfirmDialog({
               </AlertDialogTitle>
               <AlertDialogDescription>
                 {intl.formatMessage({
-                  id: `agentCenter.manage.${action}.confirmDescription`,
+                  id:
+                    action === "remove" && !deleteHome
+                      ? "agentCenter.manage.remove.confirmDescriptionKeepHome"
+                      : `agentCenter.manage.${action}.confirmDescription`,
                 })}
               </AlertDialogDescription>
             </AlertDialogHeader>

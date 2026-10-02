@@ -113,11 +113,16 @@ export type AgentHomeOutcome = Awaited<ReturnType<IRaftAgentsService["removeBind
 export async function removeAgent(
   service: IRaftAgentsService,
   bindingId: string,
+  options: { deleteHome?: boolean } = {},
 ): Promise<{ ok: true; home: AgentHomeOutcome } | { ok: false }> {
   const store = useAgentCenterStore.getState();
   store.setActionFailed(false);
   try {
-    const home = await service.removeBinding(bindingId, { deleteHome: true });
+    // deleteHome stays opt-out-able: custom/unknown-home bindings keep their
+    // Home directory (the UI passes homeKind from the list projection).
+    const home = await service.removeBinding(bindingId, {
+      deleteHome: options.deleteHome ?? true,
+    });
     await refreshAgents(service);
     return { ok: true, home };
   } catch (error) {
