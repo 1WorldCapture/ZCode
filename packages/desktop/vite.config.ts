@@ -7,7 +7,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { resolveZCodeEndpointOrigin, pickProductEndpointEnv } from "@zcode/shared/zcodeEndpoint";
 import { pdfJsCMapsPlugin } from "../ui/vite/pdfJsCMapsPlugin.js";
 import { getBuildMetadata } from "./scripts/build-metadata.mjs";
-import { isRaftBuildRequested, resolveDesktopProductFlavor } from "./scripts/desktop-product-identity.mjs";
+import { isRaftBuildRequested, resolveDesktopProductFlavor, resolveDesktopProductIdentity } from "./scripts/desktop-product-identity.mjs";
 
 const buildMetadata = getBuildMetadata();
 const desktopRequire = createRequire(import.meta.url);
@@ -161,8 +161,22 @@ export default defineConfig(({ mode }) => {
   });
   const codingPlanWebviewOrigin =
     env.VITE_CODING_PLAN_WEBVIEW_ORIGIN ?? process.env.VITE_CODING_PLAN_WEBVIEW_ORIGIN ?? "";
+  // 静态 html 里的品牌标题按形态烧录（主窗口标题、CUA 权限浮窗应用名），
+  // 否则 TinyCode 的窗口/任务栏会显示 "ZCode"（grokbot 七条第 6 条品牌替换范围）。
+  const flavorProductName = resolveDesktopProductIdentity(env).productName;
+  const flavorHtmlBrandPlugin: Plugin = {
+    name: "zcode-flavor-html-brand",
+    transformIndexHtml: {
+      order: "pre",
+      handler: (html) =>
+        html
+          .replace("<title>ZCode</title>", `<title>${flavorProductName}</title>`)
+          .replaceAll("ZCode Computer Use", `${flavorProductName} Computer Use`),
+    },
+  };
   const plugins = [
     ...(e2eCoverageEnabled ? [createE2EUIRendererCoveragePlugin(repoRoot)] : []),
+    flavorHtmlBrandPlugin,
     pdfJsCMapsPlugin(),
     react(),
     tailwindcss(),
