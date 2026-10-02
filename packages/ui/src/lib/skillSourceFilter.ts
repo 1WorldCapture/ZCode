@@ -2,11 +2,26 @@ import { ZCODE_DATA_ROOT_NAME, type ZCodeProvider } from "@zcode/shared";
 
 type SkillSourceType = "glm" | "unknown";
 
-function resolveSkillSourceType(skillPath: string): SkillSourceType {
-  const normalized = skillPath.replaceAll("\\", "/").toLowerCase();
-  // User data root comes from the shared constant so TinyCode (.tinycode)
-  // and ZCode (.zcode) builds both classify skill paths correctly.
-  const dataRoot = `/${ZCODE_DATA_ROOT_NAME.toLowerCase()}/`;
+/**
+ * Classify a skill entry as ours ("glm") or not ("unknown").
+ *
+ * `scope` is assigned by the service layer (SkillScope: workspace/user/plugin):
+ * - workspace-scoped skills live in project dirs whose `.zcode/` name stays
+ *   fixed across flavors, and plugin skills live in the CLI plugin cache;
+ *   both are trusted without path inspection.
+ * - user-scoped skills (and legacy payloads without a scope) must live under
+ *   THIS flavor's data root, so another flavor's user directory (e.g.
+ *   `~/.zcode/skills` under a TinyCode build) is never adopted.
+ */
+export function resolveSkillSourceType(
+  skill: { path: string; scope?: string },
+  dataRootName: string = ZCODE_DATA_ROOT_NAME,
+): SkillSourceType {
+  if (skill.scope === "workspace" || skill.scope === "plugin") {
+    return "glm";
+  }
+  const normalized = skill.path.replaceAll("\\", "/").toLowerCase();
+  const dataRoot = `/${dataRootName.toLowerCase()}/`;
   if (normalized.includes(`${dataRoot}skills/`)) {
     return "glm";
   }
@@ -20,11 +35,9 @@ const SKILL_ID_PROVIDER_RE = /^glm:/;
 
 function isZcodeSkill(skill: { id?: string; path: string; scope?: string }): boolean {
   return (
-    // plugin skill 的真实路径在 CLI plugin cache 下，不在 `.zcode/skills`。
-    // 服务层已用 scope 标记来源，前端过滤时要放行，否则 `/` 和 `$` 面板会漏掉插件技能。
-    skill.scope === "plugin" ||
+    // id-prefix escape hatch keeps legacy payloads without scope working.
     (typeof skill.id === "string" && SKILL_ID_PROVIDER_RE.test(skill.id)) ||
-    resolveSkillSourceType(skill.path) === "glm"
+    resolveSkillSourceType(skill) === "glm"
   );
 }
 
