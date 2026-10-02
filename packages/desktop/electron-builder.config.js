@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Electron Builder config keeps related packaging hooks together so build order stays explicit. */
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -93,6 +93,33 @@ const shouldEnableMacSigning =
   process.env.ZCODE_ENABLE_MAC_SIGN === "1" && Boolean(macSigningIdentity);
 const workspaceRoot = resolve(import.meta.dirname, "../..");
 const desktopPackageRoot = import.meta.dirname;
+// TinyCode 许可与来源身份（PM 决定⑤，author 字样为 PM 原话）：author/homepage/maintainer
+// 换 fork 身份；email 用 GitHub noreply 地址（fork 无独立域名邮箱，避免伪造可投递域名）。
+const tinycodeAuthorName = "1WorldCapture (TinyCode maintainer), based on ZCode by Z.AI";
+const tinycodeAuthorEmail = "1WorldCapture@users.noreply.github.com";
+const tinycodeHomepage = "https://github.com/1WorldCapture/ZCode";
+// TinyCode 版 NOTICE：根 NOTICE.md 原文不动，仅在开头前置声明段，构建时生成到
+// build/tinycode/generated/（不入库），避免整份复制 27KB 后与上游漂移。
+const tinycodeGeneratedNoticeFrom = "build/tinycode/generated/NOTICE.md";
+if (isTinycodeFlavor) {
+  const tinycodeNoticeDeclaration = [
+    "# TinyCode 相关功能说明与第三方组件声明",
+    "",
+    "TinyCode（Copyright 2026 1WorldCapture，Apache-2.0）由 1WorldCapture 维护，基于 Z.AI 的 ZCode 修改而成。",
+    "本产品非 Z.AI 官方产品，Z.AI 不为本修改版提供支持或背书。",
+    "TinyCode is derived from ZCode by Z.AI (Apache-2.0) and maintained by 1WorldCapture.",
+    "It is not an official Z.AI product and is not endorsed by Z.AI.",
+    "",
+    "---",
+    "",
+    "以下为上游 ZCode 的原声明（原文保留，未做修改）：",
+    "",
+  ].join("\n");
+  const rootNotice = readFileSync(resolve(workspaceRoot, "NOTICE.md"), "utf8");
+  const generatedNoticePath = resolve(desktopPackageRoot, tinycodeGeneratedNoticeFrom);
+  mkdirSync(dirname(generatedNoticePath), { recursive: true });
+  writeFileSync(generatedNoticePath, `${tinycodeNoticeDeclaration}\n${rootNotice}`);
+}
 const runtimeModuleLookupRoots = [
   desktopPackageRoot,
   workspaceRoot,
@@ -466,11 +493,17 @@ export default {
   extraMetadata: {
     version: buildMetadata.appVersion,
     zcodeProductFlavor: desktopProductIdentity.flavor,
-    homepage: "https://zcode.z.ai",
-    author: {
-      name: "ZCode",
-      email: "dev@zcode.z.ai",
-    },
+    // TinyCode 用 fork 身份（PM 决定⑤）；ZCode 两形态保持原值不变。
+    homepage: isTinycodeFlavor ? tinycodeHomepage : "https://zcode.z.ai",
+    author: isTinycodeFlavor
+      ? {
+          name: tinycodeAuthorName,
+          email: tinycodeAuthorEmail,
+        }
+      : {
+          name: "ZCode",
+          email: "dev@zcode.z.ai",
+        },
   },
   // macOS 签名阶段会对 Electron Framework 下每个语言包逐个 codesign。
   // 默认全量语言会产生大量 locale.pak 签名调用，显著拉长打包时长。
@@ -577,6 +610,16 @@ export default {
   },
   extraResources: [
     { from: resolve(workspaceRoot, noticesFileName), to: noticesFileName },
+    // 许可与来源文件随包（Apache-2.0 分发要求携带 LICENSE 与 NOTICE；两形态都带，
+    // TinyCode 的 NOTICE 为上文生成版、另附相对上游的变更清单 CHANGES-TINYCODE.md）。
+    { from: resolve(workspaceRoot, "LICENSE"), to: "LICENSE" },
+    {
+      from: isTinycodeFlavor ? tinycodeGeneratedNoticeFrom : resolve(workspaceRoot, "NOTICE.md"),
+      to: "NOTICE.md",
+    },
+    ...(isTinycodeFlavor
+      ? [{ from: resolve(workspaceRoot, "CHANGES-TINYCODE.md"), to: "CHANGES-TINYCODE.md" }]
+      : []),
     ...(targetPlatform.os === "darwin"
       ? [
           {
@@ -714,7 +757,9 @@ export default {
     // 与 /usr/share/icons/hicolor/*/apps/zcode.png 保持一致。
     executableName: desktopProductIdentity.linuxExecutableName,
     category: "Development",
-    maintainer: "ZCode <dev@zcode.z.ai>",
+    maintainer: isTinycodeFlavor
+      ? `${tinycodeAuthorName} <${tinycodeAuthorEmail}>`
+      : "ZCode <dev@zcode.z.ai>",
   },
   deb: {
     // 生产版与 Preview 必须是两个 dpkg package；只改可执行名仍会让安装器把另一版本当成升级替换。
