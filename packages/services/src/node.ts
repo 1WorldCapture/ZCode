@@ -130,6 +130,26 @@ export {
   type RaftHostStack,
 } from "./raft-agents/compose.js";
 export { raftAgentsModule } from "./raft-agents/module.js";
+// TinyCode 首启存量导入（task #28：PM 决定③ + grokbot 九条；desktop main 弹确认框消费）。
+export {
+  LEGACY_ZCODE_DATA_ROOT_NAME,
+  createLegacyWatchProbeFor,
+  probeLegacyWatchHeld,
+} from "./raft-agents/adapters/legacyWatchProbe.js";
+export {
+  createLegacyZCodeImporter,
+  writeLegacyImportDeclinedMarker,
+  type LegacyImportBindingPreview,
+  type LegacyImportDetection,
+  type LegacyImportPreview,
+  type LegacyImportResult,
+  type LegacyImportSkipReason,
+  type LegacyZCodeImporterOptions,
+} from "./raft-agents/adapters/legacyImport.js";
+export {
+  LegacyImportError,
+  type LegacyImportErrorCode,
+} from "./raft-agents/adapters/legacyImportCopy.js";
 export { createFileWatcherService } from "./fileWatcher/fileWatcherService.js";
 export { createOAuthService } from "./oauth/oauthService.js";
 export { createOAuthProviderLogoutHandler } from "./oauth/oauthProviderLogout.js";

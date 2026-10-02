@@ -51,6 +51,7 @@ export type RaftWatchStartOutcome =
         | "MemoryUnavailable"
         | "CliUnavailable"
         | "McpUnavailable"
+        | "LegacyWatchHeld"
         | "SessionResumeFailed"
         | "BridgeStartFailed";
       detail?: string;
@@ -65,6 +66,12 @@ export interface RaftWatchRuntimeOptions {
   cli: Pick<RaftCliPort, "resolve">;
   /** 记忆门（T5）；未注入时跳过该步——宿主接线必须补上（顺序红线）。 */
   memory?: RaftMemoryGatePort;
+  /**
+   * 双消费保险之三（grokbot 复核第 3 条）：并排身份（TinyCode）启动绑定前只读探测
+   * 旧产品侧值守锁，存活值守即 ErrorPaused(legacy_watch_held) 拒绝启动。同产品形态
+   * 由组合根注入 undefined。
+   */
+  legacyWatchProbe?: { isWatchHeld: (bindingId: string) => Promise<boolean> };
   /**
    * 官方宿主 MCP 具名引用（与 provisioning 同一来源，env 按 binding 派生）：
    * resume 冷恢复必须重发，缺了重建的 runtime 没有 Raft 工具。
@@ -160,6 +167,7 @@ export function createRaftWatchRuntime(options: RaftWatchRuntimeOptions): RaftWa
       {
         cli: options.cli,
         memory: options.memory,
+        legacyWatchProbe: options.legacyWatchProbe,
         store: options.store,
         resolveOfficialMcpServers: options.resolveOfficialMcpServers,
         activity: options.activity,

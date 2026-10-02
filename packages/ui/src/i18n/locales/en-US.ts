@@ -25,6 +25,7 @@ const enUS: Record<string, string> = {
   "agentCenter.reason.cli_unavailable": "Raft CLI unavailable",
   "agentCenter.reason.mcp_unavailable": "Raft tools component unavailable",
   "agentCenter.reason.session_unavailable": "Main session failed to resume",
+  "agentCenter.reason.legacy_watch_held": "ZCode is watching the same agent; watch paused here",
   "agentCenter.unavailable": "Connecting Raft Agents isn't supported in this environment",
   "agentCenter.loadFailed": "Couldn't load the Agent list",
   "agentCenter.refreshFailed": "Refresh failed; what's shown may be out of date",

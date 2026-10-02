@@ -63,6 +63,8 @@ export function formatErrorPauseReason(
       return formatMessage({ id: "agentCenter.reason.mcp_unavailable" });
     case "session_unavailable":
       return formatMessage({ id: "agentCenter.reason.session_unavailable" });
+    case "legacy_watch_held":
+      return formatMessage({ id: "agentCenter.reason.legacy_watch_held" });
   }
 }
 

@@ -70,6 +70,7 @@ import {
   ZCODE_ENV,
   ZCODE_PRODUCT_DISPLAY_NAMES,
   ZCODE_PRODUCT_FLAVOR,
+  ZCODE_DATA_ROOT_NAME,
   ZCODE_RAFT_BUILD,
   DEFAULT_ZCODE_ENDPOINT_ORIGIN,
   DEFAULT_LOCALE,
@@ -107,6 +108,7 @@ import {
 import { BroadcastHub } from "./broadcastHub.js";
 import { TaskRealtimeBus } from "./taskRealtimeBus.js";
 import { createAppLaunchGate } from "./appLaunchGate.js";
+import { maybeOfferLegacyZCodeImport } from "./legacyZCodeImportOffer.js";
 import { createAppLaunchCoordinator } from "./appLaunchCoordinator.js";
 import { createAppTelemetryRuntime } from "./appTelemetryRuntime.js";
 import { createRendererActionTraceBroker } from "./rendererActionTraceBroker.js";
@@ -2290,6 +2292,11 @@ app.whenReady().then(async () => {
   if (forceUpdateGuardResult.blocked) {
     return;
   }
+
+  // TinyCode 首启：检测 ZCode 存量绑定并弹一次导入确认（PM 决定③ + grokbot 三道保险
+  // 之一）。必须在首个 Host 进程创建之前完成——导入的 desiredState=Running 绑定要靠
+  // Host 启动恢复链自动值守（验收 D8）；非 TinyCode 形态此函数直接返回。
+  await maybeOfferLegacyZCodeImport({ locale: currentApplicationLocale, logger });
 
   logger.info("[startup] 创建主窗口");
   await primaryWindowCoordinator.ensurePrimaryWindow("app-ready");

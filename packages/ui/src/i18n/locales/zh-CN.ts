@@ -25,6 +25,7 @@ const zhCN: Record<string, string> = {
   "agentCenter.reason.cli_unavailable": "Raft CLI 不可用",
   "agentCenter.reason.mcp_unavailable": "Raft 工具组件不可用",
   "agentCenter.reason.session_unavailable": "主会话恢复失败",
+  "agentCenter.reason.legacy_watch_held": "ZCode 正在值守同一 Agent，已暂停本侧值守",
   "agentCenter.unavailable": "当前环境不支持接入 Raft Agent",
   "agentCenter.loadFailed": "无法加载 Agent 列表",
   "agentCenter.refreshFailed": "刷新失败，显示的可能不是最新状态",

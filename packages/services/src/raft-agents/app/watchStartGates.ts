@@ -1,8 +1,9 @@
 /**
- * 值守启动前置门（spec §3 顺序红线，自 watchRuntime 抽出）：CLI 就绪 → MEMORY 门
- * （T5 verifyMemoryAvailable）→ 官方 MCP 引用解析（fail-closed）。任一失败即返回
- * 失败（调用方按 reason 置 ErrorPaused 呈现原因，评审线程 b51caf5c），全程不碰
- * bridge——MEMORY 门与 MCP 未过之前绝不启动 bridge，顺序不能反。
+ * 值守启动前置门（spec §3 顺序红线，自 watchRuntime 抽出）：CLI 就绪 → 绑定在档
+ * →（并排身份时）旧产品值守锁探测 → MEMORY 门（T5 verifyMemoryAvailable）→ 官方
+ * MCP 引用解析（fail-closed）。任一失败即返回失败（调用方按 reason 置 ErrorPaused
+ * 呈现原因，评审线程 b51caf5c），全程不碰 bridge——MEMORY 门与 MCP 未过之前绝不
+ * 启动 bridge，顺序不能反。
  */
 import type { RaftAgentBinding, ZCodeOfficialMcpServerRef } from "@zcode/shared";
 
@@ -19,9 +20,9 @@ export type RaftMemoryGatePort = Pick<AgentHomePort, "verifyMemoryAvailable">;
 export type RaftStartGateFailure =
   | { code: "BindingNotFound" }
   | {
-      code: "CliUnavailable" | "MemoryUnavailable" | "McpUnavailable";
-      /** ErrorPaused 的呈现原因（cli_unavailable / memory_unavailable / mcp_unavailable）。 */
-      reason: "cli_unavailable" | "memory_unavailable" | "mcp_unavailable";
+      code: "CliUnavailable" | "MemoryUnavailable" | "McpUnavailable" | "LegacyWatchHeld";
+      /** ErrorPaused 的呈现原因（cli_unavailable / memory_unavailable / mcp_unavailable / legacy_watch_held）。 */
+      reason: "cli_unavailable" | "memory_unavailable" | "mcp_unavailable" | "legacy_watch_held";
       detail?: string;
     };
 
@@ -39,6 +40,12 @@ export interface RaftStartGateDeps {
   /** 记忆门（T5）；未注入时跳过该步——宿主接线必须补上（顺序红线）。 */
   memory?: RaftMemoryGatePort;
   store: RaftBindingStorePort;
+  /**
+   * 双消费保险之三（grokbot 复核第 3 条）：并排身份（TinyCode）启动任何绑定前，
+   * 只读探测旧产品（~/.zcode）侧同一 bindingId 的值守锁——存活值守即拒绝启动。
+   * 未注入（同产品形态）跳过；探测异常 fail-open 记日志（源根缺失是常态）。
+   */
+  legacyWatchProbe?: { isWatchHeld: (bindingId: string) => Promise<boolean> };
   /**
    * 官方宿主 MCP 具名引用（与 provisioning 同一来源，env 按 binding 派生）：
    * resume 冷恢复必须重发，缺了重建的 runtime 没有 Raft 工具。
@@ -68,6 +75,35 @@ export async function runWatchStartGates(deps: RaftStartGateDeps, bindingId: str
   const binding = (await deps.store.readAll()).find((b) => b.bindingId === bindingId);
   if (!binding) {
     return { ok: false, failure: { code: "BindingNotFound" } };
+  }
+
+  // 双消费保险之三：旧产品侧存活值守（同 bindingId 持锁）即拒绝启动——两边同时
+  // 值守会争抢收件箱。fail-open 只限探测本身异常（旧根不存在是全新机器常态）。
+  if (deps.legacyWatchProbe) {
+    let held = false;
+    try {
+      held = await deps.legacyWatchProbe.isWatchHeld(bindingId);
+    } catch (error) {
+      deps.logger?.warn(undefined, "raft legacy watch probe failed (fail-open)", {
+        bindingId,
+        error: String(error),
+      });
+    }
+    if (held) {
+      deps.activity?.record(bindingId, "error");
+      deps.logger?.warn(undefined, "raft watch start blocked: legacy product is watching the same binding", {
+        bindingId,
+        displayName: binding.displayName,
+      });
+      return {
+        ok: false,
+        failure: {
+          code: "LegacyWatchHeld",
+          reason: "legacy_watch_held",
+          detail: binding.displayName,
+        },
+      };
+    }
   }
 
   // MEMORY 门（spec §3：先完成记忆校验再启动 bridge，顺序不能反）。

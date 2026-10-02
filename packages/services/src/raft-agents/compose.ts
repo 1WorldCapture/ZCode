@@ -28,6 +28,7 @@ import { createAgentHomeAdapter } from "./adapters/agentHome.js";
 import { createRaftBindingStore } from "./adapters/bindingStore.js";
 import { createBridgeSupervisor } from "./adapters/bridgeSupervisor.js";
 import { createRaftCliAdapter } from "./adapters/raftCli.js";
+import { createLegacyWatchProbeFor } from "./adapters/legacyWatchProbe.js";
 import { createRaftProfilesCatalog, resolveSlockHome } from "./adapters/profilesCatalog.js";
 import { createWakeServer } from "./adapters/wakeServer.js";
 
@@ -184,6 +185,9 @@ export function createDefaultRaftHostStack(options: {
     supervisor,
     cli,
     memory,
+    // 双消费保险之三：并排身份（TinyCode 构建编译期数据根 ≠ ".zcode"）注入旧侧
+    // 只读锁探测；同产品形态（ZCode 自身）返回 undefined，门直接跳过。
+    legacyWatchProbe: createLegacyWatchProbeFor(dataRootDir),
     resolveOfficialMcpServers,
     activity,
     feed,

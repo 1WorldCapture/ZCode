@@ -160,6 +160,9 @@ export const raftAgentRunStateSchema = z.union([
         // 不置值会一直投影成 Starting，用户看不到原因（评审 e04a5ee 线程 b51caf5c）。
         "mcp_unavailable",
         "session_unavailable",
+        // 双消费保险之三（TinyCode 并排身份）：旧产品（ZCode）侧同一绑定仍在值守
+        // （存活 pid 持锁），本产品拒绝启动值守（枚举追加，旧读取方容忍新值）。
+        "legacy_watch_held",
       ]),
     })
     .strict(),
