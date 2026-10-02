@@ -80,7 +80,9 @@ A	apps/zcode-cli/packages/raft-agent-tools/tsconfig.json
 M	apps/zcode-cli/packages/telemetry/package.json
 M	apps/zcode-cli/packages/telemetry/src/bootstrap.ts
 M	architecture-policy.yaml
+M	package.json
 M	packages/client/src/remoteServiceAccess.ts
+A	packages/desktop/.gitignore
 A	packages/desktop/build/tinycode/README.md
 A	packages/desktop/build/tinycode/dmg_background.png
 A	packages/desktop/build/tinycode/dmg_background@2x.png
@@ -104,8 +106,10 @@ M	packages/desktop/scripts/desktop-product-identity.mjs
 A	packages/desktop/scripts/desktop-product-identity.test.mjs
 M	packages/desktop/scripts/prepare-agent-node-bundle.mjs
 M	packages/desktop/src/main/about.ts
+M	packages/desktop/src/main/aboutWindow.ts
 M	packages/desktop/src/main/desktopApplicationMenu.ts
 M	packages/desktop/src/main/desktopChromiumHardwareAccelerationBootstrap.ts
+M	packages/desktop/src/main/desktopCommandHandlers.ts
 M	packages/desktop/src/main/desktopDataBaseDirBootstrap.ts
 M	packages/desktop/src/main/desktopRuntimeEnv.ts
 M	packages/desktop/src/main/exportLogs.ts
@@ -249,12 +253,15 @@ M	packages/ui/src/chat-input-toolbar/contextUsage.tsx
 M	packages/ui/src/i18n/IntlProvider.tsx
 M	packages/ui/src/i18n/locales/en-US.ts
 M	packages/ui/src/i18n/locales/zh-CN.ts
+M	packages/ui/src/lib/skillSourceFilter.ts
+M	packages/ui/src/onboarding/OnboardingDialog.tsx
 M	packages/ui/src/root/RootWorkspaceContent.tsx
 M	packages/ui/src/store/tabStore.ts
 A	packages/ui/test/agentCenterActions.test.ts
 A	packages/ui/test/agentConnectWizardModel.test.ts
 A	packages/ui/test/agentReadSequence.test.ts
 A	packages/ui/test/agentSessionViewLogic.test.ts
+A	packages/ui/test/skillSourceFilter.test.ts
 M	pnpm-lock.yaml
 M	scripts/build-desktop-agent-cli.mjs
 M	third-party/inventory.json
