@@ -746,8 +746,9 @@ export default {
     // 丢失 Electron Framework 主二进制，安装后启动直接报 DYLD Library missing。
     // 显式放大 DMG 容量，避免拷贝截断导致的“Framework 目录存在但核心文件缺失”。
     size: "3200m",
-    // 使用自定义安装背景图（两形态共用中性安装引导图，无品牌字样；TinyCode 专属背景待 Frontend 出资产）。
-    background: "build/dmg_background.png",
+    // 安装背景图：TinyCode 用专属背景（build/tinycode/ 下 @2x 同名文件自动配对 retina）；
+    // ZCode 两形态共用中性安装引导图（无品牌字样）。
+    background: isTinycodeFlavor ? "build/tinycode/dmg_background.png" : "build/dmg_background.png",
     // 安装盘图标：TinyCode 无独立安装器素材，使用其应用 icns；ZCode 继续用安装专用素材。
     icon: isTinycodeFlavor ? "build/tinycode/icon.icns" : "build/icon_installer.icns",
     contents: [

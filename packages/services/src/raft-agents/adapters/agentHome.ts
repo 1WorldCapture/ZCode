@@ -27,6 +27,7 @@ import type {
   MemoryVerifyResult,
 } from "../app/agentHomePorts.js";
 import { renderAgentsTemplate, renderMemoryTemplate } from "../domain/agentHomeTemplates.js";
+import { AGENT_HOME_OWNERSHIP_MARKER as HOME_OWNERSHIP_MARKER } from "./agentHomeKind.js";
 
 /** 独占创建文件；已存在返回 false，其余错误抛出。 */
 async function writeIfMissing(path: string, content: string): Promise<boolean> {
@@ -39,8 +40,8 @@ async function writeIfMissing(path: string, content: string): Promise<boolean> {
   }
 }
 
-/** 归属标记文件名（内容 = bindingId，独占创建于绑定时；删除整 Home 的所有权证明）。 */
-const HOME_OWNERSHIP_MARKER = ".zcode-agent-home";
+/** 归属标记文件名（内容 = bindingId，独占创建于绑定时；删除整 Home 的所有权证明）。
+ * 字面量的单一事实源在 agentHomeKind.ts（导入器/投影的分类函数共用）。 */
 
 /** 清记忆面三处（resetMemorySurface 与 deleteHome 的保留分支共用）；只在已解析目录内操作。 */
 async function clearMemorySurfaceAt(homeReal: string): Promise<void> {

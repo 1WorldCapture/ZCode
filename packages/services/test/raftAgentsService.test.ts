@@ -565,3 +565,76 @@ test("bindingsEmitter 注入：换会话路径的外部广播直达 onBindingsCh
     await rm(dataRoot, { recursive: true, force: true });
   }
 });
+
+test("list 投影 homeKind：结论随投影下发、按绑定缓存（轮询热路径不重复探测）", async () => {
+  const dataRoot = await mkdtemp(join(tmpdir(), "raft-agents-homekind-"));
+  try {
+    const store = createRaftBindingStore(dataRoot);
+    const bindingId = "11111111-2222-4333-8444-555555555555";
+    const homePath = join(dataRoot, "agents", bindingId, "workspace");
+    const binding: RaftAgentBinding = {
+      bindingId,
+      displayName: "ta-1",
+      raftOrigin: "https://raft.example.com",
+      serverId: "srv-1",
+      raftAgentId: AGENT_ID,
+      profileSlug: "raft-111111112222",
+      homeWorkspacePath: homePath,
+      mainSessionRef: null,
+      desiredState: "ReadyStopped",
+      autostartConsent: false,
+      adapterInstance: bindingId,
+      createdAt: "2026-09-01T00:00:00Z",
+      updatedAt: "2026-09-01T00:00:00Z",
+    };
+    await store.writeAll([binding]);
+
+    let calls = 0;
+    let nextKind: "default" | "custom" | "unknown-home" = "unknown-home";
+    const seenPaths: string[] = [];
+    const service = createRaftAgentsService({
+      cli: fakeCli({}),
+      store,
+      clock: fixedClock,
+      dataRootDir: dataRoot,
+      resolveHomeKind: async (input) => {
+        calls += 1;
+        assert.equal(input.bindingId, bindingId);
+        seenPaths.push(input.homeWorkspacePath);
+        return nextKind;
+      },
+    });
+
+    // unknown-home 可能来自瞬时读失败：不缓存，每次轮询都重试。
+    assert.equal((await service.list())[0].homeKind, "unknown-home");
+    assert.equal((await service.list())[0].homeKind, "unknown-home");
+    assert.equal(calls, 2);
+
+    // 恢复后得到确定结论并缓存：后续轮询零探测。
+    nextKind = "custom";
+    assert.equal((await service.list())[0].homeKind, "custom");
+    assert.equal(calls, 3);
+    await service.list();
+    await service.list();
+    assert.equal(calls, 3);
+
+    // Home 路径变化 → 缓存键不匹配 → 重新探测。
+    await store.writeAll([{ ...binding, homeWorkspacePath: join(dataRoot, "elsewhere") }]);
+    nextKind = "default";
+    assert.equal((await service.list())[0].homeKind, "default");
+    assert.equal(calls, 4);
+    assert.deepEqual(seenPaths, [homePath, homePath, homePath, join(dataRoot, "elsewhere")]);
+
+    // 未注入端口（旧装配形态）：投影不带 homeKind 字段。
+    const bare = createRaftAgentsService({
+      cli: fakeCli({}),
+      store,
+      clock: fixedClock,
+      dataRootDir: dataRoot,
+    });
+    const bareItems = await bare.list();
+    assert.equal("homeKind" in bareItems[0], false);
+  } finally {
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});

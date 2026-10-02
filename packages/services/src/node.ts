@@ -130,12 +130,18 @@ export {
   type RaftHostStack,
 } from "./raft-agents/compose.js";
 export { raftAgentsModule } from "./raft-agents/module.js";
-// TinyCode 首启存量导入（task #28：PM 决定③ + grokbot 九条；desktop main 弹确认框消费）。
+// TinyCode 首启存量导入（task #28：PM 决定③ + grokbot 九条/复核七条；desktop main 弹确认框消费）。
 export {
   LEGACY_ZCODE_DATA_ROOT_NAME,
   createLegacyWatchProbeFor,
   probeLegacyWatchHeld,
+  probeLegacyZCodeAppRunning,
 } from "./raft-agents/adapters/legacyWatchProbe.js";
+export {
+  AGENT_HOME_OWNERSHIP_MARKER,
+  resolveAgentHomeKind,
+  type AgentHomeKindResolution,
+} from "./raft-agents/adapters/agentHomeKind.js";
 export {
   createLegacyZCodeImporter,
   writeLegacyImportDeclinedMarker,
@@ -144,6 +150,7 @@ export {
   type LegacyImportPreview,
   type LegacyImportResult,
   type LegacyImportSkipReason,
+  type LegacyImportSkippedBinding,
   type LegacyZCodeImporterOptions,
 } from "./raft-agents/adapters/legacyImport.js";
 export {

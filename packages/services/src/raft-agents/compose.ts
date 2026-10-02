@@ -25,6 +25,7 @@ import { createRaftStoreWriteLock, type RaftStoreWriteLock } from "./app/storeLo
 import { createAgentHomeProvisioningStep } from "./app/agentHomeProvisioning.js";
 import { buildRaftAgentToolsMcpRef } from "./app/officialMcp.js";
 import { createAgentHomeAdapter } from "./adapters/agentHome.js";
+import { resolveAgentHomeKind } from "./adapters/agentHomeKind.js";
 import { createRaftBindingStore } from "./adapters/bindingStore.js";
 import { createBridgeSupervisor } from "./adapters/bridgeSupervisor.js";
 import { createRaftCliAdapter } from "./adapters/raftCli.js";
@@ -56,6 +57,8 @@ export function createDefaultRaftAgentsService(options: DefaultRaftAgentsService
     storeWriteLock: options.storeWriteLock,
     resolveRunState: options.resolveRunState,
     onDesiredStateChanged: options.onDesiredStateChanged,
+    // list 投影的 homeKind 结论源（app 层端口，实现在 adapters/agentHomeKind.ts）。
+    resolveHomeKind: async (input) => (await resolveAgentHomeKind(input)).kind,
     // 二期 A1 注入面：默认组合根也带上记忆/凭据枚举/活动（管理动作需要会话面，
     // 仅宿主栈装配；此处缺省不 wire management）。
     memory: createAgentHomeAdapter(),
@@ -220,6 +223,8 @@ export function createDefaultRaftHostStack(options: {
     provisioningSteps: [createAgentHomeProvisioningStep(memory)],
     storeWriteLock: lock,
     resolveRunState: runtime.resolveRunState,
+    // list 投影的 homeKind 结论源（app 层端口，实现在 adapters/agentHomeKind.ts）。
+    resolveHomeKind: async (input) => (await resolveAgentHomeKind(input)).kind,
     memory,
     profilesCatalog,
     management,

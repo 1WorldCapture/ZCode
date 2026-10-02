@@ -11,7 +11,11 @@ export type LegacyImportErrorCode =
   | "special-file-refused"
   | "legacy-stop-failed"
   | "verify-failed"
-  | "not-available";
+  | "not-available"
+  /** ZCode 桌面主进程仍在运行（SingletonLock 探测命中）——拒绝写/导入。 */
+  | "legacy-app-running"
+  /** 写前再探发现绑定值守锁重新出现（grokbot 复核 2）。 */
+  | "legacy-watch-held";
 
 export class LegacyImportError extends Error {
   readonly code: LegacyImportErrorCode;

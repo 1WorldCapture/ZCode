@@ -1,21 +1,26 @@
 /**
- * 存量 ZCode 绑定只读导入器（TinyCode 首启；task #28 PM 决定③ + grokbot 九条）。
+ * 存量 ZCode 绑定只读导入器（TinyCode 首启；task #28 PM 决定③ + grokbot 九条/复核七条）。
  *
  * 职责：把旧产品数据根（`~/.zcode`）下的 Raft 接入事实复制到本产品数据根
  * （编译期 ZCODE_DATA_ROOT_NAME，TinyCode 构建为 `~/.tinycode`）：
  * - `raft/bindings.json`（改写 homeWorkspacePath / 清 mainSessionRef / 按勾选定 desiredState）
  * - `raft/profiles/<slug>/`（凭据 + agent-comms-core，整目录，保权限）
- * - `raft/agents/<bindingId>/workspace`（默认位置 Agent Home：记忆 + 归属标记）
+ * - `raft/agents/<容器>/workspace`（默认位置 Agent Home：记忆 + 归属标记；**容器名是
+ *   预派发 UUID ≠ bindingId**，判定/复制/改写全部沿用原容器名——PM 修法四条）
  * - `raft/inbox-logs/<bindingId>/`（claim→落盘→ack 去重靠它，D8 语义）
  * 不迁：会话库（PM 决定②）、`raft/locks`（锁属进程实例）、账号登录态 credentials.json
  * （PM 决定：TinyCode 需重新登录）。
  *
- * 安全纪律（grokbot 九条 + PM 硬要求）：
+ * 安全纪律（grokbot 九条 + PM 硬要求 + 复核 1–5/7）：
  * - 源侧探测/读取全程只读；唯一允许的源侧写 = 用户勾选「同时停止 ZCode 侧值守」时
- *   改写这几个绑定的 desiredState（legacyImportStop.ts，先备份、原子写、校验、可还原）。
- * - 源侧值守中（locks 有存活 pid）拒绝导入（legacyWatchProbe.ts）。
- * - 复制拒绝符号链接与非常规文件；文件保 mode（credential.json 0600）（legacyImportCopy.ts）。
- * - 失败回滚只清本产品数据根内的半成品；源侧已做的停止写用备份还原。
+ *   改写这几个绑定的 desiredState（legacyImportStop.ts，写前再探、备份、原子写、
+ *   深比较校验、可还原）。
+ * - ZCode 主进程在运行（SingletonLock）或绑定值守中（存活 pid 持锁）→ 拒绝导入；
+ *   detect 面遇解析不了的锁同样按持有拒绝（启动门保持 fail-open）。
+ * - Home 归属不明（位置是默认形态但 `.zcode-agent-home` 缺失/不符）→ 预览标出并
+ *   拒绝导入该绑定（其余继续），绝不错配别人的 Home。
+ * - 复制拒绝符号链接与非常规文件；文件保 mode（credential.json 0600）。
+ * - 失败回滚只清本产品数据根内的半成品；源侧已做的停止写用备份逐字节还原。
  * - token/凭据内容永不进日志与错误信息：日志只带 bindingId / slug / 路径 / 计数。
  */
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -30,11 +35,16 @@ import { createRaftBindingStore } from "./bindingStore.js";
 import {
   LegacyImportError,
   copyTreeInto,
-  ensureTrackedDir,
   pathExists,
 } from "./legacyImportCopy.js";
+import {
+  buildPlan,
+  type ImportPlan,
+  type LegacyImportBindingPreview,
+  type LegacyImportSkippedBinding,
+} from "./legacyImportPlan.js";
 import { stopLegacyWatch } from "./legacyImportStop.js";
-import { probeLegacyWatchHeld } from "./legacyWatchProbe.js";
+import { probeLegacyWatchHeld, probeLegacyZCodeAppRunning } from "./legacyWatchProbe.js";
 
 /** 与 profilesCatalog 同口径的 slug 白名单（天然排除路径分隔与 `..`）。 */
 const PROFILE_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -47,23 +57,20 @@ export type LegacyImportSkipReason =
   | "source-corrupt"
   | "invalid-binding"
   | "no-bindings"
+  | "legacy-app-running"
   | "legacy-watch-held"
+  | "all-unknown-home"
   | "already-declined";
 
-export interface LegacyImportBindingPreview {
-  bindingId: string;
-  displayName: string;
-  profileSlug: string;
-  desiredState: RaftAgentBinding["desiredState"];
-  /** default = 旧根 agents/<id>/workspace（随导入复制）；custom = 用户自选目录（保留原路径，不复制）。 */
-  homeKind: "default" | "custom";
-  homeWorkspacePath: string;
-}
+// 预览/跳过条目类型在 legacyImportPlan.ts（buildPlan 与本文件共用），此处转出口供
+// node.ts 与测试沿用单一 import 入口。
+export type { LegacyImportBindingPreview, LegacyImportSkippedBinding };
 
 export interface LegacyImportPreview {
   sourceRootDir: string;
   targetRootDir: string;
   bindings: LegacyImportBindingPreview[];
+  skipped: LegacyImportSkippedBinding[];
   /** 值守中（存活 pid 持锁）的 bindingId；非空时 detect 不给 available。 */
   heldBindingIds: string[];
 }
@@ -77,8 +84,16 @@ export interface LegacyImportResult {
   /** 用户勾选时已完成源侧停止写（备份在 backupPath）。 */
   stoppedInLegacy: boolean;
   backupPath?: string;
+  /** Home 归属不明而跳过的绑定（未导入、未写源侧）。 */
+  skippedHomeBindings: LegacyImportSkippedBinding[];
   /** 非致命问题（如 profile 目录缺失）：导入完成但该绑定凭据会显示待核验。 */
   warnings: string[];
+}
+
+/** 目标绑定存储的最小结构（createRaftBindingStore 满足；测试注入失败实现）。 */
+interface BindingStoreLike {
+  readAll(): Promise<RaftAgentBinding[]>;
+  writeAll(bindings: RaftAgentBinding[]): Promise<void>;
 }
 
 export interface LegacyZCodeImporterOptions {
@@ -89,6 +104,10 @@ export interface LegacyZCodeImporterOptions {
   logger?: ServiceLogger;
   /** 测试注入：时间戳。 */
   now?: () => Date;
+  /** ZCode 主进程探测；缺省真实探测（SingletonLock），测试注入 stub。 */
+  probeLegacyAppRunning?: () => Promise<boolean>;
+  /** 测试注入：目标绑定存储工厂。缺省 createRaftBindingStore。 */
+  createBindingStore?: (rootDir: string) => BindingStoreLike;
 }
 
 /** 目录锁形态下读取 bindings.json（与 bindingStore 同解析，但绝不触发损坏备份写）。 */
@@ -109,16 +128,7 @@ async function readBindingsFile(
   }
 }
 
-function legacyHomeDir(sourceRootDir: string, bindingId: string): string {
-  return join(sourceRootDir, "agents", bindingId, "workspace");
-}
-
-/** 复制单元清单 → 实际复制路径（失败回滚与 mkdir 都以它为界）。 */
-interface ImportPlan {
-  bindings: LegacyImportBindingPreview[];
-  profileDirs: string[];
-  inboxDirs: string[];
-}
+/** 复制单元清单 → 实际复制路径（失败回滚与 mkdir 都以它为界）。类型在 legacyImportPlan.ts。 */
 
 export function createLegacyZCodeImporter(options: LegacyZCodeImporterOptions) {
   const sourceRootDir = resolve(options.sourceRootDir);
@@ -126,25 +136,8 @@ export function createLegacyZCodeImporter(options: LegacyZCodeImporterOptions) {
   const logger = options.logger;
   const now = options.now ?? (() => new Date());
   const sourceBindingsPath = join(sourceRootDir, "raft", "bindings.json");
-
-  function planFrom(bindings: RaftAgentBinding[]): ImportPlan {
-    return {
-      bindings: bindings.map((binding) => {
-        const defaultHome = legacyHomeDir(sourceRootDir, binding.bindingId);
-        const homeKind = binding.homeWorkspacePath === defaultHome ? "default" : "custom";
-        return {
-          bindingId: binding.bindingId,
-          displayName: binding.displayName,
-          profileSlug: binding.profileSlug,
-          desiredState: binding.desiredState,
-          homeKind,
-          homeWorkspacePath: binding.homeWorkspacePath,
-        };
-      }),
-      profileDirs: bindings.map((binding) => binding.profileSlug),
-      inboxDirs: bindings.map((binding) => binding.bindingId),
-    };
-  }
+  const probeLegacyAppRunning = options.probeLegacyAppRunning ?? probeLegacyZCodeAppRunning;
+  const createBindingStore = options.createBindingStore ?? createRaftBindingStore;
 
   async function detect(): Promise<LegacyImportDetection> {
     if (sourceRootDir === targetRootDir) {
@@ -178,22 +171,35 @@ export function createLegacyZCodeImporter(options: LegacyZCodeImporterOptions) {
         };
       }
     }
+    // ZCode 主进程在运行 → 拒绝（内存态写回会覆盖停止值；D6 退避也会重新拉起 bridge）。
+    if (await probeLegacyAppRunning()) {
+      return { status: "not-available", reason: "legacy-app-running" };
+    }
     const heldBindingIds: string[] = [];
     for (const binding of bindings) {
-      if (await probeLegacyWatchHeld(sourceRootDir, binding.bindingId)) {
+      // detect 面 fail-closed：锁目录在但 owner 解析不了 → 按持有拒绝。
+      if (await probeLegacyWatchHeld(sourceRootDir, binding.bindingId, { unparsableAsHeld: true })) {
         heldBindingIds.push(binding.bindingId);
       }
     }
     if (heldBindingIds.length > 0) {
       return { status: "not-available", reason: "legacy-watch-held", detail: heldBindingIds.join(",") };
     }
-    const plan = planFrom(bindings);
+    const plan = await buildPlan(sourceRootDir, bindings);
+    if (plan.entries.length === 0 && plan.skipped.length > 0) {
+      return {
+        status: "not-available",
+        reason: "all-unknown-home",
+        detail: plan.skipped.map((s) => s.bindingId).join(","),
+      };
+    }
     return {
       status: "available",
       preview: {
         sourceRootDir,
         targetRootDir,
-        bindings: plan.bindings,
+        bindings: plan.entries.map((entry) => entry.preview),
+        skipped: plan.skipped,
         heldBindingIds,
       },
     };
@@ -211,7 +217,10 @@ export function createLegacyZCodeImporter(options: LegacyZCodeImporterOptions) {
     }
     const sourceRead = await readBindingsFile(sourceRootDir);
     if (!sourceRead.ok) throw new LegacyImportError("not-available", "source vanished mid-import");
-    const plan = planFrom(sourceRead.bindings);
+    const plan = await buildPlan(sourceRootDir, sourceRead.bindings);
+    if (plan.entries.length === 0) {
+      throw new LegacyImportError("not-available", "no importable bindings (home ownership unknown)");
+    }
     const warnings: string[] = [];
     const created: string[] = [];
     const targetReal = resolve(targetRootDir);
@@ -233,64 +242,67 @@ export function createLegacyZCodeImporter(options: LegacyZCodeImporterOptions) {
 
     try {
       // 1) profiles（缺目录：非致命，绑定凭据会显示待核验）。
-      for (const slug of plan.profileDirs) {
-        const src = join(sourceRootDir, "raft", "profiles", slug);
+      for (const entry of plan.entries) {
+        const src = join(sourceRootDir, "raft", "profiles", entry.binding.profileSlug);
         if (!(await pathExists(src))) {
-          warnings.push(`profile directory missing for slug ${slug}`);
-          continue;
-        }
-        await copyTreeInto(src, join(targetRootDir, "raft", "profiles", slug), targetRootDir, created);
-      }
-      // 2) 默认位置 Agent Home（custom Home 保留原绝对路径，不复制用户目录）。
-      for (const binding of plan.bindings) {
-        if (binding.homeKind !== "default") continue;
-        const src = legacyHomeDir(sourceRootDir, binding.bindingId);
-        if (!(await pathExists(src))) {
-          warnings.push(`agent home missing for ${binding.bindingId}`);
+          warnings.push(`profile directory missing for slug ${entry.binding.profileSlug}`);
           continue;
         }
         await copyTreeInto(
           src,
-          join(targetRootDir, "agents", binding.bindingId, "workspace"),
+          join(targetRootDir, "raft", "profiles", entry.binding.profileSlug),
+          targetRootDir,
+          created,
+        );
+      }
+      // 2) 默认位置 Agent Home（custom Home 保留原绝对路径，不复制用户目录）。
+      //    源与目标都沿用原容器名（UUID ≠ bindingId），与 ZCode 侧布局一一对应。
+      for (const entry of plan.entries) {
+        if (entry.home.kind !== "default") continue;
+        if (!(await pathExists(entry.home.sourceHomePath))) {
+          warnings.push(`agent home missing for ${entry.binding.bindingId}`);
+          continue;
+        }
+        await copyTreeInto(
+          entry.home.sourceHomePath,
+          join(targetRootDir, "agents", entry.home.containerDirName, "workspace"),
           targetRootDir,
           created,
         );
       }
       // 3) inbox-logs（缺 = 正常，全新绑定从未值守过）。
-      for (const bindingId of plan.inboxDirs) {
-        const src = join(sourceRootDir, "raft", "inbox-logs", bindingId);
+      for (const entry of plan.entries) {
+        const src = join(sourceRootDir, "raft", "inbox-logs", entry.binding.bindingId);
         if (!(await pathExists(src))) continue;
-        await copyTreeInto(src, join(targetRootDir, "raft", "inbox-logs", bindingId), targetRootDir, created);
+        await copyTreeInto(src, join(targetRootDir, "raft", "inbox-logs", entry.binding.bindingId), targetRootDir, created);
       }
 
-      // 4) 源侧停止写（勾选时；失败即整体回滚，含备份还原）。
+      // 4) 源侧停止写（勾选时；内部写前再探，失败即整体回滚，含备份还原）。
       if (input.stopLegacyBindings) {
         stopState = await stopLegacyWatch({
           sourceBindingsPath,
-          importedIds: new Set(plan.bindings.map((b) => b.bindingId)),
+          importedIds: new Set(plan.entries.map((entry) => entry.binding.bindingId)),
           now,
+          probeLegacyAppRunning,
         });
       }
 
       // 5) 提交：目标 bindings.json（原子 + 锁内，bindingStore 语义）。
       const updatedAt = now().toISOString();
-      const imported: RaftAgentBinding[] = sourceRead.bindings.map((binding) => {
-        const preview = plan.bindings.find((b) => b.bindingId === binding.bindingId)!;
-        return {
-          ...binding,
-          homeWorkspacePath:
-            preview.homeKind === "default"
-              ? join(targetRootDir, "agents", binding.bindingId, "workspace")
-              : binding.homeWorkspacePath,
-          // 会话不迁移（PM 决定②）：引用指向 ZCode 侧会话库，必须清空。
-          mainSessionRef: null,
-          // 勾选停止 → 保留原 desiredState（旧侧已停，无双消费；Running 导入即恢复值守）。
-          // 未勾选 → 一律置停止（grokbot 第 4 条：防两边同时值守）。
-          desiredState: input.stopLegacyBindings ? binding.desiredState : "ReadyStopped",
-          updatedAt,
-        };
-      });
-      const store = createRaftBindingStore(targetRootDir);
+      const imported: RaftAgentBinding[] = plan.entries.map((entry) => ({
+        ...entry.binding,
+        homeWorkspacePath:
+          entry.home.kind === "default"
+            ? join(targetRootDir, "agents", entry.home.containerDirName, "workspace")
+            : entry.binding.homeWorkspacePath,
+        // 会话不迁移（PM 决定②）：引用指向 ZCode 侧会话库，必须清空。
+        mainSessionRef: null,
+        // 勾选停止 → 保留原 desiredState（旧侧已停，无双消费；Running 导入即恢复值守）。
+        // 未勾选 → 一律置停止（grokbot 第 4 条：防两边同时值守）。
+        desiredState: input.stopLegacyBindings ? entry.binding.desiredState : "ReadyStopped",
+        updatedAt,
+      }));
+      const store = createBindingStore(targetRootDir);
       await store.writeAll(imported);
       created.push(join(targetRootDir, "raft", "bindings.json"));
 
@@ -301,6 +313,7 @@ export function createLegacyZCodeImporter(options: LegacyZCodeImporterOptions) {
       }
       logger?.info(undefined, "legacy zcode import completed", {
         importedCount: imported.length,
+        skippedHomeCount: plan.skipped.length,
         stoppedInLegacy: input.stopLegacyBindings,
         backupPath: stopState?.backupPath,
         warningCount: warnings.length,
@@ -309,6 +322,7 @@ export function createLegacyZCodeImporter(options: LegacyZCodeImporterOptions) {
         importedCount: imported.length,
         stoppedInLegacy: input.stopLegacyBindings,
         ...(stopState ? { backupPath: stopState.backupPath } : {}),
+        skippedHomeBindings: plan.skipped,
         warnings,
       };
     } catch (error) {
